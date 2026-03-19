@@ -4,7 +4,7 @@ uvicorn[standard]==0.38.0
 
 # Database
 sqlalchemy==2.0.44
-psycopg[binary]==3.2.10
+psycopg[binary]==3.3.3
 alembic==1.14.0
 
 # YouTube and media processing

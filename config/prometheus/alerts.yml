@@ -1,0 +1,236 @@
+groups:
+  - name: api_alerts
+    interval: 30s
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) 
+            / 
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High error rate detected"
+          description: "API error rate is {{ $value | humanizePercentage }} over the last 5 minutes (threshold: 5%)"
+
+      # Slow response time alert
+      - alert: SlowResponseTime
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, endpoint)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Slow API response time"
+          description: "95th percentile response time for {{ $labels.endpoint }} is {{ $value }}s (threshold: 1s)"
+
+      # API service down
+      - alert: APIServiceDown
+        expr: up{job="api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "API service is down"
+          description: "The API service has been down for more than 2 minutes"
+
+  - name: worker_alerts
+    interval: 30s
+    rules:
+      # No jobs completed in 1 hour
+      - alert: NoJobsCompleted
+        expr: |
+          rate(videos_processed_total{result="completed"}[1h]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "No jobs completed recently"
+          description: "No transcription jobs have completed in the last hour"
+
+      # Worker service down
+      - alert: WorkerServiceDown
+        expr: up{job="worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: worker
+        annotations:
+          summary: "Worker service is down"
+          description: "The worker service has been down for more than 2 minutes"
+
+      # High number of failed jobs
+      - alert: HighJobFailureRate
+        expr: |
+          (
+            sum(rate(videos_processed_total{result="failed"}[15m]))
+            /
+            sum(rate(videos_processed_total[15m]))
+          ) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "High job failure rate"
+          description: "Job failure rate is {{ $value | humanizePercentage }} over the last 15 minutes (threshold: 20%)"
+
+      # Jobs stuck in queue
+      - alert: JobsStuckInQueue
+        expr: videos_pending > 50
+        for: 30m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "Many jobs stuck in queue"
+          description: "{{ $value }} videos have been pending for more than 30 minutes"
+
+  - name: system_alerts
+    interval: 30s
+    rules:
+      # Disk space low (if node_exporter is added)
+      # - alert: LowDiskSpace
+      #   expr: |
+      #     (
+      #       node_filesystem_avail_bytes{mountpoint="/data"} 
+      #       / 
+      #       node_filesystem_size_bytes{mountpoint="/data"}
+      #     ) < 0.1
+      #   for: 5m
+      #   labels:
+      #     severity: warning
+      #     component: system
+      #   annotations:
+      #     summary: "Low disk space on /data volume"
+      #     description: "Only {{ $value | humanizePercentage }} disk space remaining on /data"
+
+      # Database connection errors
+      - alert: HighDatabaseErrors
+        expr: rate(db_errors_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High database error rate"
+          description: "Database error rate is {{ $value }} errors/second"
+
+  - name: business_alerts
+    interval: 1m
+    rules:
+      # Monitor export rate
+      - alert: UnusualExportActivity
+        expr: rate(exports_total[5m]) > 10
+        for: 10m
+        labels:
+          severity: info
+          component: business
+        annotations:
+          summary: "Unusual export activity detected"
+          description: "Export rate is {{ $value }} exports/second (typically <1/s)"
+
+  - name: backup_alerts
+    interval: 5m
+    rules:
+      # Backup too old - critical if daily backup hasn't run
+      # Threshold: 26 hours (24h + 2h buffer for scheduled 2 AM UTC backup)
+      - alert: BackupTooOld
+        expr: time() - backup_last_success_timestamp{type="database"} > 26 * 3600  # 26 hours
+        for: 5m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "Database backup is too old"
+          description: "Last successful database backup was {{ $value | humanizeDuration }} ago (threshold: 26 hours)"
+
+      # Backup failed
+      - alert: BackupFailed
+        expr: backup_last_status{type="database"} != 0
+        for: 5m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Database backup job failed"
+          description: "Last backup job exited with status {{ $value }} (non-zero indicates failure)"
+
+      # Backup size increased significantly (possible data anomaly or attack)
+      - alert: BackupSizeIncreaseSignificant
+        expr: |
+          (
+            backup_size_bytes{type="database"}
+            - backup_size_bytes{type="database"} offset 7d
+          ) / backup_size_bytes{type="database"} offset 7d > 0.5
+        for: 15m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Backup size increased significantly"
+          description: "Database backup size increased by {{ $value | humanizePercentage }} compared to last week"
+
+      # Backup size decreased significantly (possible data loss)
+      - alert: BackupSizeDecreaseSignificant
+        expr: |
+          (
+            backup_size_bytes{type="database"} offset 7d
+            - backup_size_bytes{type="database"}
+          ) / backup_size_bytes{type="database"} offset 7d > 0.3
+        for: 15m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Backup size decreased significantly"
+          description: "Database backup size decreased by {{ $value | humanizePercentage }} compared to last week"
+
+      # Backup storage low
+      - alert: BackupStorageLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/backups"}
+            / node_filesystem_size_bytes{mountpoint="/backups"}
+          ) < 0.1
+        for: 15m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Backup storage running low"
+          description: "Only {{ $value | humanizePercentage }} storage available on /backups volume"
+
+      # WAL archiving not active (no recent archives)
+      # Threshold: 2 hours - WAL archive_timeout is 5 minutes, allow time for idle systems
+      - alert: WALArchivingInactive
+        expr: time() - wal_last_archive_timestamp > 2 * 3600  # 2 hours (2 * 3600 seconds)
+        for: 10m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "WAL archiving appears inactive"
+          description: "No WAL archives created in the last {{ $value | humanizeDuration }} (system may be idle or archiving failed)"
+
+      # Backup verification failed
+      - alert: BackupVerificationFailed
+        expr: backup_verification_failures > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Backup verification failed"
+          description: "{{ $value }} backup(s) failed integrity verification"
+

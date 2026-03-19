@@ -1,0 +1,123 @@
+# Git files
+.git
+.github
+.gitignore
+.gitattributes
+
+# Python cache
+__pycache__
+*.py[codz]
+*$py.class
+*.so
+.Python
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+.pixi
+
+# IDE
+.vscode
+.idea
+
+# Testing and coverage
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+cover/
+*.cover
+
+# Data and cache directories
+data/
+cache/
+.cache
+
+# Frontend build artifacts
+frontend/node_modules
+frontend/dist
+frontend/dist-ssr
+frontend/.vite
+frontend/.eslintcache
+frontend/.tsbuildinfo
+
+# Documentation
+# Exclude all Markdown files except DEPENDENCIES.md.
+# Only DEPENDENCIES.md is needed in the image for automated dependency checks.
+*.md
+!DEPENDENCIES.md
+docs/
+
+# Tests (not needed in production image)
+tests/
+e2e/
+*.test.js
+*.spec.js
+*.test.py
+*.spec.py
+
+# OS files
+.DS_Store
+*.log
+*.log.*
+
+# Environment files
+.env
+.env.*
+.envrc
+
+# Pre-commit and config files
+.pre-commit-config.yaml
+.gitleaks.toml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*~
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# CI/CD and development tools
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+azure-pipelines.yml
+
+# Kubernetes and deployment configs (use specific copies if needed)
+k8s/
+charts/
+helm/
+
+# Backup and temporary working directories
+backups/
+*.sql
+*.sql.gz
+*.dump
+
+# Editor backup files
+*~
+*.bak
+*.orig
+
+# Large test/example files
+examples/
+openai_whisper-*.tar.gz
+*.tar.gz
+*.zip
+
+# Additional Python artifacts
+.hypothesis/
+.benchmarks/

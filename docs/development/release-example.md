@@ -116,19 +116,20 @@ Release Workflow
    │  │  ├─ BUILD_DATE=2025-10-29T19:00:00Z
    │  │  └─ VERSION=0.2.0
    │  └─ Tags:
-   │     ├─ ghcr.io/subculture-collective/transcript-create:v0.2.0
-   │     ├─ ghcr.io/subculture-collective/transcript-create:0.2.0
-   │     ├─ ghcr.io/subculture-collective/transcript-create:0.2
-   │     ├─ ghcr.io/subculture-collective/transcript-create:0
-   │     └─ ghcr.io/subculture-collective/transcript-create:latest
+  │     ├─ ghcr.io/onnwee/transcript-create:v0.2.0
+  │     ├─ ghcr.io/onnwee/transcript-create:0.2.0
+  │     ├─ ghcr.io/onnwee/transcript-create:0.2
+  │     ├─ ghcr.io/onnwee/transcript-create:0
+  │     └─ ghcr.io/onnwee/transcript-create:latest
    └─ Push to registry ✓
 ```
 
 ### 6. Verify Release
 
 **GitHub Release:**
+
 ```
-https://github.com/subculture-collective/transcript-create/releases/tag/v0.2.0
+https://github.com/PatrickFanella/transcript-create/releases/tag/v0.2.0
 
 Release v0.2.0
 
@@ -146,21 +147,23 @@ Release v0.2.0
 - update API authentication guide
 
 Docker Images:
-ghcr.io/subculture-collective/transcript-create:v0.2.0
-ghcr.io/subculture-collective/transcript-create:latest
+ghcr.io/onnwee/transcript-create:v0.2.0
+ghcr.io/onnwee/transcript-create:latest
 ```
 
 **Docker Images:**
+
 ```bash
-$ docker pull ghcr.io/subculture-collective/transcript-create:v0.2.0
-v0.2.0: Pulling from subculture-collective/transcript-create
+$ docker pull ghcr.io/onnwee/transcript-create:v0.2.0
+v0.2.0: Pulling from onnwee/transcript-create
 ✓ Downloaded
 
-$ docker run --rm ghcr.io/subculture-collective/transcript-create:v0.2.0 python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
+$ docker run --rm ghcr.io/onnwee/transcript-create:v0.2.0 python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
 0.2.0
 ```
 
 **Version Endpoint:**
+
 ```bash
 $ curl http://localhost:8000/version
 {
@@ -171,6 +174,7 @@ $ curl http://localhost:8000/version
 ```
 
 **API Logs:**
+
 ```
 2025-10-29T19:00:00.000Z INFO [api] API service started version=0.2.0 log_level=INFO
 ```
@@ -252,9 +256,10 @@ $ npm run release -- --prerelease beta
 ```
 
 **GitHub Release:**
+
 - Marked as "Pre-release" ⚠️
 - Does NOT update `latest` Docker tag
-- Available for testing: `ghcr.io/subculture-collective/transcript-create:v1.0.0-beta.1`
+- Available for testing: `ghcr.io/onnwee/transcript-create:v1.0.0-beta.1`
 
 ## Hotfix Example: v1.0.0 → v1.0.1
 

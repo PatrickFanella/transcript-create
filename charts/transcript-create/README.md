@@ -55,7 +55,7 @@ helm install transcript-create ./charts/transcript-create \
      domain: api.example.com
 
    image:
-     repository: ghcr.io/subculture-collective/transcript-create
+    repository: ghcr.io/onnwee/transcript-create
      tag: "1.0.0"
 
    api:
@@ -106,19 +106,19 @@ The chart includes three pre-configured values files:
 
 ### Key Configuration Options
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `global.environment` | Deployment environment | `production` |
-| `global.domain` | Base domain for ingress | `your-domain.com` |
-| `image.repository` | Docker image repository | `transcript-create` |
-| `image.tag` | Image tag | `latest` |
-| `api.replicaCount` | Number of API replicas | `3` |
-| `api.autoscaling.enabled` | Enable HPA for API | `true` |
-| `worker.replicaCount` | Number of worker replicas | `2` |
-| `worker.gpu.enabled` | Enable GPU for workers | `true` |
-| `worker.gpu.type` | GPU type (amd/nvidia) | `amd` |
-| `persistence.data.size` | Data PVC size | `500Gi` |
-| `secrets.existingSecret` | Name of existing secret | `transcript-secrets` |
+| Parameter                 | Description                   | Default             |
+| ------------------------- | ----------------------------- | ------------------- |
+| `global.environment`      | Deployment environment        | `production`        |
+| `global.domain`           | Base domain for ingress       | `your-domain.com`   |
+| `image.repository`        | Docker image repository       | `transcript-create` |
+| `image.tag`               | Image tag                     | `latest`            |
+| `api.replicaCount`        | Number of API replicas        | `3`                 |
+| `api.autoscaling.enabled` | Enable HPA for API            | `true`              |
+| `worker.replicaCount`     | Number of worker replicas     | `2`                 |
+| `worker.gpu.enabled`      | Enable GPU for workers        | `true`              |
+| `worker.gpu.type`         | GPU type (amd/nvidia)         | `amd`               |
+| `persistence.data.size`   | Data PVC size                 | `500Gi`             |
+| `secrets.existingSecret`  | Name of existing secret       | `transcript-secrets`|
 
 ### Full Configuration
 
@@ -421,8 +421,8 @@ helm install transcript-create charts/transcript-create \
 
 ## Support
 
-- GitHub Issues: <https://github.com/subculture-collective/transcript-create/issues>
-- Documentation: <https://github.com/subculture-collective/transcript-create/tree/main/docs/kubernetes>
+- GitHub Issues: <https://github.com/PatrickFanella/transcript-create/issues>
+- Documentation: <https://github.com/PatrickFanella/transcript-create/tree/main/docs/kubernetes>
 
 ## License
 

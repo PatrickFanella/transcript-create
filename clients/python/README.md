@@ -4,7 +4,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Official Python client library for the [Transcript Create API](https://github.com/subculture-collective/transcript-create). Create searchable, exportable transcripts from YouTube videos with Whisper transcription and optional speaker diarization.
+Official Python client library for the [Transcript Create API](https://github.com/PatrickFanella/transcript-create). Create searchable, exportable transcripts from YouTube videos with Whisper transcription and optional speaker diarization.
 
 ## Features
 
@@ -261,18 +261,18 @@ finally:
 async def process_videos(video_urls):
     async with TranscriptClient() as client:
         jobs = []
-        
+
         # Create all jobs
         for url in video_urls:
             job = await client.create_job(url=url)
             jobs.append(job)
-        
+
         # Wait for all completions
         completed = await asyncio.gather(
             *[client.wait_for_completion(job.id) for job in jobs],
             return_exceptions=True
         )
-        
+
         # Process results
         for job, result in zip(jobs, completed):
             if isinstance(result, Exception):
@@ -318,16 +318,18 @@ black transcript_create_client tests
 
 ## API Reference
 
-See the [main API documentation](https://github.com/subculture-collective/transcript-create#api-reference-selected) for complete endpoint details.
+See the [main API documentation](https://github.com/PatrickFanella/transcript-create#api-reference-selected) for complete endpoint details.
 
 ### Client Methods
 
 #### Jobs
+
 - `create_job(url, kind)` - Create transcription job
 - `get_job(job_id)` - Get job status
 - `wait_for_completion(job_id, timeout, poll_interval)` - Wait for job to complete
 
 #### Videos
+
 - `get_video(video_id)` - Get video information
 - `get_transcript(video_id, mode='raw')` - Get Whisper transcript
   - `mode='raw'` - Raw segments (default)
@@ -336,26 +338,28 @@ See the [main API documentation](https://github.com/subculture-collective/transc
 - `get_youtube_transcript(video_id)` - Get YouTube captions
 
 #### Search
+
 - `search(query, source, video_id, limit, offset)` - Search transcripts
 
 #### Exports
+
 - `export_srt(video_id, source)` - Export as SRT
 - `export_vtt(video_id, source)` - Export as VTT
 - `export_pdf(video_id)` - Export as PDF
 
 ## Contributing
 
-Contributions are welcome! Please see the [main contributing guide](https://github.com/subculture-collective/transcript-create/blob/main/CONTRIBUTING.md).
+Contributions are welcome! Please see the [main contributing guide](https://github.com/PatrickFanella/transcript-create/blob/main/CONTRIBUTING.md).
 
 ## License
 
-Apache License 2.0 - see [LICENSE](https://github.com/subculture-collective/transcript-create/blob/main/LICENSE)
+Apache License 2.0 - see [LICENSE](https://github.com/PatrickFanella/transcript-create/blob/main/LICENSE)
 
 ## Support
 
-- 📖 [Documentation](https://github.com/subculture-collective/transcript-create)
-- 🐛 [Issue Tracker](https://github.com/subculture-collective/transcript-create/issues)
-- 💬 [Discussions](https://github.com/subculture-collective/transcript-create/discussions)
+- 📖 [Documentation](https://github.com/PatrickFanella/transcript-create)
+- 🐛 [Issue Tracker](https://github.com/PatrickFanella/transcript-create/issues)
+- 💬 [Discussions](https://github.com/PatrickFanella/transcript-create/discussions)
 
 ## Related Projects
 

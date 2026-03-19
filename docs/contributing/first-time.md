@@ -62,7 +62,7 @@ We label beginner-friendly issues with `good first issue`. These are:
 - Have guidance and hints
 - Don't require deep knowledge of the codebase
 
-**Find them here**: [Good First Issues](https://github.com/subculture-collective/transcript-create/labels/good%20first%20issue)
+**Find them here**: [Good First Issues](https://github.com/PatrickFanella/transcript-create/labels/good%20first%20issue)
 
 ### Types of First Contributions
 
@@ -109,11 +109,11 @@ When you find an issue you want to work on:
 2. **Comment on the issue**
    ```
    Hi! I'd like to work on this issue. This would be my first contribution.
-   
+
    My approach would be:
    1. [Step 1]
    2. [Step 2]
-   
+
    Does this sound good?
    ```
 
@@ -128,7 +128,7 @@ When you find an issue you want to work on:
 
 ### 1. Fork the Repository
 
-On the [Transcript Create repository page](https://github.com/subculture-collective/transcript-create):
+On the [Transcript Create repository page](https://github.com/PatrickFanella/transcript-create):
 
 1. Click the "Fork" button in the top-right corner
 2. This creates a copy under your GitHub account
@@ -144,15 +144,15 @@ git clone https://github.com/YOUR_USERNAME/transcript-create.git
 cd transcript-create
 
 # Add the original repo as "upstream" (to sync later)
-git remote add upstream https://github.com/subculture-collective/transcript-create.git
+git remote add upstream https://github.com/PatrickFanella/transcript-create.git
 
 # Verify remotes
 git remote -v
 # Should show:
 # origin    https://github.com/YOUR_USERNAME/transcript-create.git (fetch)
 # origin    https://github.com/YOUR_USERNAME/transcript-create.git (push)
-# upstream  https://github.com/subculture-collective/transcript-create.git (fetch)
-# upstream  https://github.com/subculture-collective/transcript-create.git (push)
+# upstream  https://github.com/PatrickFanella/transcript-create.git (fetch)
+# upstream  https://github.com/PatrickFanella/transcript-create.git (push)
 ```
 
 ### 3. Install Dependencies
@@ -405,7 +405,7 @@ What happens next:
 
 1. **On your PR**: Comment directly if it's about your PR
 2. **On the issue**: Ask clarifying questions about the issue
-3. **Create a new issue**: For general questions, use the [question template](https://github.com/subculture-collective/transcript-create/issues/new/choose)
+3. **Create a new issue**: For general questions, use the [question template](https://github.com/PatrickFanella/transcript-create/issues/new/choose)
 
 ### What to Include
 
@@ -476,7 +476,7 @@ Tests don't work. Help?
 
 ### Recognition
 
-All contributors are recognized in [CONTRIBUTORS.md](../../CONTRIBUTORS.md). Your contributions, big or small, are valued!
+All contributors are recognized in [contributors.md](../contributors.md). Your contributions, big or small, are valued!
 
 ## Common Pitfalls to Avoid
 
@@ -529,8 +529,8 @@ git commit -m "fixed bug"
 - [How to Contribute to Open Source](https://opensource.guide/how-to-contribute/)
 
 ### Community
-- [GitHub Discussions](https://github.com/subculture-collective/transcript-create/discussions)
-- [Issues](https://github.com/subculture-collective/transcript-create/issues)
+- [GitHub Discussions](https://github.com/PatrickFanella/transcript-create/discussions)
+- [Issues](https://github.com/PatrickFanella/transcript-create/issues)
 
 ## Encouragement
 

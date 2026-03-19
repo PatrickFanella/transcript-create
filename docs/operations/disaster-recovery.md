@@ -147,7 +147,7 @@ Use this procedure to recover to a specific point in time using WAL archives.
      cat > /var/lib/postgresql/data/recovery.signal << EOF
    # PostgreSQL will enter recovery mode
    EOF
-     
+
      cat >> /var/lib/postgresql/data/postgresql.auto.conf << EOF
    restore_command = 'cp /backups/wal_archive/%f %p'
    recovery_target_time = '2024-10-26 01:30:00'
@@ -300,7 +300,7 @@ Use this procedure to restore media files from backup.
 
 2. **Clone repository:**
    ```bash
-   git clone https://github.com/subculture-collective/transcript-create.git
+   git clone https://github.com/PatrickFanella/transcript-create.git
    cd transcript-create
    ```
 
@@ -314,7 +314,7 @@ Use this procedure to restore media files from backup.
    ```bash
    # If using S3
    aws s3 cp s3://your-bucket/backups/postgres/latest.sql.gz /backups/
-   
+
    # If using GCS
    gsutil cp gs://your-bucket/backups/postgres/latest.sql.gz /backups/
    ```
@@ -637,5 +637,5 @@ lifecycle:
 
 ---
 
-**Last Updated:** 2024-10-26  
+**Last Updated:** 2024-10-26
 **Next Review:** 2025-01-26 (Quarterly)

@@ -684,7 +684,7 @@ If issues persist:
 1. **Check logs thoroughly**: Most issues are revealed in logs
 2. **Verify configuration**: Double-check environment variables
 3. **Test components individually**: Database, Redis, GPU, etc.
-4. **Search GitHub Issues**: [github.com/subculture-collective/transcript-create/issues](https://github.com/subculture-collective/transcript-create/issues)
+4. **Search GitHub Issues**: [github.com/PatrickFanella/transcript-create/issues](https://github.com/PatrickFanella/transcript-create/issues)
 5. **Ask for help**: Create a new issue with:
    - Deployment method (Docker Compose, K8s, cloud provider)
    - Full error messages and logs

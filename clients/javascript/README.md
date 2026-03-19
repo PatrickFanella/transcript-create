@@ -4,7 +4,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Official TypeScript/JavaScript client library for the [Transcript Create API](https://github.com/subculture-collective/transcript-create). Create searchable, exportable transcripts from YouTube videos with Whisper transcription and optional speaker diarization.
+Official TypeScript/JavaScript client library for the [Transcript Create API](https://github.com/PatrickFanella/transcript-create). Create searchable, exportable transcripts from YouTube videos with Whisper transcription and optional speaker diarization.
 
 ## Features
 
@@ -44,10 +44,7 @@ const client = new TranscriptClient({
 });
 
 // Create a transcription job
-const job = await client.createJob(
-  'https://youtube.com/watch?v=dQw4w9WgXcQ',
-  'single'
-);
+const job = await client.createJob('https://youtube.com/watch?v=dQw4w9WgXcQ', 'single');
 console.log(`Created job: ${job.id}`);
 
 // Wait for completion
@@ -69,16 +66,10 @@ for (const segment of transcript.segments) {
 
 ```typescript
 // Single video
-const job = await client.createJob(
-  'https://youtube.com/watch?v=VIDEO_ID',
-  'single'
-);
+const job = await client.createJob('https://youtube.com/watch?v=VIDEO_ID', 'single');
 
 // Entire channel
-const job = await client.createJob(
-  'https://youtube.com/@channel',
-  'channel'
-);
+const job = await client.createJob('https://youtube.com/@channel', 'channel');
 ```
 
 ### Checking Job Status
@@ -90,8 +81,8 @@ console.log(`State: ${job.state}`);
 
 // Wait for completion with polling
 const job = await client.waitForCompletion(jobId, {
-  timeout: 3600000,  // Maximum wait time in milliseconds
-  pollInterval: 5000  // Check every 5 seconds
+  timeout: 3600000, // Maximum wait time in milliseconds
+  pollInterval: 5000, // Check every 5 seconds
 });
 ```
 
@@ -115,8 +106,8 @@ console.log(`Stats: ${JSON.stringify(cleaned.stats)}`);
 
 // Get fully formatted transcript
 const formatted = await client.getTranscript(videoId, 'formatted');
-console.log(formatted.text);  // Formatted text with speaker labels
-console.log(`Format: ${formatted.format}`);  // inline/dialogue/structured
+console.log(formatted.text); // Formatted text with speaker labels
+console.log(`Format: ${formatted.format}`); // inline/dialogue/structured
 
 // Get YouTube captions
 const ytTranscript = await client.getYouTubeTranscript(videoId);
@@ -149,7 +140,7 @@ The `getTranscript` method supports three modes:
 const results = await client.search({
   query: 'machine learning',
   source: 'native',
-  limit: 50
+  limit: 50,
 });
 
 for (const hit of results.hits) {
@@ -162,7 +153,7 @@ for (const hit of results.hits) {
 const results = await client.search({
   query: 'python',
   source: 'youtube',
-  video_id: specificVideoId // Optional: limit to specific video
+  video_id: specificVideoId, // Optional: limit to specific video
 });
 ```
 
@@ -196,11 +187,11 @@ const pdfBlob = await client.exportPDF(videoId);
 ```typescript
 const client = new TranscriptClient({
   baseUrl: 'https://api.example.com',
-  apiKey: 'your-api-key',  // Optional: if authentication required
-  timeout: 30000,  // Request timeout in milliseconds
-  maxRetries: 3,  // Maximum retry attempts
-  retryDelay: 1000,  // Initial retry delay in milliseconds
-  rateLimit: 10,  // Max requests per second
+  apiKey: 'your-api-key', // Optional: if authentication required
+  timeout: 30000, // Request timeout in milliseconds
+  maxRetries: 3, // Maximum retry attempts
+  retryDelay: 1000, // Initial retry delay in milliseconds
+  rateLimit: 10, // Max requests per second
 });
 ```
 
@@ -249,22 +240,18 @@ try {
 ```typescript
 async function processVideos(videoUrls: string[]) {
   const client = new TranscriptClient();
-  
+
   // Create all jobs
-  const jobs = await Promise.all(
-    videoUrls.map(url => client.createJob(url))
-  );
-  
+  const jobs = await Promise.all(videoUrls.map((url) => client.createJob(url)));
+
   // Wait for all completions
-  const completed = await Promise.allSettled(
-    jobs.map(job => client.waitForCompletion(job.id))
-  );
-  
+  const completed = await Promise.allSettled(jobs.map((job) => client.waitForCompletion(job.id)));
+
   // Process results
   for (let i = 0; i < completed.length; i++) {
     const result = completed[i];
     const job = jobs[i];
-    
+
     if (result.status === 'fulfilled') {
       console.log(`Job ${job.id} completed`);
     } else {
@@ -292,11 +279,11 @@ The SDK works in modern browsers with ES modules:
 ```html
 <script type="module">
   import { TranscriptClient } from 'https://cdn.skypack.dev/@transcript-create/sdk';
-  
+
   const client = new TranscriptClient({
-    baseUrl: 'https://api.example.com'
+    baseUrl: 'https://api.example.com',
   });
-  
+
   // Use the client...
 </script>
 ```
@@ -351,16 +338,18 @@ npm run format
 
 ## API Reference
 
-See the [main API documentation](https://github.com/subculture-collective/transcript-create#api-reference-selected) for complete endpoint details.
+See the [main API documentation](https://github.com/PatrickFanella/transcript-create#api-reference-selected) for complete endpoint details.
 
 ### Client Methods
 
 #### Jobs
+
 - `createJob(url, kind)` - Create transcription job
 - `getJob(jobId)` - Get job status
 - `waitForCompletion(jobId, options)` - Wait for job to complete
 
 #### Videos
+
 - `getVideo(videoId)` - Get video information
 - `getTranscript(videoId, mode?)` - Get Whisper transcript
   - `mode: 'raw'` - Raw segments (default)
@@ -369,9 +358,11 @@ See the [main API documentation](https://github.com/subculture-collective/transc
 - `getYouTubeTranscript(videoId)` - Get YouTube captions
 
 #### Search
+
 - `search(options)` - Search transcripts
 
 #### Exports
+
 - `exportSRT(videoId, source)` - Export as SRT
 - `exportVTT(videoId, source)` - Export as VTT
 - `exportPDF(videoId)` - Export as PDF
@@ -386,7 +377,7 @@ import type {
   TranscriptResponse,
   CleanedTranscriptResponse,
   FormattedTranscriptResponse,
-  SearchResponse
+  SearchResponse,
 } from '@transcript-create/sdk';
 
 const job: Job = await client.createJob(url, 'single');
@@ -398,17 +389,17 @@ const results: SearchResponse = await client.search({ query: 'test' });
 
 ## Contributing
 
-Contributions are welcome! Please see the [main contributing guide](https://github.com/subculture-collective/transcript-create/blob/main/CONTRIBUTING.md).
+Contributions are welcome! Please see the [main contributing guide](https://github.com/PatrickFanella/transcript-create/blob/main/CONTRIBUTING.md).
 
 ## License
 
-Apache License 2.0 - see [LICENSE](https://github.com/subculture-collective/transcript-create/blob/main/LICENSE)
+Apache License 2.0 - see [LICENSE](https://github.com/PatrickFanella/transcript-create/blob/main/LICENSE)
 
 ## Support
 
-- 📖 [Documentation](https://github.com/subculture-collective/transcript-create)
-- 🐛 [Issue Tracker](https://github.com/subculture-collective/transcript-create/issues)
-- 💬 [Discussions](https://github.com/subculture-collective/transcript-create/discussions)
+- 📖 [Documentation](https://github.com/PatrickFanella/transcript-create)
+- 🐛 [Issue Tracker](https://github.com/PatrickFanella/transcript-create/issues)
+- 💬 [Discussions](https://github.com/PatrickFanella/transcript-create/discussions)
 
 ## Related Projects
 

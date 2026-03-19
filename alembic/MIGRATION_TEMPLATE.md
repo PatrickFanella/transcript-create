@@ -27,7 +27,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Apply schema changes.
-    
+
     Describe what this migration does and why.
     Note any special deployment considerations.
     """
@@ -36,7 +36,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Revert schema changes.
-    
+
     Describe what this rollback does.
     Note if there's potential for data loss.
     """
@@ -103,7 +103,7 @@ def upgrade() -> None:
     """Add processing_priority column to jobs table with default value."""
     # Add column with default - existing rows get default value
     op.execute("""
-        ALTER TABLE jobs 
+        ALTER TABLE jobs
         ADD COLUMN IF NOT EXISTS processing_priority INT NOT NULL DEFAULT 100
     """)
 
@@ -151,15 +151,15 @@ def upgrade() -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
     """)
-    
+
     # Add indexes
     op.execute("""
-        CREATE INDEX IF NOT EXISTS video_metadata_video_id_idx 
+        CREATE INDEX IF NOT EXISTS video_metadata_video_id_idx
         ON video_metadata(video_id)
     """)
-    
+
     op.execute("""
-        CREATE INDEX IF NOT EXISTS video_metadata_channel_id_idx 
+        CREATE INDEX IF NOT EXISTS video_metadata_channel_id_idx
         ON video_metadata(channel_id)
     """)
 
@@ -196,7 +196,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Add index on videos.created_at."""
     op.execute("""
-        CREATE INDEX IF NOT EXISTS videos_created_at_idx 
+        CREATE INDEX IF NOT EXISTS videos_created_at_idx
         ON videos(created_at DESC)
     """)
 
@@ -240,14 +240,14 @@ def upgrade() -> None:
     """Add concurrent index on segments for video lookups."""
     # Get connection to run outside transaction
     connection = op.get_bind()
-    
+
     # CREATE INDEX CONCURRENTLY cannot run inside a transaction
     # Commit any open transaction
     connection.execute("COMMIT")
-    
+
     # Create index concurrently
     connection.execute("""
-        CREATE INDEX CONCURRENTLY IF NOT EXISTS segments_video_lookup_idx 
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS segments_video_lookup_idx
         ON segments(video_id, created_at DESC)
     """)
 
@@ -288,7 +288,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove 'archived' value from job_state enum.
-    
+
     WARNING: Cannot remove enum values in PostgreSQL without recreating the type.
     This downgrade will fail if any rows use 'archived' state.
     """
@@ -298,16 +298,16 @@ def downgrade() -> None:
         DECLARE
             archived_count INTEGER;
         BEGIN
-            SELECT COUNT(*) INTO archived_count 
-            FROM jobs 
+            SELECT COUNT(*) INTO archived_count
+            FROM jobs
             WHERE state = 'archived';
-            
+
             IF archived_count > 0 THEN
                 RAISE EXCEPTION 'Cannot downgrade: % jobs in archived state', archived_count;
             END IF;
         END $$;
     """)
-    
+
     # Note: Actually removing the enum value requires recreating the type
     # For simplicity, we just verify no data uses it
     # In a real rollback, you might migrate 'archived' -> 'completed' first
@@ -339,35 +339,35 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Backfill youtube_video_id from youtube_id in batches."""
     connection = op.get_bind()
-    
+
     # Process in batches of 1000 to avoid long-running transactions
     batch_size = 1000
     total_updated = 0
-    
+
     while True:
         result = connection.execute(
             text("""
                 UPDATE videos
                 SET youtube_video_id = youtube_id
                 WHERE id IN (
-                    SELECT id 
-                    FROM videos 
-                    WHERE youtube_video_id IS NULL 
+                    SELECT id
+                    FROM videos
+                    WHERE youtube_video_id IS NULL
                     AND youtube_id IS NOT NULL
                     LIMIT :batch_size
                 )
             """),
             {"batch_size": batch_size}
         )
-        
+
         rows_updated = result.rowcount
         total_updated += rows_updated
-        
+
         if rows_updated == 0:
             break
-        
+
         print(f"Backfilled {total_updated} rows...")
-    
+
     print(f"Backfill complete: {total_updated} total rows updated")
 
 
@@ -411,23 +411,23 @@ def upgrade() -> None:
         BEGIN
             SELECT COUNT(*) INTO duplicate_count
             FROM (
-                SELECT email, COUNT(*) 
-                FROM users 
+                SELECT email, COUNT(*)
+                FROM users
                 WHERE email IS NOT NULL
-                GROUP BY email 
+                GROUP BY email
                 HAVING COUNT(*) > 1
             ) dups;
-            
+
             IF duplicate_count > 0 THEN
                 RAISE EXCEPTION 'Cannot add unique constraint: % duplicate emails found', duplicate_count;
             END IF;
         END $$;
     """)
-    
+
     # Add unique constraint
     op.execute("""
-        ALTER TABLE users 
-        ADD CONSTRAINT users_email_unique 
+        ALTER TABLE users
+        ADD CONSTRAINT users_email_unique
         UNIQUE (email)
     """)
 
@@ -470,11 +470,11 @@ def upgrade() -> None:
         END;
         $$ LANGUAGE plpgsql;
     """)
-    
+
     # Create the trigger
     op.execute("""
         DROP TRIGGER IF EXISTS videos_updated_at_trigger ON videos;
-        
+
         CREATE TRIGGER videos_updated_at_trigger
         BEFORE UPDATE ON videos
         FOR EACH ROW
@@ -486,7 +486,7 @@ def downgrade() -> None:
     """Remove trigger and function for videos.updated_at."""
     # Drop trigger
     op.execute("DROP TRIGGER IF EXISTS videos_updated_at_trigger ON videos")
-    
+
     # Drop function
     op.execute("DROP FUNCTION IF EXISTS update_videos_updated_at()")
 ```
@@ -512,7 +512,7 @@ op.execute("CREATE INDEX idx_videos_thumbnail ON videos(thumbnail_url)")
 ```python
 def upgrade() -> None:
     """Add caching table for video metadata.
-    
+
     This table stores cached metadata from YouTube API to reduce API calls.
     Cache entries expire after 24 hours (handled in application code).
     """
@@ -632,5 +632,5 @@ def downgrade() -> None:
 
 - [Alembic Documentation](https://alembic.sqlalchemy.org/)
 - [PostgreSQL ALTER TABLE](https://www.postgresql.org/docs/current/sql-altertable.html)
-- [Production Migration Guide](../docs/PRODUCTION_MIGRATIONS.md)
+- [Production Migration Guide](../docs/production-migrations.md)
 - [Contributing Guidelines](../CONTRIBUTING.md#database-migrations)

@@ -258,7 +258,7 @@ rocm-smi
 ```bash
 sudo -u transcript bash <<'EOF'
 cd /opt/transcript
-git clone https://github.com/subculture-collective/transcript-create.git app
+git clone https://github.com/PatrickFanella/transcript-create.git app
 cd app
 EOF
 ```
@@ -522,7 +522,7 @@ server {
     # SSL certificates (configured by certbot)
     ssl_certificate /etc/letsencrypt/live/api.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
-    
+
     # SSL configuration
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
@@ -557,11 +557,11 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
+
         proxy_connect_timeout 60s;
         proxy_send_timeout 60s;
         proxy_read_timeout 300s;
-        
+
         proxy_buffering off;
         proxy_request_buffering off;
         proxy_http_version 1.1;

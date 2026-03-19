@@ -580,30 +580,30 @@ class TestBasicNormalization:
         """Test Example 1: Whitespace normalization"""
         input_text = "Hello  world   test\u00A0string"
         expected = "Hello world test string"
-        
+
         config = CleanupConfig(
             normalize_whitespace=True,
             add_punctuation=False
         )
-        
+
         segments = [{"text": input_text, "start_ms": 0, "end_ms": 1000}]
         result = apply_cleanup(segments, config)
-        
+
         assert result[0]["text_cleaned"] == expected
-    
+
     def test_special_token_removal(self):
         """Test Example 2: Special token removal"""
         input_text = "[MUSIC] Welcome to the show [APPLAUSE] Let's get started"
         expected = "Welcome to the show Let's get started"
-        
+
         config = CleanupConfig(
             remove_special_tokens=True,
             add_punctuation=False
         )
-        
+
         segments = [{"text": input_text, "start_ms": 0, "end_ms": 1000}]
         result = apply_cleanup(segments, config)
-        
+
         assert "[MUSIC]" not in result[0]["text_cleaned"]
         assert "[APPLAUSE]" not in result[0]["text_cleaned"]
 
@@ -613,29 +613,29 @@ class TestPunctuationRestoration:
         """Test Example 4: Add sentence-ending punctuation"""
         input_text = "hello everyone and welcome to the show"
         expected = "hello everyone and welcome to the show."
-        
+
         config = CleanupConfig(
             add_punctuation=True,
             capitalize=False
         )
-        
+
         segments = [{"text": input_text, "start_ms": 0, "end_ms": 1000}]
         result = apply_cleanup(segments, config)
-        
+
         assert result[0]["text_cleaned"].endswith(".")
-    
+
     def test_question_detection(self):
         """Test Example 5: Question detection"""
         input_text = "what time is it"
-        
+
         config = CleanupConfig(
             add_punctuation=True,
             capitalize=True
         )
-        
+
         segments = [{"text": input_text, "start_ms": 0, "end_ms": 1000}]
         result = apply_cleanup(segments, config)
-        
+
         assert result[0]["text_cleaned"].endswith("?")
         assert result[0]["text_cleaned"][0].isupper()
 
@@ -650,15 +650,15 @@ class TestFillerRemoval:
     def test_filler_removal_levels(self, level, expected_has_filler):
         """Test Example 8: Filler removal at different levels"""
         input_text = "um hello everyone"
-        
+
         config = CleanupConfig(
             remove_fillers=True,
             filler_level=level
         )
-        
+
         segments = [{"text": input_text, "start_ms": 0, "end_ms": 1000}]
         result = apply_cleanup(segments, config)
-        
+
         has_filler = "um" in result[0]["text_cleaned"].lower()
         assert has_filler == expected_has_filler
 
@@ -672,10 +672,10 @@ class TestSegmentation:
             {"text": "Thanks for watching", "start_ms": 12000, "end_ms": 14000},
             {"text": "Thanks for watching", "start_ms": 14000, "end_ms": 16000},
         ]
-        
+
         config = CleanupConfig(detect_hallucinations=True)
         result = apply_cleanup(segments, config)
-        
+
         # Last two should be marked as hallucinations
         assert result[-1].get("likely_hallucination", False) == True
         assert result[-2].get("likely_hallucination", False) == True
@@ -694,25 +694,25 @@ async def test_cleanup_api_with_fixture(client: AsyncClient, db_session):
     """Test cleanup API using fixture data"""
     # Load fixture
     fixture = load_fixture("youtube_tech_talk")
-    
+
     # Create video and segments in database
     video_id = await create_test_video(db_session, fixture["raw_segments"])
-    
+
     # Call cleanup API
     response = await client.get(
         f"/videos/{video_id}/transcript?format=cleaned&profile=standard"
     )
-    
+
     assert response.status_code == 200
     data = response.json()
-    
+
     # Verify cleanup was applied
     assert len(data["segments"]) == len(fixture["expected_cleaned_level_1"])
-    
+
     # Verify specific transformations
     for actual, expected in zip(data["segments"], fixture["expected_cleaned_level_1"]):
         assert actual["text_cleaned"] == expected["text_cleaned"]
-    
+
     # Verify stats
     assert data["stats"]["fillers_removed"] == fixture["expected_stats"]["fillers_removed"]
 ```

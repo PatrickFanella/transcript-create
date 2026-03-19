@@ -62,7 +62,7 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at:
 
 * **Email**: <security@subculture.community>
-* **GitHub**: [Report via Security Advisories](https://github.com/subculture-collective/transcript-create/security/advisories/new)
+* **GitHub**: [Report via Security Advisories](https://github.com/PatrickFanella/transcript-create/security/advisories/new)
 
 All complaints will be reviewed and investigated promptly and fairly.
 

@@ -7,7 +7,7 @@ This document describes the health check endpoints implemented for the Transcrip
 The API provides four health check endpoints with different purposes:
 
 | Endpoint | Purpose | Response Time | Checks Dependencies |
-|----------|---------|---------------|---------------------|
+| --- | --- | --- | --- |
 | `/health` | Basic health check | < 100ms | No |
 | `/live` | Kubernetes liveness probe | < 100ms | No |
 | `/ready` | Kubernetes readiness probe | < 5s | Yes (critical only) |
@@ -424,7 +424,7 @@ WORKDIR="/data"
 ### Default Values
 
 | Setting | Default | Description |
-|---------|---------|-------------|
+| --- | --- | --- |
 | `HEALTH_CHECK_TIMEOUT` | 5.0 | Maximum time for health checks (seconds) |
 | `HEALTH_CHECK_WORKER_STALE_SECONDS` | 300 | Worker heartbeat stale threshold (seconds) |
 | `HEALTH_CHECK_DISK_MIN_FREE_GB` | 10.0 | Minimum required free disk space (GB) |
@@ -439,9 +439,9 @@ The health check endpoints expose metrics for monitoring:
 
 ### `health_check_status`
 
-**Type:** Gauge  
-**Labels:** `component`  
-**Values:** 1 = healthy, 0 = unhealthy  
+**Type:** Gauge
+**Labels:** `component`
+**Values:** 1 = healthy, 0 = unhealthy
 
 ```
 health_check_status{component="database"} 1
@@ -452,8 +452,8 @@ health_check_status{component="worker"} 1
 
 ### `health_check_duration_seconds`
 
-**Type:** Histogram  
-**Labels:** `component`  
+**Type:** Histogram
+**Labels:** `component`
 **Description:** Duration of health checks in seconds
 
 ```
@@ -465,8 +465,8 @@ health_check_duration_seconds_count{component="database"} 50
 
 ### `health_check_total`
 
-**Type:** Counter  
-**Labels:** `component`, `status`  
+**Type:** Counter
+**Labels:** `component`, `status`
 **Description:** Total number of health checks performed
 
 ```
@@ -695,13 +695,13 @@ ab -n 100 -c 5 http://localhost:8000/health/detailed
 
 ## Success Criteria
 
-✅ Health checks respond in < 5 seconds  
-✅ Accurate status reporting for all components  
-✅ Integrated with Prometheus monitoring  
-✅ Works with Kubernetes liveness/readiness probes  
-✅ Configurable critical components  
-✅ Worker heartbeat mechanism active  
-✅ Comprehensive test coverage (25 tests)  
+✅ Health checks respond in < 5 seconds
+✅ Accurate status reporting for all components
+✅ Integrated with Prometheus monitoring
+✅ Works with Kubernetes liveness/readiness probes
+✅ Configurable critical components
+✅ Worker heartbeat mechanism active
+✅ Comprehensive test coverage (25 tests)
 
 ---
 
@@ -713,6 +713,6 @@ See the interactive API documentation at `/docs` for complete request/response s
 
 ## Related Documentation
 
-- [Prometheus Metrics](./IMPLEMENTATION_SUMMARY_MONITORING.md)
+- [Prometheus Metrics](./monitoring.md)
 - [Kubernetes Deployment Guide](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
-- [Production Deployment](./docs/deployment.md)
+- [Production Deployment](./deployment/README.md)

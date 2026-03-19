@@ -70,7 +70,7 @@ You'll need to set up or have access to:
 
 ```bash
 # Clone the repository
-git clone https://github.com/subculture-collective/transcript-create.git
+git clone https://github.com/PatrickFanella/transcript-create.git
 cd transcript-create
 ```
 
@@ -708,5 +708,5 @@ EOF
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/subculture-collective/transcript-create/issues
-- Documentation: https://github.com/subculture-collective/transcript-create/tree/main/docs
+- GitHub Issues: https://github.com/PatrickFanella/transcript-create/issues
+- Documentation: https://github.com/PatrickFanella/transcript-create/tree/main/docs

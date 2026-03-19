@@ -24,7 +24,7 @@ config/
 
 ## Monitoring Stack
 
-See [docs/MONITORING.md](../docs/MONITORING.md) for comprehensive monitoring documentation.
+See [docs/monitoring.md](../docs/monitoring.md) for comprehensive monitoring documentation.
 
 ### Quick Start
 
@@ -126,4 +126,4 @@ For production deployments:
 3. Add TLS/HTTPS reverse proxy
 4. Configure Alertmanager for notifications
 
-See [docs/MONITORING.md](../docs/MONITORING.md) for details.
+See [docs/monitoring.md](../docs/monitoring.md) for details.

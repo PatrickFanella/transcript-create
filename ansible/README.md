@@ -188,7 +188,7 @@ Application deployment and configuration.
 
 **Variables:**
 ```yaml
-app_repo_url: "https://github.com/subculture-collective/transcript-create.git"
+app_repo_url: "https://github.com/PatrickFanella/transcript-create.git"
 app_version: "main"
 app_install_dir: "/opt/transcript-create"
 ```
@@ -290,7 +290,7 @@ ansible/
    ```bash
    # Encrypt file
    ansible-vault encrypt group_vars/production.yml
-   
+
    # Run playbook with vault
    ansible-playbook -i inventory.yml site.yml --ask-vault-pass
    ```
@@ -413,10 +413,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Install Ansible
         run: pip install ansible
-      
+
       - name: Deploy
         env:
           ANSIBLE_VAULT_PASSWORD: ${{ secrets.VAULT_PASSWORD }}
@@ -428,5 +428,5 @@ jobs:
 ## Support
 
 - Documentation: [docs/deployment/](../../docs/deployment/)
-- GitHub Issues: https://github.com/subculture-collective/transcript-create/issues
+- GitHub Issues: https://github.com/PatrickFanella/transcript-create/issues
 - Ansible Documentation: https://docs.ansible.com/

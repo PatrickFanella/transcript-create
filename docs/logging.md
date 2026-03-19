@@ -119,14 +119,14 @@ logger = get_logger(__name__)
 def process_video(video_id):
     # Set context for all logs in this scope
     video_id_ctx.set(str(video_id))
-    
+
     logger.info("Video processing started")
     # ... processing ...
     logger.info(
         "Video processing completed",
         extra={"duration_seconds": 125.43}
     )
-    
+
     # Clear context when done
     video_id_ctx.set(None)
 ```
@@ -271,7 +271,7 @@ While logs are in JSON, you can extract metrics:
 sum(rate(logs_total{level="ERROR", service="worker"}[5m]))
 
 # P95 processing time
-histogram_quantile(0.95, 
+histogram_quantile(0.95,
   rate(processing_duration_seconds_bucket{service="worker"}[5m]))
 ```
 
@@ -297,14 +297,14 @@ level: ERROR AND message: "failed" AND @timestamp >= now-1h
 **Processing times by video:**
 
 ```
-message: "Video processing completed" 
+message: "Video processing completed"
 | stats avg(extra.total_duration_seconds) by video_id
 ```
 
 **Top errors:**
 
 ```
-level: ERROR 
+level: ERROR
 | stats count() by exc_type, service
 | sort count desc
 ```
@@ -332,7 +332,7 @@ Tests cover:
    ```python
    # Good
    logger.info("Job completed", extra={"job_id": job_id, "duration": 42})
-   
+
    # Avoid
    logger.info(f"Job {job_id} completed in {42}s")
    ```

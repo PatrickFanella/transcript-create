@@ -339,6 +339,6 @@ docker compose restart api worker
 ## Support
 
 For issues during deployment:
-- GitHub Issues: https://github.com/subculture-collective/transcript-create/issues
-- Documentation: https://github.com/subculture-collective/transcript-create/tree/main/docs/deployment
+- GitHub Issues: https://github.com/PatrickFanella/transcript-create/issues
+- Documentation: https://github.com/PatrickFanella/transcript-create/tree/main/docs/deployment
 - Troubleshooting: [docs/deployment/troubleshooting.md](./troubleshooting.md)

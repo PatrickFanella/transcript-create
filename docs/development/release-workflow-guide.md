@@ -5,11 +5,13 @@ This guide shows how to use the automated release management system.
 ## Prerequisites
 
 1. Install Node.js dependencies (first time only):
+
 ```bash
 npm install
 ```
 
 2. Install pre-commit hooks (first time only):
+
 ```bash
 pre-commit install
 ```
@@ -31,6 +33,7 @@ git commit -m "docs: update API documentation"
 ```
 
 **Commit Types:**
+
 - `feat:` - New feature (→ MINOR version bump)
 - `fix:` - Bug fix (→ PATCH version bump)
 - `feat!:` or `BREAKING CHANGE:` - Breaking change (→ MAJOR version bump)
@@ -39,6 +42,7 @@ git commit -m "docs: update API documentation"
 ### Pre-commit Validation
 
 The pre-commit hook will automatically:
+
 - Validate commit message format
 - Run linters and formatters
 - Check for secrets
@@ -55,7 +59,7 @@ git checkout main
 git pull origin main
 
 # Verify all CI checks pass
-# Check: https://github.com/subculture-collective/transcript-create/actions
+# Check: https://github.com/PatrickFanella/transcript-create/actions
 ```
 
 ### 2. Run standard-version
@@ -71,6 +75,7 @@ npm run release:major   # 0.1.0 → 1.0.0 (breaking changes)
 ```
 
 This will:
+
 - Analyze commits since last release
 - Determine version bump (major/minor/patch)
 - Update version in all files:
@@ -114,23 +119,11 @@ git push origin v0.2.0
 
 Once the tag is pushed, GitHub Actions will automatically:
 
-1. **Create GitHub Release**
-   - Extract release notes from CHANGELOG.md
-   - Create release at: https://github.com/subculture-collective/transcript-create/releases
+1. **Create GitHub Release** by extracting release notes from `CHANGELOG.md` and publishing the release at <https://github.com/PatrickFanella/transcript-create/releases>.
+2. **Build & Push Docker Images** by building the ROCm-enabled image and publishing these tags: `ghcr.io/onnwee/transcript-create:v0.2.0`, `ghcr.io/onnwee/transcript-create:0.2.0`, `ghcr.io/onnwee/transcript-create:0.2`, `ghcr.io/onnwee/transcript-create:0`, and `ghcr.io/onnwee/transcript-create:latest` for stable releases.
+3. **Notify** with a workflow completion notification.
 
-2. **Build & Push Docker Images**
-   - Build ROCm-enabled Docker image
-   - Tag with multiple versions:
-     - `ghcr.io/subculture-collective/transcript-create:v0.2.0` (exact)
-     - `ghcr.io/subculture-collective/transcript-create:0.2.0` (no v)
-     - `ghcr.io/subculture-collective/transcript-create:0.2` (minor)
-     - `ghcr.io/subculture-collective/transcript-create:0` (major)
-     - `ghcr.io/subculture-collective/transcript-create:latest` (for stable releases)
-
-3. **Notify**
-   - Workflow completion notification
-
-Monitor progress: https://github.com/subculture-collective/transcript-create/actions
+Monitor progress: <https://github.com/PatrickFanella/transcript-create/actions>
 
 ## Pre-release Versions
 
@@ -155,6 +148,7 @@ npm run release -- --prerelease beta
 ```
 
 Pre-releases:
+
 - Are marked as "pre-release" on GitHub
 - Do NOT update the `latest` Docker tag
 - Are useful for testing before stable release
@@ -191,11 +185,13 @@ git push --follow-tags
 ```
 
 **Solution:** Use the correct format:
+
 ```bash
 git commit -m "feat: your feature description"
 ```
 
 Or use interactive mode:
+
 ```bash
 npm run commit
 ```
@@ -207,6 +203,7 @@ Error: Could not get the commits
 ```
 
 **Solution:** Ensure you have at least one previous tag, or use `--first-release`:
+
 ```bash
 npm run release -- --first-release
 ```
@@ -228,9 +225,11 @@ git push origin main --force  # Reset remote branch (⚠️ careful!)
 ### Docker image not building
 
 Check the workflow status:
-https://github.com/subculture-collective/transcript-create/actions/workflows/release.yml
+
+<https://github.com/PatrickFanella/transcript-create/actions/workflows/release.yml>
 
 Common issues:
+
 - Dockerfile syntax errors
 - Missing dependencies
 - Build timeout
@@ -248,6 +247,7 @@ curl https://api.yourapp.com/version
 ```
 
 Returns:
+
 ```json
 {
   "version": "0.2.0",
@@ -268,4 +268,4 @@ Returns:
 
 - Check [CONTRIBUTING.md](../../CONTRIBUTING.md)
 - Ask in GitHub Discussions
-- Review [previous releases](https://github.com/subculture-collective/transcript-create/releases)
+- Review [previous releases](https://github.com/PatrickFanella/transcript-create/releases)

@@ -720,8 +720,8 @@ docker compose logs worker | grep "circuit breaker"
 
 - **PO Tokens**: See [po-token-manager.md](po-token-manager.md) for advanced token configuration
 - **Health Checks**: See [health-checks.md](health-checks.md) for monitoring setup
-- **Monitoring**: See [MONITORING.md](MONITORING.md) for comprehensive metrics
-- **Error Handling**: See [ERROR_HANDLING.md](ERROR_HANDLING.md) for error recovery patterns
+- **Monitoring**: See [monitoring.md](monitoring.md) for comprehensive metrics
+- **Error Handling**: See [error-handling.md](error-handling.md) for error recovery patterns
 
 ## Additional Resources
 
@@ -733,5 +733,5 @@ docker compose logs worker | grep "circuit breaker"
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/subculture-collective/transcript-create/issues
-- Documentation: https://github.com/subculture-collective/transcript-create/tree/main/docs
+- GitHub Issues: https://github.com/PatrickFanella/transcript-create/issues
+- Documentation: https://github.com/PatrickFanella/transcript-create/tree/main/docs

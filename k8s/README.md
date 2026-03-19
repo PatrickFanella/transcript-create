@@ -56,20 +56,20 @@ This directory contains raw Kubernetes manifests for deploying transcript-create
    kubectl apply -f configmap.yaml -n transcript-create
    kubectl apply -f data-pvc.yaml -n transcript-create
    kubectl apply -f migrations-job.yaml -n transcript-create
-   
+
    # Wait for migrations
    kubectl wait --for=condition=complete job/transcript-migrations -n transcript-create --timeout=300s
-   
+
    # Deploy services
    kubectl apply -f api-deployment.yaml -n transcript-create
    kubectl apply -f worker-deployment.yaml -n transcript-create
    kubectl apply -f api-service.yaml -n transcript-create
    kubectl apply -f ingress.yaml -n transcript-create
-   
+
    # Apply autoscaling and policies
    kubectl apply -f hpa.yaml -n transcript-create
    kubectl apply -f poddisruptionbudget.yaml -n transcript-create
-   
+
    # Optional: monitoring and network policies
    kubectl apply -f servicemonitor.yaml -n transcript-create
    kubectl apply -f networkpolicy.yaml -n transcript-create
@@ -223,5 +223,5 @@ For a more flexible deployment, consider using the Helm chart:
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/subculture-collective/transcript-create/issues
-- Full documentation: https://github.com/subculture-collective/transcript-create/tree/main/docs/kubernetes
+- GitHub Issues: https://github.com/PatrickFanella/transcript-create/issues
+- Full documentation: https://github.com/PatrickFanella/transcript-create/tree/main/docs/kubernetes

@@ -96,9 +96,9 @@ psql $DATABASE_URL << EOF
 SELECT tgname, tgtype FROM pg_trigger WHERE tgname LIKE '%tsv%';
 
 -- Check indexes are valid
-SELECT schemaname, tablename, indexname, indexdef 
-FROM pg_indexes 
-WHERE schemaname = 'public' 
+SELECT schemaname, tablename, indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
 ORDER BY tablename, indexname;
 
 -- Check foreign key constraints
@@ -122,7 +122,7 @@ docker compose logs -f api worker | grep -i error
 
 # Monitor database performance
 psql $DATABASE_URL << EOF
-SELECT 
+SELECT
     schemaname,
     tablename,
     n_tup_ins as inserts,
@@ -134,7 +134,7 @@ EOF
 
 # Check for slow queries
 psql $DATABASE_URL << EOF
-SELECT 
+SELECT
     query,
     calls,
     total_exec_time / 1000 as total_seconds,
@@ -385,7 +385,7 @@ time python scripts/run_migrations.py upgrade
 
 # Check table sizes
 psql $DATABASE_URL << EOF
-SELECT 
+SELECT
     tablename,
     pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
 FROM pg_tables
@@ -409,7 +409,7 @@ EOF
 ```bash
 # Check for locks
 psql $DATABASE_URL << EOF
-SELECT 
+SELECT
     pid,
     usename,
     application_name,
@@ -429,7 +429,7 @@ SELECT
     blocking.pid AS blocking_pid,
     blocking.query AS blocking_query
 FROM pg_stat_activity blocked
-JOIN pg_stat_activity blocking 
+JOIN pg_stat_activity blocking
     ON blocking.pid = ANY(pg_blocking_pids(blocked.pid));
 EOF
 
@@ -519,5 +519,5 @@ In case of migration issues:
 - [PostgreSQL ALTER TABLE](https://www.postgresql.org/docs/current/sql-altertable.html)
 - [PostgreSQL CREATE INDEX CONCURRENTLY](https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-CONCURRENTLY)
 - [Zero-Downtime Database Migrations](https://autumn.revolt.chat/attachments/01HTGWBP2H9E2X2JZF8N6NKQPD)
-- [Project Migration Guide](./MIGRATIONS.md)
+- [Project Migration Guide](./migrations.md)
 - [Contributing - Database Migrations](../CONTRIBUTING.md#database-migrations)

@@ -190,8 +190,8 @@ git push origin javascript-sdk-v0.1.0
 ## Support
 
 - 📖 [API Documentation](../README.md#api-reference)
-- 🐛 [Issue Tracker](https://github.com/subculture-collective/transcript-create/issues)
-- 💬 [Discussions](https://github.com/subculture-collective/transcript-create/discussions)
+- 🐛 [Issue Tracker](https://github.com/PatrickFanella/transcript-create/issues)
+- 💬 [Discussions](https://github.com/PatrickFanella/transcript-create/discussions)
 
 ## License
 

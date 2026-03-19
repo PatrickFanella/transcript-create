@@ -32,11 +32,11 @@ Before migrations, we applied `sql/schema.sql` directly to the database. This wo
 
 With Alembic migrations, we get:
 
-✅ **Version Control**: Every schema change is tracked in a migration file  
-✅ **Repeatability**: Same migrations produce same schema across environments  
-✅ **Rollback**: Migrations can be reversed if needed  
-✅ **CI/CD Integration**: Schema changes are tested automatically  
-✅ **Documentation**: Each migration documents what changed and why  
+✅ **Version Control**: Every schema change is tracked in a migration file
+✅ **Repeatability**: Same migrations produce same schema across environments
+✅ **Rollback**: Migrations can be reversed if needed
+✅ **CI/CD Integration**: Schema changes are tested automatically
+✅ **Documentation**: Each migration documents what changed and why
 
 ## Common Operations
 
@@ -171,12 +171,12 @@ python scripts/run_migrations.py upgrade
 
 For production issues and detailed recovery procedures, see:
 
-- **[Production Migration Runbook](PRODUCTION_MIGRATIONS.md)** - Comprehensive production procedures
-- **[Rollback Procedures](PRODUCTION_MIGRATIONS.md#rollback-procedures)** - Emergency recovery steps
+- **[Production Migration Runbook](production-migrations.md)** - Comprehensive production procedures
+- **[Rollback Procedures](production-migrations.md#rollback-procedures)** - Emergency recovery steps
 
 ## Resources
 
-- [Production Migration Runbook](PRODUCTION_MIGRATIONS.md)
+- [Production Migration Runbook](production-migrations.md)
 - [Migration Template Guide](../alembic/MIGRATION_TEMPLATE.md)
 - [CONTRIBUTING.md - Database Migrations](../CONTRIBUTING.md#database-migrations)
 - [alembic/README.md](../alembic/README.md)

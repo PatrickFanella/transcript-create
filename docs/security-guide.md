@@ -383,7 +383,7 @@ ADMIN_EMAILS=admin@example.com,security@example.com
    ```bash
    # Good
    CORS_ALLOW_ORIGINS=https://app.example.com
-   
+
    # Bad
    CORS_ALLOW_ORIGINS=*
    ```

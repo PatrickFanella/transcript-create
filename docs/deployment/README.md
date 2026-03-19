@@ -199,8 +199,8 @@ See [Production Checklist](production-checklist.md#monitoring-and-observability)
 - [Docker Documentation](https://docs.docker.com/)
 
 ### Community
-- GitHub Issues: https://github.com/subculture-collective/transcript-create/issues
-- Discussions: https://github.com/subculture-collective/transcript-create/discussions
+- GitHub Issues: https://github.com/PatrickFanella/transcript-create/issues
+- Discussions: https://github.com/PatrickFanella/transcript-create/discussions
 
 ## Contributing
 

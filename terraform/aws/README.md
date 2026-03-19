@@ -314,16 +314,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
-        
+
       - name: Terraform Init
         run: terraform init
-        
+
       - name: Terraform Plan
         run: terraform plan
-        
+
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve
@@ -331,6 +331,6 @@ jobs:
 
 ## Support
 
-- GitHub Issues: https://github.com/subculture-collective/transcript-create/issues
+- GitHub Issues: https://github.com/PatrickFanella/transcript-create/issues
 - AWS Deployment Guide: [../../docs/deployment/aws.md](../../docs/deployment/aws.md)
 - Terraform Documentation: https://www.terraform.io/docs

@@ -45,7 +45,7 @@ We follow the testing pyramid principle:
 
 **Purpose**: Test individual functions or methods in isolation
 
-**Location**: 
+**Location**:
 - Backend: `tests/test_*.py`
 - Frontend: `frontend/tests/*.test.tsx`
 
@@ -61,9 +61,9 @@ def test_chunk_audio_correct_count():
     """Test that audio is chunked into expected number of segments."""
     duration = 3600  # 1 hour
     chunk_seconds = 900  # 15 minutes
-    
+
     chunks = calculate_chunk_count(duration, chunk_seconds)
-    
+
     assert chunks == 4
 ```
 
@@ -90,7 +90,7 @@ def test_create_and_process_job(db, api_client):
     })
     assert response.status_code == 200
     job_id = response.json()["id"]
-    
+
     # Verify job in database
     job = db.query(Job).filter(Job.id == job_id).first()
     assert job is not None
@@ -113,17 +113,17 @@ def test_create_and_process_job(db, api_client):
 // e2e/tests/search.spec.ts
 test('search and view transcript', async ({ page }) => {
   await page.goto('/');
-  
+
   // Search for video
   await page.fill('[data-testid="search-input"]', 'test query');
   await page.click('[data-testid="search-button"]');
-  
+
   // Verify results
   await expect(page.locator('.search-result')).toHaveCount(1);
-  
+
   // Click result
   await page.click('.search-result');
-  
+
   // Verify transcript page
   await expect(page).toHaveURL(/\/videos\/\d+/);
   await expect(page.locator('.transcript-segment')).toBeVisible();
@@ -254,10 +254,10 @@ def test_function_success_case():
     """Test that function works correctly with valid input."""
     # Arrange
     input_data = "test"
-    
+
     # Act
     result = function_to_test(input_data)
-    
+
     # Assert
     assert result == expected_output
 
@@ -313,9 +313,9 @@ def test_download_audio_success(tmp_path):
     """Test audio download with mocked yt-dlp."""
     with patch('worker.audio.subprocess.run') as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
-        
+
         audio_path = download_audio("https://youtube.com/watch?v=test", tmp_path)
-        
+
         assert mock_run.called
         assert audio_path.exists()
 ```
@@ -334,16 +334,16 @@ describe('VideoPlayer', () => {
   it('renders video title', () => {
     const video = { id: 1, title: 'Test Video' };
     render(<VideoPlayer video={video} />);
-    
+
     expect(screen.getByText('Test Video')).toBeInTheDocument();
   });
 
   it('plays video on button click', async () => {
     const onPlay = vi.fn();
     render(<VideoPlayer video={video} onPlay={onPlay} />);
-    
+
     fireEvent.click(screen.getByRole('button', { name: /play/i }));
-    
+
     await waitFor(() => {
       expect(onPlay).toHaveBeenCalledTimes(1);
     });
@@ -351,7 +351,7 @@ describe('VideoPlayer', () => {
 
   it('handles loading state', () => {
     render(<VideoPlayer video={null} />);
-    
+
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 });
@@ -371,16 +371,16 @@ describe('API Client', () => {
   it('fetches videos successfully', async () => {
     const mockVideos = [{ id: 1, title: 'Test' }];
     (axios.get as any).mockResolvedValue({ data: mockVideos });
-    
+
     const videos = await fetchVideos();
-    
+
     expect(videos).toEqual(mockVideos);
     expect(axios.get).toHaveBeenCalledWith('/api/videos');
   });
 
   it('handles API errors', async () => {
     (axios.get as any).mockRejectedValue(new Error('Network error'));
-    
+
     await expect(fetchVideos()).rejects.toThrow('Network error');
   });
 });
@@ -415,10 +415,10 @@ import { SearchPage } from '../pages/SearchPage';
 
 test('search returns results', async ({ page }) => {
   const searchPage = new SearchPage(page);
-  
+
   await page.goto('/');
   await searchPage.search('test query');
-  
+
   const count = await searchPage.getResultCount();
   expect(count).toBeGreaterThan(0);
 });
@@ -464,7 +464,7 @@ open frontend/coverage/index.html
        response = api_client.post('/favorites', json={'video_id': 1})
        assert response.status_code == 200
        assert get_user_favorites(user_id) == [1]
-   
+
    # Bad - tests implementation details
    def test_favorite_calls_database():
        with patch('app.crud.db.execute') as mock_execute:
@@ -477,7 +477,7 @@ open frontend/coverage/index.html
    # Good
    def test_search_returns_videos_matching_query():
        pass
-   
+
    # Bad
    def test_search():
        pass
@@ -489,11 +489,11 @@ open frontend/coverage/index.html
    def test_video_title_required():
        with pytest.raises(ValidationError, match="title"):
            create_video(youtube_id="123", title=None)
-   
+
    def test_video_duration_positive():
        with pytest.raises(ValidationError, match="duration"):
            create_video(youtube_id="123", title="Test", duration=-1)
-   
+
    # Acceptable - related assertions
    def test_video_created_successfully():
        video = create_video(youtube_id="123", title="Test", duration=120)
@@ -668,7 +668,7 @@ def test_transaction_rollback_on_error(db):
             raise Exception("Simulated error")
     except:
         pass
-    
+
     # Verify rollback
     result = db.execute(text("SELECT COUNT(*) FROM videos"))
     assert result.scalar() == 0
@@ -696,9 +696,9 @@ def test_file_cleanup(tmp_path):
     """Test that temporary files are cleaned up."""
     audio_file = tmp_path / "audio.wav"
     audio_file.write_bytes(b"fake audio data")
-    
+
     process_and_cleanup(audio_file)
-    
+
     assert not audio_file.exists()
 ```
 
@@ -708,7 +708,7 @@ def test_file_cleanup(tmp_path):
 - **Vitest documentation**: https://vitest.dev/
 - **Playwright documentation**: https://playwright.dev/
 - **Testing Library**: https://testing-library.com/
-- **Our E2E guide**: [../E2E-TESTING.md](../E2E-TESTING.md)
+- **Our E2E guide**: [../e2e-testing.md](../e2e-testing.md)
 
 ## Questions?
 

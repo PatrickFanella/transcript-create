@@ -64,11 +64,11 @@ git push --follow-tags
 
 ### What Gets Automated
 
-✅ **Version bumping** across all package files  
-✅ **CHANGELOG.md** generation from commit messages  
-✅ **Git tagging** with semantic version  
-✅ **GitHub Release** creation with notes  
-✅ **Docker images** built and published  
+✅ **Version bumping** across all package files
+✅ **CHANGELOG.md** generation from commit messages
+✅ **Git tagging** with semantic version
+✅ **GitHub Release** creation with notes
+✅ **Docker images** built and published
 ✅ **Multiple image tags** (latest, semver, major, minor)
 
 ### Conventional Commits Reference
@@ -289,7 +289,7 @@ git push origin v1.2.0
 
 #### 2. Create GitHub Release
 
-Go to [GitHub Releases](https://github.com/subculture-collective/transcript-create/releases):
+Go to [GitHub Releases](https://github.com/PatrickFanella/transcript-create/releases):
 
 1. Click "Draft a new release"
 2. Choose tag: `v1.2.0`
@@ -297,47 +297,47 @@ Go to [GitHub Releases](https://github.com/subculture-collective/transcript-crea
 4. Description:
    ```markdown
    ## 🎉 What's New
-   
+
    ### ✨ Features
    - **PDF Export**: Generate beautiful PDFs with custom fonts
    - **Speaker Diarization**: Identify different speakers in transcripts
    - **Admin Dashboard**: New analytics and user management
-   
+
    ### 🚀 Improvements
    - 2x faster search performance
    - Reduced memory usage in worker
    - Better error messages
-   
+
    ### 🐛 Bug Fixes
    - Fixed memory leak in long-running workers
    - Corrected timestamp alignment
    - Fixed OAuth redirect issues
-   
+
    ### 📦 Docker Images
-   
+
    ```bash
    docker pull ghcr.io/onnwee/transcript-create:v1.2.0
    docker pull ghcr.io/onnwee/transcript-create:1.2
    docker pull ghcr.io/onnwee/transcript-create:1
    docker pull ghcr.io/onnwee/transcript-create:latest
    ```
-   
+
    ## 📝 Full Changelog
-   
-   See [CHANGELOG.md](https://github.com/subculture-collective/transcript-create/blob/main/CHANGELOG.md) for complete details.
-   
+
+   See [CHANGELOG.md](https://github.com/PatrickFanella/transcript-create/blob/main/CHANGELOG.md) for complete details.
+
    ## ⬆️ Upgrade Notes
-   
+
    ### Database Migrations
    ```bash
    python scripts/run_migrations.py upgrade
    ```
-   
+
    ### Breaking Changes
    None in this release.
-   
+
    ## 🙏 Contributors
-   
+
    Thank you to all contributors who made this release possible!
    ```
 

@@ -1,6 +1,6 @@
 # Transcript Cleanup Quick Reference
 
-Quick reference for the transcript cleanup module. For complete details, see [TRANSCRIPT_CLEANUP_SPEC.md](TRANSCRIPT_CLEANUP_SPEC.md).
+Quick reference for the transcript cleanup module. For complete details, see [transcript-cleanup-spec.md](transcript-cleanup-spec.md).
 
 ## Quick Start
 
@@ -45,7 +45,7 @@ POST /transcripts/{transcript_id}/cleanup
 ### Text Normalization
 
 | Setting | Default | Description |
-|---------|---------|-------------|
+| --- | --- | --- |
 | `normalize_unicode` | `true` | Apply NFC normalization |
 | `normalize_whitespace` | `true` | Fix spacing issues |
 | `remove_special_tokens` | `true` | Remove [MUSIC], etc. |
@@ -54,7 +54,7 @@ POST /transcripts/{transcript_id}/cleanup
 ### Punctuation
 
 | Setting | Default | Description |
-|---------|---------|-------------|
+| --- | --- | --- |
 | `add_punctuation` | `true` | Add periods, question marks |
 | `punctuation_mode` | `"rule-based"` | "none", "rule-based", "model-based" |
 | `capitalize` | `true` | Capitalize sentences |
@@ -63,11 +63,12 @@ POST /transcripts/{transcript_id}/cleanup
 ### De-filler
 
 | Setting | Default | Description |
-|---------|---------|-------------|
+| --- | --- | --- |
 | `remove_fillers` | `true` | Enable filler removal |
 | `filler_level` | `1` | 0=off, 1=conservative, 2=moderate, 3=aggressive |
 
 **Filler Levels**:
+
 - **Level 0**: No removal
 - **Level 1**: Remove `um`, `uh`, `er` only
 - **Level 2**: Add `you know`, `I mean`, stutters
@@ -76,7 +77,7 @@ POST /transcripts/{transcript_id}/cleanup
 ### Segmentation
 
 | Setting | Default | Description |
-|---------|---------|-------------|
+| --- | --- | --- |
 | `segment_sentences` | `true` | Split on sentence boundaries |
 | `merge_short_segments` | `true` | Merge close segments |
 | `min_segment_length_ms` | `1000` | Min segment duration |
@@ -86,14 +87,14 @@ POST /transcripts/{transcript_id}/cleanup
 ### Advanced
 
 | Setting | Default | Description |
-|---------|---------|-------------|
+| --- | --- | --- |
 | `detect_hallucinations` | `true` | Mark repetitive segments |
 | `language_specific_rules` | `true` | Use language-aware rules |
 
 ## Profiles at a Glance
 
 | Profile | Fillers | Punctuation | Segmentation | Use Case |
-|---------|---------|-------------|--------------|----------|
+| --- | --- | --- | --- | --- |
 | **minimal** | None | None | None | Preserve original |
 | **standard** | Level 1 | Rule-based | Yes | General purpose (default) |
 | **aggressive** | Level 3 | Rule-based + internal | Yes | Maximum cleanup |
@@ -191,10 +192,12 @@ GET /videos/{video_id}/transcript?format=cleaned&profile=standard
 ```
 
 **Query Parameters**:
+
 - `format`: `raw`, `cleaned`, or `formatted`
 - `profile`: Profile name (optional)
 
 **Response**:
+
 ```json
 {
   "video_id": "uuid",
@@ -238,6 +241,7 @@ GET /cleanup/profiles
 ```
 
 **Response**:
+
 ```json
 {
   "profiles": [
@@ -412,6 +416,7 @@ profile="technical"
 4. **Choose Right Level**: Higher filler levels = more processing time
 
 **Typical Performance**:
+
 - 1000 segments: ~300-500ms (standard profile)
 - 10,000 segments: ~3-5s (standard profile)
 - Cached results: <100ms API response
@@ -430,6 +435,7 @@ curl -X POST http://localhost:8000/cleanup/test \
 ```
 
 **Response**:
+
 ```json
 {
   "input": "um hello everyone [MUSIC] welcome to the show",
@@ -446,18 +452,18 @@ curl -X POST http://localhost:8000/cleanup/test \
 
 ## Related Documentation
 
-- **Complete Spec**: [TRANSCRIPT_CLEANUP_SPEC.md](TRANSCRIPT_CLEANUP_SPEC.md)
-- **Profiles Guide**: [CLEANUP_PROFILES.md](CLEANUP_PROFILES.md)
-- **Examples & Tests**: [CLEANUP_EXAMPLES.md](CLEANUP_EXAMPLES.md)
-- **Implementation Summary**: [IMPLEMENTATION_SUMMARY_CLEANUP.md](IMPLEMENTATION_SUMMARY_CLEANUP.md)
+- **Complete Spec**: [transcript-cleanup-spec.md](transcript-cleanup-spec.md)
+- **Profiles Guide**: [cleanup-profiles.md](cleanup-profiles.md)
+- **Examples & Tests**: [cleanup-examples.md](cleanup-examples.md)
 
 ## Support
 
 For issues or questions:
-- Check examples in `CLEANUP_EXAMPLES.md`
-- Review profile descriptions in `CLEANUP_PROFILES.md`
-- See full spec in `TRANSCRIPT_CLEANUP_SPEC.md`
-- Report bugs: [GitHub Issues](https://github.com/subculture-collective/transcript-create/issues)
+
+- Check examples in `cleanup-examples.md`
+- Review profile descriptions in `cleanup-profiles.md`
+- See full spec in `transcript-cleanup-spec.md`
+- Report bugs: [GitHub Issues](https://github.com/PatrickFanella/transcript-create/issues)
 
 ---
 

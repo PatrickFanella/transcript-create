@@ -1,9 +1,8 @@
 # Transcript Cleanup, Punctuation, and Segmentation Module
 
-**Version**: 1.0  
-**Status**: Draft  
-**Created**: 2025-11-02  
-**Author**: GitHub Copilot
+**Version**: 1.0
+**Status**: Draft
+**Created**: 2025-11-02
 
 ## Table of Contents
 
@@ -147,14 +146,14 @@ def remove_special_tokens(text: str, preserve_sound_events: bool = False) -> str
     if not preserve_sound_events:
         # Remove common sound event markers
         text = re.sub(r'\[(?:MUSIC|APPLAUSE|LAUGHTER|NOISE)\]', '', text, flags=re.IGNORECASE)
-    
+
     # Remove music notation
     text = re.sub(r'♪+', '', text)
-    
+
     # Remove common Whisper artifacts
     text = re.sub(r'\(.*?Subtitles by.*?\)', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\(.*?www\..*?\.com.*?\)', '', text, flags=re.IGNORECASE)
-    
+
     return text
 ```
 
@@ -172,7 +171,7 @@ def detect_hallucination(segments: list) -> list:
     """Detect and mark potential hallucinations in segments."""
     if len(segments) < 3:
         return segments
-    
+
     # Check last few segments for repetition
     last_texts = [s['text'].strip().lower() for s in segments[-5:]]
     if len(last_texts) >= 3:
@@ -180,7 +179,7 @@ def detect_hallucination(segments: list) -> list:
             # Mark or remove these segments
             for seg in segments[-3:]:
                 seg['likely_hallucination'] = True
-    
+
     return segments
 ```
 
@@ -215,18 +214,18 @@ def add_sentence_punctuation(text: str, is_question: bool = None) -> str:
     text = text.strip()
     if not text:
         return text
-    
+
     # Check if already has terminal punctuation
     if text[-1] in '.!?':
         return text
-    
+
     # Auto-detect questions
     if is_question is None:
         is_question = bool(re.match(
             r'^(who|what|where|when|why|how|is|are|can|could|would|should|do|does|did)\b',
             text.lower()
         ))
-    
+
     return text + ('?' if is_question else '.')
 
 def add_internal_punctuation(text: str, pause_ms: int = None) -> str:
@@ -234,14 +233,14 @@ def add_internal_punctuation(text: str, pause_ms: int = None) -> str:
     # After introductory words
     text = re.sub(r'^(however|furthermore|moreover|additionally|meanwhile|therefore)\s+',
                   r'\1, ', text, flags=re.IGNORECASE)
-    
+
     # Before coordinating conjunctions with clauses
     text = re.sub(r'\s+(and|but|or|so|yet)\s+',
                   r', \1 ', text)
-    
+
     # If pause duration available and significant (>500ms), consider comma
     # This would be integrated with segment merging logic
-    
+
     return text
 ```
 
@@ -262,7 +261,7 @@ def add_internal_punctuation(text: str, pause_ms: int = None) -> str:
 - **General Purpose**: Fine-tuned T5 or BERT models for token classification
   - Custom training on YouTube caption data
   - Multi-language support via mT5 models
-- **English Specific**: 
+- **English Specific**:
   - Community models like `shashank2123/t5-base-fine-tuned-for-Punctuation-Restoration`
   - Token classification models using BERT/RoBERTa
 
@@ -275,12 +274,12 @@ class PunctuationRestorer:
         self.model = None
         if model_name:
             self.model = pipeline("token-classification", model=model_name)
-    
+
     def restore(self, text: str) -> str:
         """Restore punctuation using ML model."""
         if not self.model:
             raise ValueError("Model not loaded")
-        
+
         # Model returns token classifications
         # Post-process to insert punctuation
         # Details depend on specific model output format
@@ -310,19 +309,19 @@ def capitalize_sentences(text: str) -> str:
     """Capitalize first letter of sentences."""
     # Split on sentence boundaries
     sentences = re.split(r'([.!?]+\s+)', text)
-    
+
     result = []
     for i, part in enumerate(sentences):
         if i % 2 == 0 and part:  # Text part, not separator
             # Capitalize first letter
             part = part[0].upper() + part[1:] if len(part) > 0 else part
         result.append(part)
-    
+
     text = ''.join(result)
-    
+
     # Capitalize standalone "i"
     text = re.sub(r'\bi\b', 'I', text)
-    
+
     return text
 
 def fix_all_caps(text: str, min_length: int = 4) -> bool:
@@ -330,14 +329,14 @@ def fix_all_caps(text: str, min_length: int = 4) -> bool:
     # Ignore short strings (likely acronyms)
     if len(text) < min_length:
         return False
-    
+
     # Count uppercase letters
     upper_count = sum(1 for c in text if c.isupper())
     letter_count = sum(1 for c in text if c.isalpha())
-    
+
     if letter_count == 0:
         return False
-    
+
     # If >80% uppercase, likely needs fixing
     return (upper_count / letter_count) > 0.8
 ```
@@ -377,28 +376,28 @@ def fix_all_caps(text: str, min_length: int = 4) -> bool:
 ```python
 def remove_fillers(text: str, level: int = 1) -> str:
     """Remove filler words based on aggressiveness level."""
-    
+
     # Level 1: Clear fillers only
     if level >= 1:
         # Remove um, uh, er (with word boundaries)
         text = re.sub(r'\b(um+|uh+m?|er+m?)\b', '', text, flags=re.IGNORECASE)
-    
+
     # Level 2: Moderate - add filler phrases
     if level >= 2:
         text = re.sub(r'\byou know\b', '', text, flags=re.IGNORECASE)
         text = re.sub(r'\bI mean\b', '', text, flags=re.IGNORECASE)
-        
+
         # Handle stutters - repeated words
         text = re.sub(r'\b(\w+)(\s+\1){2,}\b', r'\1', text, flags=re.IGNORECASE)
-    
+
     # Level 3: Aggressive
     if level >= 3:
         text = re.sub(r'\blike\b', '', text, flags=re.IGNORECASE)
         text = re.sub(r'\b(sort|kind) of\b', '', text, flags=re.IGNORECASE)
-    
+
     # Clean up extra spaces created by removals
     text = re.sub(r'\s+', ' ', text)
-    
+
     return text.strip()
 ```
 
@@ -426,10 +425,10 @@ FILLER_PATTERNS = {
 def remove_fillers_multi(text: str, language: str = 'en', level: int = 1) -> str:
     """Remove language-specific fillers."""
     patterns = FILLER_PATTERNS.get(language, FILLER_PATTERNS['en'])
-    
+
     for pattern in patterns[:level]:  # Use only patterns up to level
         text = re.sub(pattern, '', text, flags=re.IGNORECASE)
-    
+
     return re.sub(r'\s+', ' ', text).strip()
 ```
 
@@ -461,7 +460,7 @@ This results in segments containing multiple sentences or partial sentences.
 **Implementation**:
 ```python
 # Common abbreviations that shouldn't trigger splits
-ABBREVIATIONS = {'dr', 'mr', 'mrs', 'ms', 'prof', 'sr', 'jr', 
+ABBREVIATIONS = {'dr', 'mr', 'mrs', 'ms', 'prof', 'sr', 'jr',
                  'etc', 'vs', 'i.e', 'e.g', 'u.s', 'u.k'}
 
 def split_into_sentences(text: str) -> list[str]:
@@ -472,15 +471,15 @@ def split_into_sentences(text: str) -> list[str]:
         if word_before in ABBREVIATIONS:
             return match.group(0)  # Don't split
         return match.group(1) + match.group(2) + ' <SPLIT> '
-    
+
     # Mark split points
     text = re.sub(r'(\w+\.)\s+([A-Z])', should_split, text)
     text = re.sub(r'([!?])\s+([A-Z])', r'\1 <SPLIT> \2', text)
-    
+
     # Split and clean
     sentences = [s.strip() for s in text.split('<SPLIT>')]
     sentences = [s for s in sentences if len(s) > 10]  # Min length filter
-    
+
     return sentences
 ```
 
@@ -499,19 +498,19 @@ def merge_segments_by_timing(segments: list, max_gap_ms: int = 500) -> list:
     """Merge segments with small gaps that don't have sentence boundaries."""
     if not segments:
         return segments
-    
+
     merged = []
     current = segments[0].copy()
-    
+
     for next_seg in segments[1:]:
         gap_ms = next_seg['start_ms'] - current['end_ms']
-        
+
         # Check for speaker change (hard boundary)
         speaker_change = (current.get('speaker_label') != next_seg.get('speaker_label'))
-        
+
         # Check for sentence boundary
         has_boundary = current['text'].rstrip()[-1] in '.!?' if current['text'] else False
-        
+
         if gap_ms <= max_gap_ms and not speaker_change and not has_boundary:
             # Merge
             current['end_ms'] = next_seg['end_ms']
@@ -520,7 +519,7 @@ def merge_segments_by_timing(segments: list, max_gap_ms: int = 500) -> list:
             # Start new segment
             merged.append(current)
             current = next_seg.copy()
-    
+
     merged.append(current)
     return merged
 ```
@@ -568,7 +567,7 @@ def format_with_speakers(segments: list, format: str = 'dialogue') -> str:
     if format == 'inline':
         lines = [f"[{s['speaker_label']}] {s['text']}" for s in segments]
         return '\n'.join(lines)
-    
+
     elif format == 'dialogue':
         lines = []
         current_speaker = None
@@ -583,7 +582,7 @@ def format_with_speakers(segments: list, format: str = 'dialogue') -> str:
                 # Same speaker continues
                 lines.append(seg['text'])
         return '\n\n'.join(lines)
-    
+
     else:  # structured - return list
         return segments
 ```
@@ -606,29 +605,29 @@ def group_into_paragraphs(segments: list, max_sentences: int = 5) -> list:
     current_para = []
     sentence_count = 0
     current_speaker = None
-    
+
     for seg in segments:
         speaker = seg.get('speaker_label')
-        
+
         # Start new paragraph on speaker change
         if speaker != current_speaker and current_para:
             paragraphs.append(current_para)
             current_para = []
             sentence_count = 0
-        
+
         current_para.append(seg)
         sentence_count += 1
         current_speaker = speaker
-        
+
         # Start new paragraph after max sentences
         if sentence_count >= max_sentences:
             paragraphs.append(current_para)
             current_para = []
             sentence_count = 0
-    
+
     if current_para:
         paragraphs.append(current_para)
-    
+
     return paragraphs
 ```
 
@@ -690,9 +689,9 @@ async def get_transcript(
 ):
     """
     Get transcript with optional cleanup.
-    
+
     Parameters:
-    - format: 
+    - format:
         - "raw": Original transcript, no processing
         - "cleaned": Apply text normalization, punctuation, de-filler
         - "formatted": Apply cleaning + segmentation + speaker formatting
@@ -706,21 +705,21 @@ async def get_transcript(
 ```python
 class CleanupConfig(BaseModel):
     """Configuration for transcript cleanup."""
-    
+
     # Normalization
     normalize_unicode: bool = True
     normalize_whitespace: bool = True
     remove_special_tokens: bool = True
-    
+
     # Punctuation
     add_punctuation: bool = True
     punctuation_mode: Literal["rule-based", "model-based"] = "rule-based"
     capitalize: bool = True
-    
+
     # De-filler
     remove_fillers: bool = True
     filler_level: int = Field(1, ge=0, le=3)
-    
+
     # Segmentation
     segment_sentences: bool = True
     merge_short_segments: bool = True
@@ -729,7 +728,7 @@ class CleanupConfig(BaseModel):
 
 class CleanedSegment(BaseModel):
     """Segment with cleaned text."""
-    
+
     start_ms: int
     end_ms: int
     text_raw: str  # Original text
@@ -740,7 +739,7 @@ class CleanedSegment(BaseModel):
 
 class CleanedTranscriptResponse(BaseModel):
     """Cleaned transcript response."""
-    
+
     video_id: uuid.UUID
     segments: List[CleanedSegment]
     cleanup_config: CleanupConfig
@@ -848,19 +847,19 @@ async def get_transcript(
 ):
     # Fetch raw segments
     segments = fetch_segments(db, video_id)
-    
+
     if format == "raw":
         return {"segments": segments}
-    
+
     # Apply cleanup
     from worker.cleanup import apply_cleanup
-    
+
     config = CleanupConfig()  # Use defaults or from request
     cleaned_segments = apply_cleanup(segments, config)
-    
+
     if format == "cleaned":
         return {"segments": cleaned_segments}
-    
+
     # Format with speakers, paragraphs
     formatted = format_transcript(cleaned_segments, config)
     return {"transcript": formatted}
@@ -897,10 +896,10 @@ worker/
 # Worker adds cleanup step to pipeline
 def process_video(video_id):
     # ... existing transcription ...
-    
+
     # Apply default cleanup
     cleaned_segments = apply_cleanup(segments, DEFAULT_CLEANUP_CONFIG)
-    
+
     # Save to database
     save_cleaned_transcript(video_id, cleaned_segments, DEFAULT_CLEANUP_CONFIG)
 ```
@@ -926,23 +925,23 @@ async def get_transcript(
 ):
     if format == "raw":
         return fetch_raw_segments(db, video_id)
-    
+
     # Check if using default config
     if cleanup_config is None or cleanup_config == DEFAULT_CLEANUP_CONFIG:
         # Fast path - return pre-computed cleaned text
         return fetch_cleaned_segments(db, video_id)
-    
+
     # Custom config - check cache
     cache_key = f"cleaned:{video_id}:{hash(cleanup_config)}"
     cached = cache.get(cache_key)
     if cached:
         return cached
-    
+
     # Compute and cache
     segments = fetch_raw_segments(db, video_id)
     cleaned = apply_cleanup(segments, cleanup_config)
     cache.set(cache_key, cleaned, ttl=3600)  # 1 hour
-    
+
     return cleaned
 ```
 
@@ -1197,15 +1196,15 @@ def test_full_cleanup_youtube_transcript():
         {"start_ms": 0, "end_ms": 2000, "text": "[Music] um hello everyone"},
         {"start_ms": 2000, "end_ms": 4000, "text": "welcome to the show"},
     ]
-    
+
     config = CleanupConfig(
         remove_fillers=True,
         filler_level=1,
         add_punctuation=True,
     )
-    
+
     result = apply_cleanup(raw_segments, config)
-    
+
     assert len(result) == 1  # Merged into one segment
     assert "[Music]" not in result[0]["text_cleaned"]
     assert "um" not in result[0]["text_cleaned"]
@@ -1217,9 +1216,9 @@ def test_cleanup_preserves_speaker_labels():
         {"speaker_label": "Speaker 1", "text": "hello", "start_ms": 0, "end_ms": 1000},
         {"speaker_label": "Speaker 2", "text": "hi there", "start_ms": 1500, "end_ms": 2500},
     ]
-    
+
     result = apply_cleanup(raw_segments, CleanupConfig())
-    
+
     assert result[0]["speaker_label"] == "Speaker 1"
     assert result[1]["speaker_label"] == "Speaker 2"
 ```
@@ -1232,11 +1231,11 @@ async def test_get_cleaned_transcript(client, sample_video_id):
     response = await client.get(
         f"/videos/{sample_video_id}/transcript?format=cleaned"
     )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert "segments" in data
-    
+
     # Verify cleanup was applied
     for segment in data["segments"]:
         assert "text_cleaned" in segment
@@ -1250,12 +1249,12 @@ async def test_custom_cleanup_config(client, sample_video_id):
         "filler_level": 3,  # Aggressive
         "add_punctuation": True,
     }
-    
+
     response = await client.get(
         f"/videos/{sample_video_id}/transcript?format=cleaned",
         json={"cleanup_config": config}
     )
-    
+
     assert response.status_code == 200
 ```
 
@@ -1274,13 +1273,13 @@ async def test_transcription_with_automatic_cleanup(client):
         "kind": "single",
     })
     job_id = job_response.json()["id"]
-    
+
     # Wait for completion (mock or use test video)
     # ...
-    
+
     # Get transcript - should have cleaned version available
     response = await client.get(f"/videos/{video_id}/transcript?format=cleaned")
-    
+
     assert response.status_code == 200
     assert "segments" in response.json()
 ```
@@ -1310,14 +1309,14 @@ def benchmark_cleanup():
     """Benchmark cleanup performance."""
     # Generate large test dataset
     segments = generate_test_segments(count=10000)
-    
+
     start = time.time()
     result = apply_cleanup(segments, CleanupConfig())
     elapsed = time.time() - start
-    
+
     print(f"Processed {len(segments)} segments in {elapsed:.2f}s")
     print(f"Rate: {len(segments)/elapsed:.0f} segments/sec")
-    
+
     # Assert performance target
     assert elapsed < 5.0  # Should process 10k segments in <5s
 ```
@@ -1505,9 +1504,9 @@ POST /videos/{id}/transcript/cleanup
 
 ## Revision History
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2025-11-02 | GitHub Copilot | Initial draft specification |
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | 2025-11-02 | Initial draft specification |
 
 ---
 

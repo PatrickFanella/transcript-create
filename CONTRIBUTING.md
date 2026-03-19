@@ -173,7 +173,7 @@ def upgrade() -> None:
     """Apply schema changes."""
     # Add a new column
     op.add_column('videos', sa.Column('thumbnail_url', sa.String(), nullable=True))
-    
+
     # Create an index
     op.create_index('idx_videos_thumbnail', 'videos', ['thumbnail_url'])
 
@@ -181,7 +181,7 @@ def downgrade() -> None:
     """Revert schema changes."""
     # Drop the index
     op.drop_index('idx_videos_thumbnail', 'videos')
-    
+
     # Drop the column
     op.drop_column('videos', 'thumbnail_url')
 ```
@@ -193,10 +193,10 @@ def downgrade() -> None:
    ```bash
    # Test upgrade
    python scripts/run_migrations.py upgrade
-   
+
    # Test downgrade
    python scripts/run_migrations.py downgrade
-   
+
    # Re-apply
    python scripts/run_migrations.py upgrade
    ```
@@ -269,7 +269,7 @@ See `.github/workflows/migrations-ci.yml` for details.
 For detailed migration examples and templates, see:
 
 - **[Migration Template Guide](alembic/MIGRATION_TEMPLATE.md)** - Comprehensive examples for all migration types
-- **[Production Migration Runbook](docs/PRODUCTION_MIGRATIONS.md)** - Production deployment procedures
+- **[Production Migration Runbook](docs/production-migrations.md)** - Production deployment procedures
 
 #### Quick Examples
 
@@ -574,7 +574,7 @@ Runs on:
    pytest tests/
    ruff check app/ worker/
    black --check app/ worker/
-   
+
    # Frontend
    cd frontend
    npm run lint
@@ -648,7 +648,7 @@ If checks take significantly longer, please report as an issue.
 
 **Start here:**
 1. Read our [First-Time Contributors Guide](docs/contributing/first-time.md) for a step-by-step walkthrough
-2. Look for issues labeled [`good first issue`](https://github.com/subculture-collective/transcript-create/labels/good%20first%20issue) - these are beginner-friendly
+2. Look for issues labeled [`good first issue`](https://github.com/PatrickFanella/transcript-create/labels/good%20first%20issue) - these are beginner-friendly
 3. Check out our [Development Setup](#development-setup) guide
 4. Don't hesitate to ask questions!
 
@@ -663,15 +663,15 @@ If checks take significantly longer, please report as an issue.
 If you have questions or need help:
 
 1. **Documentation**: Check the [README.md](README.md) and [docs/](docs/) folder
-2. **Existing Issues**: Search [existing issues](https://github.com/subculture-collective/transcript-create/issues) for similar questions
-3. **Ask a Question**: Open a [new issue](https://github.com/subculture-collective/transcript-create/issues/new/choose) with the question template
+2. **Existing Issues**: Search [existing issues](https://github.com/PatrickFanella/transcript-create/issues) for similar questions
+3. **Ask a Question**: Open a [new issue](https://github.com/PatrickFanella/transcript-create/issues/new/choose) with the question template
 4. **Development Questions**: Check [docs/development/](docs/development/) for architecture and code guidelines
 
 We strive to respond to all questions within 48 hours. Don't be shy - there are no stupid questions!
 
 ## Security
 
-Please review [SECURITY.md](SECURITY.md) for:
+Please review [docs/security.md](docs/security.md) for:
 
 - Reporting security vulnerabilities
 - Secrets management guidelines
@@ -680,7 +680,7 @@ Please review [SECURITY.md](SECURITY.md) for:
 
 ## Recognition
 
-All contributors are recognized in our [CONTRIBUTORS.md](CONTRIBUTORS.md) file. Your contributions, big or small, are valuable to us!
+All contributors are recognized in our [docs/contributors.md](docs/contributors.md) file. Your contributions, big or small, are valuable to us!
 
 ## License
 

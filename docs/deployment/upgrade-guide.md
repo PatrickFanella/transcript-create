@@ -651,6 +651,6 @@ See [Troubleshooting Guide](./troubleshooting.md) for common issues.
 ## Support
 
 For upgrade assistance:
-- GitHub Issues: [github.com/subculture-collective/transcript-create/issues](https://github.com/subculture-collective/transcript-create/issues)
+- GitHub Issues: [github.com/PatrickFanella/transcript-create/issues](https://github.com/PatrickFanella/transcript-create/issues)
 - Documentation: [docs/](../../docs/)
 - Changelog: [CHANGELOG.md](../../CHANGELOG.md)

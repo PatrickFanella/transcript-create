@@ -110,14 +110,14 @@ global:
 
 # Image configuration
 image:
-  repository: ghcr.io/subculture-collective/transcript-create
+  repository: ghcr.io/onnwee/transcript-create
   tag: "1.0.0"  # Pin to specific version
   pullPolicy: IfNotPresent
 
 # API configuration
 api:
   replicaCount: 5
-  
+
   resources:
     requests:
       cpu: 500m
@@ -125,14 +125,14 @@ api:
     limits:
       cpu: 2000m
       memory: 4Gi
-  
+
   autoscaling:
     enabled: true
     minReplicas: 3
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
-  
+
   ingress:
     enabled: true
     className: nginx  # or traefik, alb, etc.
@@ -153,7 +153,7 @@ api:
 # Worker configuration
 worker:
   replicaCount: 3
-  
+
   resources:
     requests:
       cpu: 2000m
@@ -161,12 +161,12 @@ worker:
     limits:
       cpu: 4000m
       memory: 16Gi
-  
+
   gpu:
     enabled: true
     type: amd  # or nvidia
     count: 1
-  
+
   autoscaling:
     enabled: true
     minReplicas: 2

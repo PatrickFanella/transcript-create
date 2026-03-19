@@ -79,7 +79,7 @@ video_matcher = PathMatcherBuilder.with_uuid_param("/videos/{video_id}")
 
 # Path with UUID and suffix
 transcript_matcher = PathMatcherBuilder.with_suffix(
-    "/videos/{video_id}", 
+    "/videos/{video_id}",
     "/transcript"
 )
 
@@ -103,7 +103,7 @@ from app.path_utils import CommonMatchers, MultiPathMatcher
 class CacheControlMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
-        
+
         # Pre-compile matchers for performance
         self.video_metadata_matcher = CommonMatchers.VIDEO_METADATA
         self.transcript_matcher = CommonMatchers.VIDEO_TRANSCRIPTS
@@ -111,16 +111,16 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
             r"^/search$",
             r"^/search/suggestions$"
         )
-    
+
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
-        
+
         # Don't cache errors
         if response.status_code >= 400:
             response.headers["Cache-Control"] = "no-store"
             return response
-        
+
         # Apply caching based on precise path matching
         if self.video_metadata_matcher.matches(path):
             response.headers["Cache-Control"] = "public, max-age=300"
@@ -128,7 +128,7 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
             response.headers["Cache-Control"] = "public, max-age=3600"
         elif self.search_matcher.matches(path):
             response.headers["Cache-Control"] = "public, max-age=600"
-        
+
         return response
 ```
 
@@ -197,6 +197,7 @@ PYTHONPATH=. python examples/cache_control_middleware.py
 To migrate from string-based matching to precise matching:
 
 **Before:**
+
 ```python
 # Fragile string matching
 if "/videos/" in path and not path.endswith("/transcript"):
@@ -204,6 +205,7 @@ if "/videos/" in path and not path.endswith("/transcript"):
 ```
 
 **After:**
+
 ```python
 # Precise regex matching
 from app.path_utils import CommonMatchers
@@ -216,4 +218,4 @@ if CommonMatchers.VIDEO_METADATA.matches(path):
 
 - `examples/cache_control_middleware.py` - Complete example implementation
 - `tests/test_path_utils.py` - Comprehensive test suite showing all features
-- PR #101 - Original issue that motivated this solution
+- `app/path_utils.py` - Shared path-matching utilities used by the API

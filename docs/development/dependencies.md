@@ -127,7 +127,7 @@ When reviewing a Dependabot PR:
    ```bash
    # Run tests
    pytest
-   
+
    # Run security scans
    pip-audit -r requirements.txt
    bandit -r app/ worker/
@@ -156,7 +156,7 @@ For testing, linting, or development-only tools:
    ```bash
    # For production dependencies
    npm install --save-exact <package>@<version>
-   
+
    # For dev dependencies
    npm install --save-exact --save-dev <package>@<version>
    ```
@@ -190,7 +190,7 @@ Docker base images are defined in Dockerfiles:
    ```dockerfile
    # Good: specific version
    FROM rocm/dev-ubuntu-22.04:6.0.2
-   
+
    # Bad: moving target
    FROM rocm/dev-ubuntu-22.04:latest
    ```
@@ -219,7 +219,7 @@ Actions are defined in `.github/workflows/*.yml` files.
    # Recommended: major version + SHA
    - uses: actions/checkout@v4.2.0
      # SHA: a1b2c3d...
-   
+
    # Also acceptable: major version only (Dependabot will update)
    - uses: actions/checkout@v4
    ```
@@ -283,13 +283,13 @@ docker compose logs -f
    ```bash
    # Python tests
    pytest
-   
+
    # Frontend tests
    cd frontend && npm run test
-   
+
    # E2E tests
    cd e2e && npm run test
-   
+
    # Integration tests
    docker compose up -d
    # Run integration test suite
@@ -300,7 +300,7 @@ docker compose logs -f
    # Python
    pip-audit -r requirements.txt
    bandit -r app/ worker/
-   
+
    # npm (if vulnerabilities exist)
    npm audit
    ```
@@ -641,7 +641,7 @@ pytest -v  # verbose output
    ```bash
    # pip-audit
    pip-audit --ignore-vuln <VULN-ID>
-   
+
    # bandit
    # Add # nosec comment in code
    ```
@@ -678,7 +678,7 @@ git push --force-with-lease
 For dependency-related issues:
 
 1. **Check this guide** first
-2. **Review ../DEPENDENCIES.md** for technical details
+2. **Review ../dependencies.md** for technical details
 3. **Search GitHub Issues** for similar problems
 4. **Check CI logs** for detailed error messages
 5. **Ask in Discussions** for community help
@@ -690,9 +690,9 @@ For dependency-related issues:
 
 ## Related Documentation
 
-- [Technical Dependency Details](../DEPENDENCIES.md) - Deep dive into dependency structure
+- [Technical Dependency Details](../dependencies.md) - Deep dive into dependency structure
 - [Release Process](./release-process.md) - How releases are managed
-- [Security Guide](../SECURITY_GUIDE.md) - Security best practices
+- [Security Guide](../security-guide.md) - Security best practices
 - [Contributing Guidelines](../../CONTRIBUTING.md) - How to contribute
 
 ## References

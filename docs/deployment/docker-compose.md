@@ -49,7 +49,7 @@ This guide covers deploying transcript-create on a single server using Docker Co
   - 80 (HTTP - for SSL certificate challenge and redirect)
   - 443 (HTTPS)
   - 22 (SSH - for management)
-- Optional: 
+- Optional:
   - 5434 (PostgreSQL - if remote access needed)
   - 9090 (Prometheus - monitoring)
   - 3000 (Grafana - dashboards)
@@ -149,7 +149,7 @@ sudo chown $USER:$USER /opt/transcript-create
 cd /opt/transcript-create
 
 # Clone repository
-git clone https://github.com/subculture-collective/transcript-create.git .
+git clone https://github.com/PatrickFanella/transcript-create.git .
 ```
 
 ### 2. Create Production Docker Compose File
@@ -264,7 +264,7 @@ cat > Caddyfile << 'EOF'
 
 api.example.com {  # Replace with your domain
     # Automatic HTTPS with Let's Encrypt
-    
+
     # Rate limiting
     rate_limit {
         zone general {
@@ -289,7 +289,7 @@ api.example.com {  # Replace with your domain
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
-        
+
         # Health check
         health_uri /health
         health_interval 30s
@@ -765,4 +765,4 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --scale wo
 - Full documentation: [docs/](../)
 - Kubernetes guide: [kubernetes.md](./kubernetes.md)
 - Troubleshooting: [troubleshooting.md](./troubleshooting.md)
-- GitHub Issues: https://github.com/subculture-collective/transcript-create/issues
+- GitHub Issues: https://github.com/PatrickFanella/transcript-create/issues

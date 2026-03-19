@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive contributor documentation and community resources
 - CODE_OF_CONDUCT.md with Contributor Covenant 2.1
 - CHANGELOG.md for tracking project changes
-- CONTRIBUTORS.md for recognizing community contributions
+- docs/contributors.md for recognizing community contributions
 - Issue templates for bug reports, feature requests, and questions
 - Pull request template with comprehensive checklist
 - Development documentation in docs/development/
@@ -52,10 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Release Notes
 
 ### Upcoming Features
-See our [GitHub Issues](https://github.com/subculture-collective/transcript-create/issues) for planned features and enhancements.
+See our [GitHub Issues](https://github.com/PatrickFanella/transcript-create/issues) for planned features and enhancements.
 
 ### Migration Guide
-For major version upgrades, see [MIGRATIONS.md](docs/MIGRATIONS.md) for database migration procedures.
+For major version upgrades, see [migrations.md](docs/migrations.md) for database migration procedures.
 
 ### Breaking Changes
 Breaking changes will be clearly marked in release notes and include migration paths.

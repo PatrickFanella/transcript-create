@@ -91,7 +91,7 @@ test.describe('Feature Name', () => {
   test.beforeEach(async ({ page, context }) => {
     // Setup authentication
     await context.addCookies([...]);
-    
+
     // Mock APIs
     await page.route('**/api/endpoint', async (route) => {
       await route.fulfill({ status: 200, body: '...' });

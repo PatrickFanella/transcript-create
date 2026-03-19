@@ -2,11 +2,11 @@
 
 # Transcript Create
 
-[![Backend CI](https://github.com/subculture-collective/transcript-create/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/subculture-collective/transcript-create/actions/workflows/backend-ci.yml)
-[![Frontend CI](https://github.com/subculture-collective/transcript-create/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/subculture-collective/transcript-create/actions/workflows/frontend-ci.yml)
-[![Database Migrations](https://github.com/subculture-collective/transcript-create/actions/workflows/migrations-ci.yml/badge.svg)](https://github.com/subculture-collective/transcript-create/actions/workflows/migrations-ci.yml)
-[![E2E Tests](https://github.com/subculture-collective/transcript-create/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/subculture-collective/transcript-create/actions/workflows/e2e-tests.yml)
-[![Docker Build](https://github.com/subculture-collective/transcript-create/actions/workflows/docker-build.yml/badge.svg)](https://github.com/subculture-collective/transcript-create/actions/workflows/docker-build.yml)
+[![Backend CI](https://github.com/PatrickFanella/transcript-create/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/PatrickFanella/transcript-create/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/PatrickFanella/transcript-create/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/PatrickFanella/transcript-create/actions/workflows/frontend-ci.yml)
+[![Database Migrations](https://github.com/PatrickFanella/transcript-create/actions/workflows/migrations-ci.yml/badge.svg)](https://github.com/PatrickFanella/transcript-create/actions/workflows/migrations-ci.yml)
+[![E2E Tests](https://github.com/PatrickFanella/transcript-create/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/PatrickFanella/transcript-create/actions/workflows/e2e-tests.yml)
+[![Docker Build](https://github.com/PatrickFanella/transcript-create/actions/workflows/docker-build.yml/badge.svg)](https://github.com/PatrickFanella/transcript-create/actions/workflows/docker-build.yml)
 [![Docker Image Version](https://ghcr-badge.egpl.dev/onnwee/transcript-create/latest_tag?trim=major&label=latest)](https://github.com/onnwee/transcript-create/pkgs/container/transcript-create)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Code of Conduct](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
@@ -38,13 +38,13 @@ See the [SDK documentation](clients/) for detailed usage examples and API refere
 
 - **[Getting Started Guide](docs/getting-started.md)** - Set up and run your first transcription
 - **[YouTube Ingestion Setup](docs/youtube-ingestion-setup.md)** - JS runtime, cookies, and troubleshooting
-- **[YouTube Quick Reference](docs/YOUTUBE_TROUBLESHOOTING_QUICK_REFERENCE.md)** - Fast troubleshooting for common issues
+- **[YouTube Quick Reference](docs/youtube-troubleshooting-quick-reference.md)** - Fast troubleshooting for common issues
 - **[PO Token Manager](docs/po-token-manager.md)** - Configure YouTube PO tokens for reliable downloads
 - **[API Documentation](docs/api-reference.md)** - Complete API reference with examples
 - **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
 - **[Code of Conduct](CODE_OF_CONDUCT.md)** - Community guidelines
 - **[Changelog](CHANGELOG.md)** - Track project changes and releases
-- **[Security Policy](SECURITY.md)** - Report vulnerabilities responsibly
+- **[Security Policy](docs/security.md)** - Report vulnerabilities responsibly
 
 ### For Contributors
 
@@ -57,11 +57,11 @@ See the [SDK documentation](clients/) for detailed usage examples and API refere
 
 ### Get Involved
 
-- 🐛 [Report a Bug](https://github.com/subculture-collective/transcript-create/issues/new?template=bug_report.md)
-- ✨ [Request a Feature](https://github.com/subculture-collective/transcript-create/issues/new?template=feature_request.md)
-- ❓ [Ask a Question](https://github.com/subculture-collective/transcript-create/issues/new?template=question.md)
-- 🙌 [View All Contributors](CONTRIBUTORS.md)
-- 🎯 [Find Good First Issues](https://github.com/subculture-collective/transcript-create/labels/good%20first%20issue)
+- 🐛 [Report a Bug](https://github.com/PatrickFanella/transcript-create/issues/new?template=bug_report.md)
+- ✨ [Request a Feature](https://github.com/PatrickFanella/transcript-create/issues/new?template=feature_request.md)
+- ❓ [Ask a Question](https://github.com/PatrickFanella/transcript-create/issues/new?template=question.md)
+- 🙌 [View All Contributors](docs/contributors.md)
+- 🎯 [Find Good First Issues](https://github.com/PatrickFanella/transcript-create/labels/good%20first%20issue)
 
 ## CI/CD Status
 
@@ -136,7 +136,7 @@ openssl rand -hex 32  # Copy this value to SESSION_SECRET in .env
 # Billing/auth can be added later; see sections below
 ```
 
-**Security Note**: See [SECURITY.md](SECURITY.md) for detailed security practices and secrets management.
+**Security Note**: See [docs/security.md](docs/security.md) for detailed security practices and secrets management.
 
 2. Start services with Docker Compose (Postgres + API + Worker + Backup; OpenSearch optional)
 
@@ -261,11 +261,11 @@ Images are built with:
 - Data storage: `data/VIDEO_UUID/` mounted as `/data` in containers
 - OpenSearch analysis: `config/opensearch/analysis/`
 - Documentation: `docs/` (guides for migrations, logging, monitoring, disaster recovery, etc.)
-  - [Database Migrations](docs/MIGRATIONS.md) - Schema versioning with Alembic
+  - [Database Migrations](docs/migrations.md) - Schema versioning with Alembic
   - [Backup & Disaster Recovery](docs/operations/disaster-recovery.md) - Automated backups, PITR, recovery procedures
   - [Backup Operations](docs/operations/backup-operations.md) - Daily operations, troubleshooting, maintenance
 
-See [docs/MIGRATIONS.md](docs/MIGRATIONS.md) for database migration details.
+See [docs/migrations.md](docs/migrations.md) for database migration details.
 See [docs/operations/disaster-recovery.md](docs/operations/disaster-recovery.md) for backup and recovery procedures.
 
 ## Pipeline overview
@@ -480,7 +480,7 @@ The application includes comprehensive monitoring with Prometheus metrics and Gr
 - Database query performance
 - GPU memory usage (when available)
 
-For detailed documentation, see [docs/MONITORING.md](docs/MONITORING.md) including:
+For detailed documentation, see [docs/monitoring.md](docs/monitoring.md) including:
 
 - Adding custom metrics
 - Alert configuration
@@ -531,7 +531,7 @@ For comprehensive troubleshooting of YouTube downloads, see **[YouTube Ingestion
 - **[YouTube Ingestion Setup](docs/youtube-ingestion-setup.md)** - Comprehensive setup and troubleshooting
 - **[PO Token Manager](docs/po-token-manager.md)** - Token configuration and troubleshooting
 - **[Health Checks](docs/health-checks.md)** - System health monitoring
-- **[Error Handling](docs/ERROR_HANDLING.md)** - Error recovery patterns
+- **[Error Handling](docs/error-handling.md)** - Error recovery patterns
 
 ## Testing
 
@@ -611,7 +611,7 @@ npm run test:critical      # Fast critical tests only
 - Mobile responsiveness
 - Cross-browser (Chromium, Firefox, WebKit)
 
-See [docs/E2E-TESTING.md](docs/E2E-TESTING.md) for comprehensive guide and [e2e/README.md](e2e/README.md) for detailed documentation.
+See [docs/e2e-testing.md](docs/e2e-testing.md) for comprehensive guide and [e2e/README.md](e2e/README.md) for detailed documentation.
 
 ## Contributing
 
@@ -689,7 +689,7 @@ For detailed guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
     pip-audit -r requirements.txt
     ```
 
-4. Follow security guidelines in [SECURITY.md](SECURITY.md)
+4. Follow security guidelines in [docs/security.md](docs/security.md)
 
 ## Testing
 
@@ -750,7 +750,7 @@ This project follows security best practices:
 - Pre-commit hooks prevent accidental secret commits
 - Secrets managed via environment variables only
 
-See [SECURITY.md](SECURITY.md) for:
+See [docs/security.md](docs/security.md) for:
 
 - Reporting security vulnerabilities
 - Secrets management guidelines
@@ -769,7 +769,7 @@ We follow [Semantic Versioning](https://semver.org/) (SemVer) for all releases.
 
 ### Release Information
 
-- **Current version**: See [releases](https://github.com/subculture-collective/transcript-create/releases)
+- **Current version**: See [releases](https://github.com/PatrickFanella/transcript-create/releases)
 - **Changelog**: See [CHANGELOG.md](CHANGELOG.md) for all changes
 - **Release process**: See [docs/development/release-process.md](docs/development/release-process.md)
 
@@ -777,26 +777,26 @@ We follow [Semantic Versioning](https://semver.org/) (SemVer) for all releases.
 
 ```bash
 # Specific version (recommended for production)
-ghcr.io/subculture-collective/transcript-create:v0.1.0
+ghcr.io/onnwee/transcript-create:v0.1.0
 
 # Latest stable release (auto-updated)
-ghcr.io/subculture-collective/transcript-create:latest
+ghcr.io/onnwee/transcript-create:latest
 
 # Major version (gets minor and patch updates)
-ghcr.io/subculture-collective/transcript-create:0
+ghcr.io/onnwee/transcript-create:0
 ```
 
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-For information about third-party dependencies and their licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+For information about third-party dependencies and their licenses, see [docs/third-party-notices.md](docs/third-party-notices.md).
 
 ## Contributors
 
 Thank you to all the amazing people who have contributed to Transcript Create! 🙏
 
-See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the full list of contributors.
+See [docs/contributors.md](docs/contributors.md) for the full list of contributors.
 
 Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) and [First-Time Contributors Guide](docs/contributing/first-time.md) to get started!
 

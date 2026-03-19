@@ -4,10 +4,10 @@
 
 We actively support security updates for the following versions of Transcript Create:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| latest (main) | :white_check_mark: |
-| < 1.0   | :x:                |
+| Version       | Supported            |
+| ------------- | -------------------- |
+| latest (main) | :white_check_mark:   |
+| < 1.0         | :x:                  |
 
 ## Reporting a Vulnerability
 
@@ -19,8 +19,8 @@ We take the security of Transcript Create seriously. If you have discovered a se
 
 Instead, please report them via one of the following methods:
 
-1. **GitHub Security Advisories** (Preferred): [Report a vulnerability](https://github.com/subculture-collective/transcript-create/security/advisories/new)
-2. **Email**: security@subculture.community
+1. **GitHub Security Advisories** (Preferred): [Report a vulnerability](https://github.com/PatrickFanella/transcript-create/security/advisories/new)
+2. **Email**: <security@subculture.community>
 
 ### What to Include
 
@@ -85,6 +85,7 @@ This project implements multiple layers of security scanning:
 - **Secret Management**: Environment variables for sensitive configuration
 
 <sup>†</sup> OAuth 2.0 authentication is an optional feature. It requires installing additional dependencies and configuring the application. See the documentation for details on enabling OAuth support.
+
 ## Security Best Practices
 
 When contributing to this project:
@@ -108,8 +109,8 @@ When contributing to this project:
 
 ## Security Contacts
 
-- **Security Email**: security@subculture.community
-- **GitHub Security**: Use [GitHub Security Advisories](https://github.com/subculture-collective/transcript-create/security/advisories)
+- **Security Email**: <security@subculture.community>
+- **GitHub Security**: Use [GitHub Security Advisories](https://github.com/PatrickFanella/transcript-create/security/advisories)
 
 ## Recognition
 

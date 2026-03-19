@@ -54,7 +54,7 @@ This guide walks you through setting up Transcript Create for local development.
 
 ### 1. Fork the Repository (for contributors)
 
-Visit [https://github.com/subculture-collective/transcript-create](https://github.com/subculture-collective/transcript-create) and click "Fork" to create your own copy.
+Visit [https://github.com/PatrickFanella/transcript-create](https://github.com/PatrickFanella/transcript-create) and click "Fork" to create your own copy.
 
 ### 2. Clone Your Fork
 
@@ -64,7 +64,7 @@ git clone https://github.com/YOUR_USERNAME/transcript-create.git
 cd transcript-create
 
 # Add upstream remote (to sync with main repo)
-git remote add upstream https://github.com/subculture-collective/transcript-create.git
+git remote add upstream https://github.com/PatrickFanella/transcript-create.git
 
 # Verify remotes
 git remote -v
@@ -230,18 +230,21 @@ pre-commit install
 You'll need **three terminal windows**:
 
 **Terminal 1 - API:**
+
 ```bash
 source .venv/bin/activate  # If not already activated
 uvicorn app.main:app --reload --port 8000
 ```
 
 **Terminal 2 - Worker:**
+
 ```bash
 source .venv/bin/activate  # If not already activated
 python -m worker.loop
 ```
 
 **Terminal 3 - Frontend:**
+
 ```bash
 cd frontend
 npm run dev
@@ -426,13 +429,13 @@ Now that your development environment is set up:
 1. **Read the Architecture Guide**: [architecture.md](architecture.md)
 2. **Review Code Guidelines**: [code-guidelines.md](code-guidelines.md)
 3. **Learn Testing Practices**: [testing.md](testing.md)
-4. **Find Your First Issue**: Look for [`good first issue`](https://github.com/subculture-collective/transcript-create/labels/good%20first%20issue) labels
+4. **Find Your First Issue**: Look for [`good first issue`](https://github.com/PatrickFanella/transcript-create/labels/good%20first%20issue) labels
 
 ## Getting Help
 
 - Check [CONTRIBUTING.md](../../CONTRIBUTING.md) for development workflows
 - Read [First-Time Contributors Guide](../contributing/first-time.md)
-- Ask questions in [GitHub Issues](https://github.com/subculture-collective/transcript-create/issues)
-- Review existing [Pull Requests](https://github.com/subculture-collective/transcript-create/pulls) for examples
+- Ask questions in [GitHub Issues](https://github.com/PatrickFanella/transcript-create/issues)
+- Review existing [Pull Requests](https://github.com/PatrickFanella/transcript-create/pulls) for examples
 
 Happy coding! 🚀

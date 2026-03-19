@@ -6,7 +6,7 @@ global:
   domain: your-production-domain.com
 
 image:
-  repository: ghcr.io/subculture-collective/transcript-create
+  repository: ghcr.io/onnwee/transcript-create
   tag: "1.0.0"  # Use specific version tags, not 'latest'
   pullPolicy: IfNotPresent
   pullSecrets:
@@ -14,7 +14,7 @@ image:
 
 api:
   replicaCount: 5
-  
+
   resources:
     requests:
       cpu: 1000m
@@ -22,21 +22,21 @@ api:
     limits:
       cpu: 4000m
       memory: 8Gi
-  
+
   autoscaling:
     enabled: true
     minReplicas: 5
     maxReplicas: 20
     targetCPUUtilizationPercentage: 60
     targetMemoryUtilizationPercentage: 70
-  
+
   podDisruptionBudget:
     enabled: true
     minAvailable: 3
-  
+
   service:
     sessionAffinity: ClientIP  # Enable sticky sessions
-  
+
   ingress:
     enabled: true
     className: nginx
@@ -70,14 +70,14 @@ api:
 
 worker:
   replicaCount: 3
-  
+
   gpu:
     enabled: true
     type: amd
     nodeSelector:
       workload-type: gpu
       node-type: high-memory
-  
+
   resources:
     requests:
       cpu: 4000m
@@ -87,12 +87,12 @@ worker:
       cpu: 8000m
       memory: 32Gi
       amd.com/gpu: 1
-  
+
   autoscaling:
     enabled: true
     minReplicas: 3
     maxReplicas: 10
-  
+
   podDisruptionBudget:
     enabled: true
     minAvailable: 2
@@ -131,32 +131,32 @@ persistence:
 config:
   whisper:
     model: large-v3
-  
+
   cleanup:
     afterProcess: true
     deleteRaw: true
     deleteWav: true
     deleteChunks: true
-  
+
   cache:
     defaultTtl: 600
     videoTtl: 600
     transcriptTtl: 7200
     searchTtl: 1200
-  
+
   quotas:
     freeDailySearchLimit: 5
     freeDailyExportLimit: 1
-  
+
   security:
     enableRateLimiting: true
     sessionExpireHours: 24
     oauthStateValidation: true
-  
+
   logging:
     level: INFO
     format: json
-  
+
   monitoring:
     enabled: true
 
@@ -167,11 +167,11 @@ monitoring:
   serviceMonitor:
     enabled: true
     interval: 15s
-  
+
   podMonitor:
     enabled: true
     interval: 15s
-  
+
   grafanaDashboard:
     enabled: true
 

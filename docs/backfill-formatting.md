@@ -261,10 +261,10 @@ Errors in one video don't stop the batch:
 
 ## Related Documentation
 
-- [CLEANUP_EXAMPLES.md](CLEANUP_EXAMPLES.md) - Examples of formatting transformations
-- [CLEANUP_PROFILES.md](CLEANUP_PROFILES.md) - Pre-configured formatting profiles
-- [CLEANUP_QUICK_REFERENCE.md](CLEANUP_QUICK_REFERENCE.md) - Quick reference for settings
-- [ADVANCED_FEATURES.md](ADVANCED_FEATURES.md) - Overview of advanced features
+- [cleanup-examples.md](cleanup-examples.md) - Examples of formatting transformations
+- [cleanup-profiles.md](cleanup-profiles.md) - Pre-configured formatting profiles
+- [cleanup-quick-reference.md](cleanup-quick-reference.md) - Quick reference for settings
+- [advanced-features.md](advanced-features.md) - Overview of advanced features
 
 ## Migration Path
 

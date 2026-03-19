@@ -377,7 +377,7 @@ kubectl create secret generic transcript-secrets \
 
 ```bash
 # Clone repository
-git clone https://github.com/subculture-collective/transcript-create.git
+git clone https://github.com/PatrickFanella/transcript-create.git
 cd transcript-create
 
 # Create values file

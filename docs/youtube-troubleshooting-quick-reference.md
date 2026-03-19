@@ -40,13 +40,13 @@ docker compose restart worker
    # Export cookies from browser using extension:
    # Chrome/Edge: "Get cookies.txt LOCALLY"
    # Firefox: "cookies.txt"
-   
+
    # Add to .env:
    YTDLP_COOKIES_PATH=/path/to/youtube_cookies.txt
-   
+
    # Verify format (should show .youtube.com entries)
    head -5 /path/to/youtube_cookies.txt
-   
+
    # Restart worker
    docker compose restart worker
    ```
@@ -428,11 +428,11 @@ If this quick reference doesn't solve your issue:
 
 2. **Check system health**:
    - [Health Checks](health-checks.md)
-   - [Monitoring](MONITORING.md)
+   - [Monitoring](monitoring.md)
 
-3. **Search issues**: https://github.com/subculture-collective/transcript-create/issues
+3. **Search issues**: https://github.com/PatrickFanella/transcript-create/issues
 
-4. **Create new issue**: https://github.com/subculture-collective/transcript-create/issues/new
+4. **Create new issue**: https://github.com/PatrickFanella/transcript-create/issues/new
 
 Include in your issue:
 - Error message from logs

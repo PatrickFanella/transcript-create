@@ -67,7 +67,7 @@ We deeply appreciate every contribution, no matter how small. Every contributor 
 
 ### Special Thanks
 
-Thank you to all the open source projects and libraries that make Transcript Create possible. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full list of dependencies and their licenses.
+Thank you to all the open source projects and libraries that make Transcript Create possible. See [third-party-notices.md](third-party-notices.md) for the full list of dependencies and their licenses.
 
 ---
 

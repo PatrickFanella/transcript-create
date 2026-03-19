@@ -113,13 +113,13 @@ These metrics track yt-dlp operations for audio download, metadata fetch, and ca
 - `ytdlp_operation_duration_seconds` (histogram): Duration of yt-dlp operations by operation type and client strategy
   - Labels: `operation` (download, metadata, captions), `client` (web_safari, ios, android, tv, direct, default)
   - Buckets: 1s, 2s, 5s, 10s, 20s, 30s, 60s, 120s, 180s, 300s, 600s
-  
+
 - `ytdlp_operation_attempts_total` (counter): Total operation attempts by result
   - Labels: `operation`, `client`, `result` (success, failure)
-  
+
 - `ytdlp_operation_errors_total` (counter): Failed operations by error classification
   - Labels: `operation`, `client`, `error_class` (network, throttle, auth, token, not_found, timeout, unknown)
-  
+
 - `ytdlp_token_usage_total` (counter): Operations tracked by PO token presence
   - Labels: `operation`, `has_token` (true, false)
 
@@ -134,14 +134,14 @@ These metrics track yt-dlp operations for audio download, metadata fetch, and ca
 
 **Success rate by client strategy:**
 ```promql
-rate(ytdlp_operation_attempts_total{result="success"}[5m]) 
-/ 
+rate(ytdlp_operation_attempts_total{result="success"}[5m])
+/
 rate(ytdlp_operation_attempts_total[5m])
 ```
 
 **95th percentile download duration by client:**
 ```promql
-histogram_quantile(0.95, 
+histogram_quantile(0.95,
   rate(ytdlp_operation_duration_seconds_bucket{operation="download"}[5m])
 )
 ```

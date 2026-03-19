@@ -130,5 +130,5 @@ uvloop==0.22.1
 watchfiles==1.1.1
 websockets==15.0.1
 yarl==1.22.0
-yt-dlp==2025.10.14
+yt-dlp==2026.2.21
 zipp==3.23.0

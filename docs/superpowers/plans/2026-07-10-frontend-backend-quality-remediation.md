@@ -60,7 +60,7 @@ Compose.
   backend-generated HTML.
 - [x] Render highlights as React nodes and remove all four
   `dangerouslySetInnerHTML` calls.
-- [ ] Finally remove `unsafe-eval` and `unsafe-inline` from production CSP in
+- [x] Finally remove `unsafe-eval` and `unsafe-inline` from production CSP in
   FastAPI, Helm/ingress, and the separately served frontend nginx origin. Move
   first-party inline styles to classes/CSS variables and explicitly allow only
   the required same-origin, Google Font, and YouTube script/frame/image hosts.
@@ -278,7 +278,7 @@ high/critical advisories are cleared.
 
 | Review area | Implemented by | Status |
 | --- | --- | --- |
-| Stored HTML injection and highlight mismatch | Slice 1.1 | In progress: frontend/backend landed; CSP pending |
+| Stored HTML injection and highlight mismatch | Slice 1.1 | Complete |
 | Session credential persistence/export and CSV injection | Slice 1.2 | Pending |
 | Public caching of private/secret responses | Slice 1.3 | Pending |
 | Dependency advisories | Slice 1.4 | In progress: frontend audit clean |

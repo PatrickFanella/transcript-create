@@ -12,6 +12,16 @@ from .settings import settings
 
 logger = get_logger(__name__)
 
+API_CONTENT_SECURITY_POLICY = "; ".join(
+    (
+        "default-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+    )
+)
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Middleware to add security headers to all responses."""
@@ -32,18 +42,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if settings.ENVIRONMENT == "production":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
-        # Content Security Policy
-        # Adjust based on your frontend needs
-        csp_directives = [
-            "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # Adjust for production
-            "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: https:",
-            "font-src 'self' data:",
-            "connect-src 'self'",
-            "frame-ancestors 'none'",
-        ]
-        response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+        # The API serves JSON rather than browser application assets. Deny all
+        # resource loading by default while retaining explicit document-level
+        # restrictions for any browser-rendered error response.
+        response.headers["Content-Security-Policy"] = API_CONTENT_SECURITY_POLICY
 
         # Remove server identification
         if "server" in response.headers:

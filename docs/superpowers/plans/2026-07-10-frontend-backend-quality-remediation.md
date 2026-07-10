@@ -108,9 +108,10 @@ contract tests.
 
 ### Slice 1.4: Dependency security
 
-- [ ] Upgrade vulnerable frontend runtime and build dependencies in bounded
+- [x] Upgrade vulnerable frontend runtime and build dependencies in bounded
   lockfile changes.
-- [ ] Clear reachable high/critical npm and Python advisories.
+- [x] Clear reachable high/critical npm advisories; Python audit remediation is
+  deferred to the pinned Python 3.11 verification slice.
 - [ ] Make npm audit, pip-audit, and Bandit blocking; document expiring,
   evidence-backed exceptions only.
 
@@ -280,7 +281,7 @@ high/critical advisories are cleared.
 | Stored HTML injection and highlight mismatch | Slice 1.1 | In progress: safe frontend landed |
 | Session credential persistence/export and CSV injection | Slice 1.2 | Pending |
 | Public caching of private/secret responses | Slice 1.3 | Pending |
-| Dependency advisories | Slice 1.4 | Pending |
+| Dependency advisories | Slice 1.4 | In progress: frontend audit clean |
 | Broken repository/frontend verification gates | Phase 2 | Pending |
 | Vocabulary authorization/data flow | Slice 3.1 | Pending |
 | Worker leases, retries, progress, recovery | Slice 3.2 | Pending |

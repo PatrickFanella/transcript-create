@@ -2582,7 +2582,7 @@ def get_named_period_intelligence(db, period_slug: str, topic_limit: int = 8) ->
         selected_period=period_option,
         period_options=period_options,
         query_time_ms=None,
-    ))
+    ), db=db)
 
 
 def get_durable_archive_intelligence(
@@ -2897,4 +2897,4 @@ def get_durable_archive_intelligence(
         selected_period=selected_period,
         period_options=period_options,
         query_time_ms=None,
-    ))
+    ), db=db)

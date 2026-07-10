@@ -238,57 +238,68 @@ class SearchRepository:
 
         filters = filters or {}
         params = {"q": q, "limit": limit, "offset": offset, "title_q": f"%{q.strip()}%"}
-        native_where = ["(s.text_tsv @@ websearch_to_tsquery('english', :q) OR v.title ILIKE :title_q)"]
+        native_where = ["s.text_tsv @@ websearch_to_tsquery('english', :q)"]
+        native_title_where = ["v.title ILIKE :title_q"]
         youtube_where = ["ys.text_tsv @@ websearch_to_tsquery('english', :q)"]
         youtube_title_where = ["(v.title ILIKE :title_q OR v.youtube_id ILIKE :title_q)"]
 
         if video_id:
             native_where.append("s.video_id = :vid")
+            native_title_where.append("v.id = :vid")
             youtube_where.append("yt.video_id = :vid")
             youtube_title_where.append("yt.video_id = :vid")
             params["vid"] = str(video_id)
 
         if filters.get("date_from"):
             native_where.append("v.uploaded_at >= :date_from")
+            native_title_where.append("v.uploaded_at >= :date_from")
             youtube_where.append("v.uploaded_at >= :date_from")
             youtube_title_where.append("v.uploaded_at >= :date_from")
             params["date_from"] = filters["date_from"]
         if filters.get("date_to"):
             native_where.append("v.uploaded_at <= :date_to")
+            native_title_where.append("v.uploaded_at <= :date_to")
             youtube_where.append("v.uploaded_at <= :date_to")
             youtube_title_where.append("v.uploaded_at <= :date_to")
             params["date_to"] = filters["date_to"]
         if filters.get("min_duration") is not None:
             native_where.append("v.duration_seconds >= :min_duration")
+            native_title_where.append("v.duration_seconds >= :min_duration")
             youtube_where.append("v.duration_seconds >= :min_duration")
             youtube_title_where.append("v.duration_seconds >= :min_duration")
             params["min_duration"] = filters["min_duration"]
         if filters.get("max_duration") is not None:
             native_where.append("v.duration_seconds <= :max_duration")
+            native_title_where.append("v.duration_seconds <= :max_duration")
             youtube_where.append("v.duration_seconds <= :max_duration")
             youtube_title_where.append("v.duration_seconds <= :max_duration")
             params["max_duration"] = filters["max_duration"]
         if filters.get("channel"):
             native_where.append("v.channel_name ILIKE :channel")
+            native_title_where.append("v.channel_name ILIKE :channel")
             youtube_where.append("v.channel_name ILIKE :channel")
             youtube_title_where.append("v.channel_name ILIKE :channel")
             params["channel"] = f"%{filters['channel']}%"
         if filters.get("category"):
             native_where.append("v.category ILIKE :category")
+            native_title_where.append("v.category ILIKE :category")
             youtube_where.append("v.category ILIKE :category")
             youtube_title_where.append("v.category ILIKE :category")
             params["category"] = filters["category"]
         if filters.get("language"):
             native_where.append("v.language = :language")
+            native_title_where.append("v.language = :language")
             youtube_where.append("v.language = :language")
             youtube_title_where.append("v.language = :language")
             params["language"] = filters["language"]
         if filters.get("has_speaker_labels") is not None:
             if filters["has_speaker_labels"]:
                 native_where.append("s.speaker_label IS NOT NULL")
+                native_title_where.append("s.speaker_label IS NOT NULL")
                 youtube_where.append("FALSE")
             else:
                 native_where.append("s.speaker_label IS NULL")
+                native_title_where.append("s.speaker_label IS NULL")
 
         youtube_where.append("NOT EXISTS (SELECT 1 FROM segments native_s WHERE native_s.video_id = yt.video_id)")
         youtube_title_where.append("NOT EXISTS (SELECT 1 FROM segments native_s WHERE native_s.video_id = yt.video_id)")
@@ -327,6 +338,31 @@ class SearchRepository:
                 FROM segments s
                 JOIN videos v ON s.video_id = v.id
                 WHERE {' AND '.join(native_where)}
+
+                UNION ALL
+
+                SELECT
+                    s.id,
+                    v.id AS video_id,
+                    s.start_ms,
+                    s.end_ms,
+                    coalesce(v.title, s.text) AS snippet,
+                    'whisper' AS source,
+                    0.0 AS rank,
+                    1 AS title_match,
+                    v.uploaded_at,
+                    v.duration_seconds,
+                    v.title AS video_title,
+                    v.channel_name
+                FROM videos v
+                JOIN LATERAL (
+                    SELECT segment.id, segment.start_ms, segment.end_ms, segment.text, segment.speaker_label
+                    FROM segments segment
+                    WHERE segment.video_id = v.id
+                    ORDER BY segment.start_ms ASC
+                    LIMIT 1
+                ) s ON true
+                WHERE {' AND '.join(native_title_where)}
 
                 UNION ALL
 

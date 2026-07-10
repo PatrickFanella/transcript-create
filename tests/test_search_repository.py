@@ -114,6 +114,11 @@ def test_search_best_builds_expected_sql_and_preserves_source():
     assert result == rows
     sql = str(db.calls[0]["statement"])
     assert "NOT EXISTS (SELECT 1 FROM segments native_s WHERE native_s.video_id = yt.video_id)" in sql
+    assert "s.text_tsv @@ websearch_to_tsquery('english', :q) OR v.title ILIKE :title_q" not in sql
+    assert "FROM segments s" in sql
+    assert "WHERE s.text_tsv @@ websearch_to_tsquery('english', :q)" in sql
+    assert "JOIN LATERAL" in sql
+    assert "WHERE v.title ILIKE :title_q" in sql
     assert "ORDER BY duration_seconds ASC NULLS LAST, start_ms ASC" in sql
 
 

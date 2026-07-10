@@ -342,7 +342,7 @@ def get_archive_intelligence(
         period_slug=period,
     )
     if cached is not None:
-        return attach_archive_facets(cached).model_copy(update={"query_time_ms": int((time.perf_counter() - start) * 1000)})
+        return attach_archive_facets(cached, db=db).model_copy(update={"query_time_ms": int((time.perf_counter() - start) * 1000)})
 
     summary = archive_repository.get_summary(db, recent_limit=6, popular_limit=max(topic_limit, 8))
     timeline = crud.get_archive_timeline(db, limit=max(period_limit, 1) * 25, granularity=granularity)
@@ -395,7 +395,7 @@ def get_archive_intelligence(
         selected_period=selected_period,
         period_options=period_options,
         query_time_ms=int((time.perf_counter() - start) * 1000),
-    ))
+    ), db=db)
 
 
 def get_archive_period_options(db, kind: str | None = None, limit: int = 120) -> ArchivePeriodOptionsResponse:

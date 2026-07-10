@@ -12,6 +12,13 @@ from app import crud
 from app.exceptions import ExternalServiceError, ValidationError
 from app.schemas import GroupedSearchResponse, MentionMap, SearchHit, SearchResponse
 from app.search import analytics as search_analytics
+from app.search.highlights import (
+    HIGHLIGHT_END,
+    HIGHLIGHT_START,
+    normalize_highlight_ranges,
+    normalize_search_rows,
+    parse_highlighted_snippet,
+)
 from app.search.repositories import PostgresSearchBackend
 from app.search.service import SearchService
 from app.search.types import SearchRequest, SearchRequestContext
@@ -63,7 +70,11 @@ class SearchOrchestrator:
                         "minimum_should_match": 1,
                     }
                 },
-                "highlight": {"fields": {"text": {"number_of_fragments": 3, "fragment_size": 180}}},
+                "highlight": {
+                    "pre_tags": [HIGHLIGHT_START],
+                    "post_tags": [HIGHLIGHT_END],
+                    "fields": {"text": {"number_of_fragments": 3, "fragment_size": 180}},
+                },
             }
             if video_id:
                 bool_query: Dict[str, Any] = query["query"]["bool"]  # type: ignore[assignment]
@@ -119,13 +130,16 @@ class SearchOrchestrator:
             for h in data.get("hits", {}).get("hits", []):
                 src = h.get("_source", {})
                 hl = h.get("highlight", {}).get("text", [src.get("text", "")])
+                marked_snippet = hl[0] if isinstance(hl, list) and hl else src.get("text", "")
+                snippet, highlights = parse_highlighted_snippet(marked_snippet)
                 hits.append(
                     SearchHit(
                         id=int(src.get("id")),
                         video_id=uuid.UUID(src.get("video_id")),
                         start_ms=int(src.get("start_ms", 0)),
                         end_ms=int(src.get("end_ms", 0)),
-                        snippet=hl[0],
+                        snippet=snippet,
+                        highlights=highlights,
                         source="whisper" if effective_source == "native" else "youtube",
                     )
                 )
@@ -163,6 +177,9 @@ class SearchOrchestrator:
                     start_ms=r["start_ms"],
                     end_ms=r["end_ms"],
                     snippet=r["snippet"] or "",
+                    highlights=normalize_highlight_ranges(
+                        str(r["snippet"] or ""), r.get("highlights") or []
+                    ),
                     source=r["source"],
                     video_title=r.get("video_title"),
                     channel_name=r.get("channel_name"),
@@ -191,6 +208,7 @@ class SearchOrchestrator:
                     start_ms=r.start_ms,
                     end_ms=r.end_ms,
                     snippet=r.snippet,
+                    highlights=list(r.highlights),
                     source="whisper",
                 )
                 for r in native_results
@@ -212,6 +230,9 @@ class SearchOrchestrator:
                     start_ms=r["start_ms"],
                     end_ms=r["end_ms"],
                     snippet=r["snippet"] or "",
+                    highlights=normalize_highlight_ranges(
+                        str(r["snippet"] or ""), r.get("highlights") or []
+                    ),
                     source="youtube",
                     video_title=r.get("video_title"),
                     channel_name=r.get("channel_name"),
@@ -377,6 +398,8 @@ class SearchOrchestrator:
                 sort_by=sort_by,
                 filters=filters,
             )
+
+        rows = normalize_search_rows(rows)
 
         video_details: dict[str, dict[str, Any]] = {}
         for r in rows:

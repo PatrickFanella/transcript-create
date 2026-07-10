@@ -118,6 +118,15 @@ class TestOpenAPISpec:
             has_description = "description" in schema or "title" in schema
             assert has_description, f"Schema {schema_name} has no description or title"
 
+    def test_search_hit_uses_plain_text_and_structured_highlights(self, client: TestClient):
+        spec = client.get("/openapi.json").json()
+        search_hit = spec["components"]["schemas"]["SearchHit"]
+        properties = search_hit["properties"]
+
+        assert "Plain-text" in properties["snippet"]["description"]
+        assert properties["highlights"]["type"] == "array"
+        assert properties["highlights"]["items"]["$ref"].endswith("/HighlightRange")
+
     def test_error_responses_documented(self, client: TestClient):
         """Test that key endpoints document error responses."""
         response = client.get("/openapi.json")

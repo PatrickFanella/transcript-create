@@ -443,7 +443,15 @@ class TestArchiveRoutes:
     @patch("app.crud.get_grouped_search")
     def test_grouped_search_route(self, mock_grouped_search, client: TestClient):
         video = VideoInfo(id=uuid.uuid4(), youtube_id="yt123", title="Grouped Video", duration_seconds=120)
-        moment = SearchMoment(id=1, video_id=video.id, start_ms=1000, end_ms=2000, snippet="match here", source="whisper")
+        moment = SearchMoment(
+            id=1,
+            video_id=video.id,
+            start_ms=1000,
+            end_ms=2000,
+            snippet="match here",
+            highlights=[{"start": 0, "end": 5}],
+            source="whisper",
+        )
         mock_grouped_search.return_value = GroupedSearchResponse(total_moments=1, total_videos=1, groups=[EpisodeSearchGroup(video=video, moments=[moment])], query_time_ms=7)
 
         response = client.get("/search/grouped?q=match&source=native")
@@ -452,11 +460,20 @@ class TestArchiveRoutes:
         assert data["total_moments"] == 1
         assert data["groups"][0]["video"]["youtube_id"] == "yt123"
         assert data["groups"][0]["moments"][0]["snippet"] == "match here"
+        assert data["groups"][0]["moments"][0]["highlights"] == [{"start": 0, "end": 5}]
 
     @patch("app.crud.get_mention_map")
     def test_mention_map_route(self, mock_mention_map, client: TestClient):
         video = VideoInfo(id=uuid.uuid4(), youtube_id="yt456", title="Mention Video", duration_seconds=90)
-        moment = SearchMoment(id=2, video_id=video.id, start_ms=500, end_ms=1500, snippet="mention here", source="youtube")
+        moment = SearchMoment(
+            id=2,
+            video_id=video.id,
+            start_ms=500,
+            end_ms=1500,
+            snippet="mention here",
+            highlights=[{"start": 0, "end": 7}],
+            source="youtube",
+        )
         grouped = EpisodeSearchGroup(video=video, moments=[moment])
         mock_mention_map.return_value = MentionMap(
             query="mention",
@@ -484,4 +501,5 @@ class TestArchiveRoutes:
         assert data["related_topics"] == ["copyright", "openai"]
         assert data["top_episodes_count"] == 1
         assert data["first_mention"]["snippet"] == "mention here"
+        assert data["first_mention"]["highlights"] == [{"start": 0, "end": 7}]
         assert data["top_episodes"][0]["video"]["youtube_id"] == "yt456"

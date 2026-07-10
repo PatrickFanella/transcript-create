@@ -208,6 +208,13 @@ export interface YouTubeTranscriptResponse {
 /**
  * Search hit result
  */
+export interface HighlightRange {
+  /** Inclusive Unicode code-point offset */
+  start: number;
+  /** Exclusive Unicode code-point offset */
+  end: number;
+}
+
 export interface SearchHit {
   /** Segment ID */
   id: number;
@@ -217,8 +224,14 @@ export interface SearchHit {
   start_ms: number;
   /** End time in milliseconds */
   end_ms: number;
-  /** Text snippet with highlights */
+  /** Plain-text transcript or title snippet */
   snippet: string;
+  /**
+   * Half-open highlighted ranges measured in Unicode code points.
+   * New servers always return this field; it remains optional while older
+   * server responses and user-constructed SDK values are supported.
+   */
+  highlights?: HighlightRange[];
 }
 
 /**

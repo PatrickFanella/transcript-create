@@ -52,11 +52,11 @@ Compose.
 - [x] First deploy a backward-compatible safe frontend renderer that accepts
   optional ranges and parses only exact legacy `b`/`em`/`mark` markers as inert
   data; it must never use DOM HTML insertion.
-- [ ] Add hostile-snippet API and frontend regression tests first.
-- [ ] Then make `snippet` plain text and add half-open Unicode-code-point
+- [x] Add hostile-snippet API and frontend regression tests first.
+- [x] Then make `snippet` plain text and add half-open Unicode-code-point
   `highlights: [{start, end}]`; JavaScript converts with `Array.from` before
   slicing and defensively sorts/clamps/merges ranges.
-- [ ] Parse PostgreSQL/OpenSearch markers inside backend adapters; never expose
+- [x] Parse PostgreSQL/OpenSearch markers inside backend adapters; never expose
   backend-generated HTML.
 - [x] Render highlights as React nodes and remove all four
   `dangerouslySetInnerHTML` calls.
@@ -64,7 +64,7 @@ Compose.
   FastAPI, Helm/ingress, and the separately served frontend nginx origin. Move
   first-party inline styles to classes/CSS variables and explicitly allow only
   the required same-origin, Google Font, and YouTube script/frame/image hosts.
-- [ ] Verify malformed, encoded, Unicode, overlapping, title, and transcript
+- [x] Verify malformed, encoded, Unicode, overlapping, title, and transcript
   cases.
 
 ### Slice 1.2: Remove session credentials from analytics
@@ -278,7 +278,7 @@ high/critical advisories are cleared.
 
 | Review area | Implemented by | Status |
 | --- | --- | --- |
-| Stored HTML injection and highlight mismatch | Slice 1.1 | In progress: safe frontend landed |
+| Stored HTML injection and highlight mismatch | Slice 1.1 | In progress: frontend/backend landed; CSP pending |
 | Session credential persistence/export and CSV injection | Slice 1.2 | Pending |
 | Public caching of private/secret responses | Slice 1.3 | Pending |
 | Dependency advisories | Slice 1.4 | In progress: frontend audit clean |

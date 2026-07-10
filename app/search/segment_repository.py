@@ -4,6 +4,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app.search.highlights import POSTGRES_HEADLINE_OPTIONS, normalize_search_rows
+
 
 class SearchRepository:
     def search_native(
@@ -23,7 +25,12 @@ class SearchRepository:
         # Build WHERE clause with filters. Search transcript text and video title so
         # users can find newly processed videos by title from the main search box.
         where_clauses = ["(s.text_tsv @@ websearch_to_tsquery('english', :q) OR v.title ILIKE :title_q)"]
-        params = {"q": q, "limit": limit, "offset": offset}
+        params = {
+            "q": q,
+            "limit": limit,
+            "offset": offset,
+            "headline_options": POSTGRES_HEADLINE_OPTIONS,
+        }
         params["title_q"] = f"%{q.strip()}%"
 
         if video_id:
@@ -80,7 +87,7 @@ class SearchRepository:
         select_fields = (
             "s.id, s.video_id, s.start_ms, s.end_ms, "
             "CASE WHEN s.text_tsv @@ websearch_to_tsquery('english', :q) "
-            "THEN ts_headline('english', s.text, websearch_to_tsquery('english', :q)) "
+            "THEN ts_headline('english', s.text, websearch_to_tsquery('english', :q), :headline_options) "
             "ELSE coalesce(v.title, s.text) END AS snippet, "
             "ts_rank_cd(s.text_tsv, websearch_to_tsquery('english', :q)) AS rank, "
             "CASE WHEN v.title ILIKE :title_q THEN 1 ELSE 0 END AS title_match"
@@ -102,7 +109,7 @@ class SearchRepository:
         # Track search query metric
         search_queries_total.labels(backend="postgres").inc()
 
-        return rows
+        return normalize_search_rows(rows)
 
     def search_youtube(
         self,
@@ -121,7 +128,13 @@ class SearchRepository:
         # searches scan/return every caption segment for matching videos.
         text_where = ["ys.text_tsv @@ websearch_to_tsquery('english', :q)"]
         title_where = ["(v.title ILIKE :title_q OR v.youtube_id ILIKE :title_q)"]
-        params = {"q": q, "limit": limit, "offset": offset, "title_q": f"%{q.strip()}%"}
+        params = {
+            "q": q,
+            "limit": limit,
+            "offset": offset,
+            "title_q": f"%{q.strip()}%",
+            "headline_options": POSTGRES_HEADLINE_OPTIONS,
+        }
 
         if video_id:
             text_where.append("yt.video_id = :vid")
@@ -180,7 +193,9 @@ class SearchRepository:
                     yt.video_id,
                     ys.start_ms,
                     ys.end_ms,
-                    ts_headline('english', ys.text, websearch_to_tsquery('english', :q)) AS snippet,
+                    ts_headline(
+                        'english', ys.text, websearch_to_tsquery('english', :q), :headline_options
+                    ) AS snippet,
                     ts_rank_cd(ys.text_tsv, websearch_to_tsquery('english', :q)) AS rank,
                     0 AS title_match,
                     v.uploaded_at,
@@ -222,7 +237,7 @@ class SearchRepository:
         """
 
         rows = db.execute(text(sql), params).mappings().all()
-        return rows
+        return normalize_search_rows(rows)
 
     def search_best(
         self,
@@ -237,7 +252,13 @@ class SearchRepository:
         from app.metrics import search_queries_total
 
         filters = filters or {}
-        params = {"q": q, "limit": limit, "offset": offset, "title_q": f"%{q.strip()}%"}
+        params = {
+            "q": q,
+            "limit": limit,
+            "offset": offset,
+            "title_q": f"%{q.strip()}%",
+            "headline_options": POSTGRES_HEADLINE_OPTIONS,
+        }
         native_where = ["s.text_tsv @@ websearch_to_tsquery('english', :q)"]
         native_title_where = ["v.title ILIKE :title_q"]
         youtube_where = ["ys.text_tsv @@ websearch_to_tsquery('english', :q)"]
@@ -325,7 +346,9 @@ class SearchRepository:
                     s.start_ms,
                     s.end_ms,
                     CASE WHEN s.text_tsv @@ websearch_to_tsquery('english', :q)
-                        THEN ts_headline('english', s.text, websearch_to_tsquery('english', :q))
+                        THEN ts_headline(
+                            'english', s.text, websearch_to_tsquery('english', :q), :headline_options
+                        )
                         ELSE coalesce(v.title, s.text)
                     END AS snippet,
                     'whisper' AS source,
@@ -372,7 +395,9 @@ class SearchRepository:
                     ys.start_ms,
                     ys.end_ms,
                     CASE WHEN ys.text_tsv @@ websearch_to_tsquery('english', :q)
-                        THEN ts_headline('english', ys.text, websearch_to_tsquery('english', :q))
+                        THEN ts_headline(
+                            'english', ys.text, websearch_to_tsquery('english', :q), :headline_options
+                        )
                         ELSE coalesce(v.title, ys.text)
                     END AS snippet,
                     'youtube' AS source,
@@ -413,4 +438,4 @@ class SearchRepository:
         """
         rows = db.execute(text(sql), params).mappings().all()
         search_queries_total.labels(backend="postgres").inc()
-        return rows
+        return normalize_search_rows(rows)

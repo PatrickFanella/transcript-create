@@ -5,6 +5,7 @@ from fastapi import Request
 
 from app.schemas import MentionMap
 from app.search import analytics as search_analytics
+from app.search.highlights import HIGHLIGHT_END, HIGHLIGHT_START
 from app.search.orchestrator import SearchOrchestrator
 from app.search.types import SearchRequestContext, SearchResult
 
@@ -72,6 +73,7 @@ def test_search_orchestrator_anonymous_search_skips_history(monkeypatch):
     result = SearchOrchestrator().search(db, request, q="hello", source="native")
 
     assert result.hits[0].snippet == "hello"
+    assert result.hits[0].highlights == []
     assert result.hits[0].source == "whisper"
     save_history.assert_not_called()
 
@@ -97,3 +99,66 @@ def test_search_orchestrator_mention_map_saves_history(monkeypatch):
 
     assert result.total_moments == 2
     history.assert_called_once()
+
+
+def test_opensearch_uses_private_sentinels_and_returns_plain_ranges(monkeypatch):
+    video_id = "11111111-1111-1111-1111-111111111111"
+    response = MagicMock()
+    response.json.return_value = {
+        "hits": {
+            "total": {"value": 2},
+            "hits": [
+                {
+                    "_source": {"id": 1, "video_id": video_id, "start_ms": 0, "end_ms": 10, "text": "🚀 rent"},
+                    "highlight": {"text": [f"🚀 {HIGHLIGHT_START}rent{HIGHLIGHT_END}"]},
+                },
+                {
+                    "_source": {
+                        "id": 2,
+                        "video_id": video_id,
+                        "start_ms": 10,
+                        "end_ms": 20,
+                        "text": "literal <script>alert(1)</script>",
+                    }
+                },
+            ],
+        }
+    }
+    post = MagicMock(return_value=response)
+    monkeypatch.setattr("app.search.orchestrator.settings.SEARCH_BACKEND", "opensearch")
+    monkeypatch.setattr("app.search.orchestrator.requests.post", post)
+    monkeypatch.setattr(
+        search_analytics,
+        "record_search_request",
+        lambda *_args, **_kwargs: SearchRequestContext(user_id=None, session_token=None, is_admin=False),
+    )
+
+    result = SearchOrchestrator().search(FakeDB(), MagicMock(spec=Request), q="rent", source="native")
+
+    query = post.call_args.kwargs["json"]
+    assert query["highlight"]["pre_tags"] == [HIGHLIGHT_START]
+    assert query["highlight"]["post_tags"] == [HIGHLIGHT_END]
+    assert result.hits[0].snippet == "🚀 rent"
+    assert [item.model_dump() for item in result.hits[0].highlights] == [{"start": 2, "end": 6}]
+    assert result.hits[1].snippet == "literal <script>alert(1)</script>"
+    assert result.hits[1].highlights == []
+
+
+def test_export_rows_normalize_engine_markers(monkeypatch):
+    row = {
+        "id": 1,
+        "video_id": "11111111-1111-1111-1111-111111111111",
+        "start_ms": 0,
+        "end_ms": 10,
+        "snippet": f"literal <img onerror=x> {HIGHLIGHT_START}rent{HIGHLIGHT_END}",
+    }
+    monkeypatch.setattr("app.search.orchestrator.crud.search_segments_advanced", lambda *_args, **_kwargs: [row])
+    db = MagicMock()
+    db.execute.return_value.mappings.return_value.first.return_value = None
+
+    rows, _video_details = SearchOrchestrator().prepare_export_rows(
+        db, q="rent", format="json", source="native"
+    )
+
+    assert rows[0]["snippet"] == "literal <img onerror=x> rent"
+    assert rows[0]["highlights"] == [{"start": 24, "end": 28}]

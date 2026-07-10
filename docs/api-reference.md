@@ -297,11 +297,19 @@ Search transcripts with filtering and pagination.
       "video_id": "123e4567-e89b-12d3-a456-426614174000",
       "start_ms": 45000,
       "end_ms": 48500,
-      "snippet": "This is an example of <em>search term</em> in context"
+      "snippet": "This is an example of search term in context",
+      "highlights": [
+        {"start": 22, "end": 33}
+      ]
     }
   ]
 }
 ```
+
+`snippet` is always plain text. `highlights` is always present and contains
+half-open `{start, end}` offsets measured in Unicode code points. An unhighlighted
+title or raw-text fallback returns `"highlights": []`. Render the ranges as text
+nodes; do not interpret `snippet` as HTML.
 
 **Errors:**
 

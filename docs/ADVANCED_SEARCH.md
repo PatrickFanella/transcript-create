@@ -232,7 +232,7 @@ Response:
       "title": "Python Tutorial",
       "start_ms": 45000,
       "end_ms": 48500,
-      "text": "This is a <em>python</em> tutorial..."
+      "text": "This is a python tutorial..."
     }
   ],
   "count": 42
@@ -244,6 +244,20 @@ Response:
 - Higher limit (up to 1000 results)
 - Includes video metadata
 - Ready for analysis in spreadsheets or scripts
+
+Search API hits use a markup-free highlighting contract:
+
+```json
+{
+  "snippet": "🚀 python tutorial",
+  "highlights": [{"start": 2, "end": 8}]
+}
+```
+
+Ranges are half-open Unicode code-point offsets. Raw transcript/title fallbacks
+have an empty `highlights` array. Grouped search and mention-map moments use the
+same contract. JSON and CSV exports contain the plain snippet text only; they do
+not contain PostgreSQL or OpenSearch highlight tags.
 
 ## Database Schema
 

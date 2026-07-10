@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 
 class QualitySettingsInput(BaseModel):
@@ -155,6 +155,19 @@ class YouTubeTranscriptResponse(BaseModel):
     source_label: str = Field("YouTube captions", description="Human-readable transcript source label")
 
 
+class HighlightRange(BaseModel):
+    """A half-open highlighted span measured in Unicode code points."""
+
+    start: int = Field(..., ge=0, description="Inclusive Unicode code-point offset")
+    end: int = Field(..., ge=0, description="Exclusive Unicode code-point offset")
+
+    @model_validator(mode="after")
+    def validate_positive_width(self) -> "HighlightRange":
+        if self.end <= self.start:
+            raise ValueError("highlight end must be greater than start")
+        return self
+
+
 class SearchHit(BaseModel):
     """A single search result matching the query."""
 
@@ -162,12 +175,23 @@ class SearchHit(BaseModel):
     video_id: uuid.UUID = Field(..., description="Video containing this segment")
     start_ms: int = Field(..., description="Start time in milliseconds", ge=0)
     end_ms: int = Field(..., description="End time in milliseconds", ge=0)
-    snippet: str = Field(..., description="Text snippet with search term highlighted")
+    snippet: str = Field(..., description="Plain-text transcript or title snippet")
+    highlights: List[HighlightRange] = Field(
+        default_factory=list,
+        description="Highlighted half-open ranges measured in Unicode code points",
+    )
     source: Literal["whisper", "youtube", "merged"] = Field("whisper", description="Transcript source containing this hit")
     video_title: Optional[str] = Field(None, description="Video title for progressive archive UIs")
     channel_name: Optional[str] = Field(None, description="Channel name for progressive archive UIs")
     uploaded_at: Optional[datetime] = Field(None, description="Video upload time")
     duration_seconds: Optional[int] = Field(None, description="Video duration in seconds")
+
+    @model_validator(mode="after")
+    def validate_highlights_within_snippet(self) -> "SearchHit":
+        snippet_length = len(self.snippet)
+        if any(highlight.end > snippet_length for highlight in self.highlights):
+            raise ValueError("highlight end must not exceed snippet length in Unicode code points")
+        return self
 
     model_config = {
         "json_schema_extra": {
@@ -176,7 +200,8 @@ class SearchHit(BaseModel):
                 "video_id": "123e4567-e89b-12d3-a456-426614174000",
                 "start_ms": 45000,
                 "end_ms": 48500,
-                "snippet": "This is an example of <em>search term</em> in context",
+                "snippet": "This is an example of search term in context",
+                "highlights": [{"start": 22, "end": 33}],
             }
         }
     }

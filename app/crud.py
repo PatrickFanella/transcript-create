@@ -10,6 +10,7 @@ from app.cache import cache
 from app.archive.repository import archive_repository
 from app.archive.video_metadata_repository import get_video_metadata_map
 from app.logging_config import get_logger
+from app.search.highlights import POSTGRES_HEADLINE_OPTIONS, normalize_search_rows
 from app.search.segment_repository import SearchRepository
 from app.settings import settings
 from sqlalchemy import bindparam
@@ -426,6 +427,7 @@ def get_grouped_search(db, q: str, source: str = "best", video_id: str | None = 
                 start_ms=int(row["start_ms"]),
                 end_ms=int(row["end_ms"]),
                 snippet=row["snippet"] or "",
+                highlights=row.get("highlights") or [],
                 source=row["source"] if "source" in row else ("whisper" if source == "native" else source),
                 video_title=video.title,
                 channel_name=video.channel_name,
@@ -487,7 +489,7 @@ def get_mention_map(db, q: str, source: str = "best", video_id: str | None = Non
     query_terms = {term.lower() for term in re.findall(r"[A-Za-z][A-Za-z0-9'-]{2,}", q)}
     term_counts: dict[str, int] = {}
     for moment in moments:
-        text_value = re.sub(r"<[^>]+>", " ", moment.snippet or "")
+        text_value = moment.snippet or ""
         seen: set[str] = set()
         for raw_term in re.findall(r"[A-Za-z][A-Za-z0-9'-]{3,}", text_value):
             term = raw_term.strip("'-").lower()
@@ -688,7 +690,9 @@ def search_segments(db, q: str, video_id: str | None = None, limit: int = 50, of
 
     sql = """
         SELECT id, video_id, start_ms, end_ms,
-               ts_headline('english', text, websearch_to_tsquery('english', :q)) AS snippet,
+               ts_headline(
+                   'english', text, websearch_to_tsquery('english', :q), :headline_options
+               ) AS snippet,
                ts_rank_cd(text_tsv, websearch_to_tsquery('english', :q)) AS rank
         FROM segments
         WHERE text_tsv @@ websearch_to_tsquery('english', :q)
@@ -697,7 +701,12 @@ def search_segments(db, q: str, video_id: str | None = None, limit: int = 50, of
         LIMIT :limit OFFSET :offset
     """
     video_filter = ""
-    params = {"q": q, "limit": limit, "offset": offset}
+    params = {
+        "q": q,
+        "limit": limit,
+        "offset": offset,
+        "headline_options": POSTGRES_HEADLINE_OPTIONS,
+    }
     if video_id:
         video_filter = "AND video_id = :vid"
         params["vid"] = str(video_id)
@@ -706,14 +715,16 @@ def search_segments(db, q: str, video_id: str | None = None, limit: int = 50, of
     # Track search query metric
     search_queries_total.labels(backend="postgres").inc()
 
-    return rows
+    return normalize_search_rows(rows)
 
 
 @_retry_on_transient_error
 def search_youtube_segments(db, q: str, video_id: str | None = None, limit: int = 50, offset: int = 0):
     sql = """
         SELECT ys.id, yt.video_id, ys.start_ms, ys.end_ms,
-               ts_headline('english', ys.text, websearch_to_tsquery('english', :q)) AS snippet,
+               ts_headline(
+                   'english', ys.text, websearch_to_tsquery('english', :q), :headline_options
+               ) AS snippet,
                ts_rank_cd(ys.text_tsv, websearch_to_tsquery('english', :q)) AS rank
         FROM youtube_segments ys
         JOIN youtube_transcripts yt ON yt.id = ys.youtube_transcript_id
@@ -723,12 +734,17 @@ def search_youtube_segments(db, q: str, video_id: str | None = None, limit: int 
         LIMIT :limit OFFSET :offset
     """
     video_filter = ""
-    params = {"q": q, "limit": limit, "offset": offset}
+    params = {
+        "q": q,
+        "limit": limit,
+        "offset": offset,
+        "headline_options": POSTGRES_HEADLINE_OPTIONS,
+    }
     if video_id:
         video_filter = "AND yt.video_id = :vid"
         params["vid"] = str(video_id)
     rows = db.execute(text(sql.format(video_filter=video_filter)), params).mappings().all()
-    return rows
+    return normalize_search_rows(rows)
 
 
 @_retry_on_transient_error

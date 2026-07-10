@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.main import app
+from app.search.highlights import HIGHLIGHT_END, HIGHLIGHT_START
 from app.security import get_user_required
 
 
@@ -152,7 +153,7 @@ class TestSearchRoutes:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "hits": {
-                "total": {"value": 1},
+                "total": {"value": 2},
                 "hits": [
                     {
                         "_source": {
@@ -162,8 +163,17 @@ class TestSearchRoutes:
                             "end_ms": 1000,
                             "text": "test content",
                         },
-                        "highlight": {"text": ["<em>test</em> content"]},
-                    }
+                        "highlight": {"text": [f"{HIGHLIGHT_START}test{HIGHLIGHT_END} content"]},
+                    },
+                    {
+                        "_source": {
+                            "id": 124,
+                            "video_id": str(uuid.uuid4()),
+                            "start_ms": 0,
+                            "end_ms": 1000,
+                            "text": "literal <script>alert(1)</script>",
+                        }
+                    },
                 ],
             }
         }
@@ -172,7 +182,13 @@ class TestSearchRoutes:
         response = client.get("/search?q=test&source=native")
         assert response.status_code == 200
         data = response.json()
-        assert "hits" in data
+        assert data["hits"][0]["snippet"] == "test content"
+        assert data["hits"][0]["highlights"] == [{"start": 0, "end": 4}]
+        assert data["hits"][1]["snippet"] == "literal <script>alert(1)</script>"
+        assert data["hits"][1]["highlights"] == []
+        sent_query = mock_post.call_args.kwargs["json"]
+        assert sent_query["highlight"]["pre_tags"] == [HIGHLIGHT_START]
+        assert sent_query["highlight"]["post_tags"] == [HIGHLIGHT_END]
 
     @patch("app.settings.settings.SEARCH_BACKEND", "opensearch")
     @patch("requests.post")
@@ -363,6 +379,54 @@ class TestSearchExport:
         assert response.status_code == 200
         data = response.json()
         assert "results" in data
+
+    @patch("app.routes.search._search_orchestrator.prepare_export_rows")
+    def test_json_export_contains_plain_snippets(self, prepare_export, client: TestClient):
+        video_id = uuid.uuid4()
+        prepare_export.return_value = (
+            [
+                {
+                    "id": 7,
+                    "video_id": video_id,
+                    "start_ms": 100,
+                    "end_ms": 200,
+                    "snippet": "literal <script>alert(1)</script> rent",
+                    "highlights": [{"start": 34, "end": 38}],
+                }
+            ],
+            {str(video_id): {"youtube_id": "yt7", "title": "Title"}},
+        )
+
+        response = client.get("/search/export?q=rent&format=json")
+
+        assert response.status_code == 200
+        assert response.json()["results"][0]["text"] == "literal <script>alert(1)</script> rent"
+        assert HIGHLIGHT_START not in response.text
+        assert HIGHLIGHT_END not in response.text
+
+    @patch("app.routes.search._search_orchestrator.prepare_export_rows")
+    def test_csv_export_contains_plain_snippets(self, prepare_export, client: TestClient):
+        video_id = uuid.uuid4()
+        prepare_export.return_value = (
+            [
+                {
+                    "id": 8,
+                    "video_id": video_id,
+                    "start_ms": 100,
+                    "end_ms": 200,
+                    "snippet": "plain rent",
+                    "highlights": [{"start": 6, "end": 10}],
+                }
+            ],
+            {str(video_id): {"youtube_id": "yt8", "title": "Title"}},
+        )
+
+        response = client.get("/search/export?q=rent&format=csv")
+
+        assert response.status_code == 200
+        assert response.text.endswith("plain rent\n")
+        assert HIGHLIGHT_START not in response.text
+        assert HIGHLIGHT_END not in response.text
 
 
 class TestSearchAnalytics:

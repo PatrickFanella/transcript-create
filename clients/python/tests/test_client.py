@@ -144,7 +144,8 @@ class TestSearchAPI:
                         "video_id": str(video_id),
                         "start_ms": 1000,
                         "end_ms": 3000,
-                        "snippet": "test <em>query</em> match",
+                        "snippet": "test query match",
+                        "highlights": [{"start": 5, "end": 10}],
                     }
                 ],
                 "query_time_ms": 10,
@@ -158,6 +159,8 @@ class TestSearchAPI:
             assert len(results.hits) == 1
             assert results.hits[0].video_id == video_id
             assert "query" in results.hits[0].snippet
+            assert results.hits[0].highlights[0].start == 5
+            assert results.hits[0].highlights[0].end == 10
 
 
 class TestExportAPI:

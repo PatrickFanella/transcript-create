@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.search.highlights import HighlightRange
+
 
 @dataclass(frozen=True)
 class SearchRequest:
@@ -21,6 +23,7 @@ class SearchResult:
     end_ms: int
     snippet: str
     rank: float | None = None
+    highlights: tuple[HighlightRange, ...] = ()
 
 
 @dataclass(frozen=True)

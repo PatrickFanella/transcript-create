@@ -1069,19 +1069,21 @@ def published_label_cards_for_period(
     date_to: date | datetime | None = None,
     limit: int = 12,
 ) -> list[ArchiveTopicCard]:
-    params: dict[str, object] = {"limit": max(limit * 8, limit)}
-    where_parts = [
-        "l.status = 'published'",
+    params: dict[str, object] = {
+        "limit": max(limit * 8, limit),
+        "per_label_limit": 8,
+    }
+    assignment_where_parts = [
         "a.status IN ('auto_published', 'admin_approved')",
         "a.publish_tier IN ('gold', 'silver')",
     ]
     lower = _coerce_datetime(date_from)
     upper = _coerce_datetime(date_to, end=True)
     if lower is not None:
-        where_parts.append("COALESCE(v.uploaded_at, v.created_at) >= :date_from")
+        assignment_where_parts.append("COALESCE(v.uploaded_at, v.created_at) >= :date_from")
         params["date_from"] = lower
     if upper is not None:
-        where_parts.append("COALESCE(v.uploaded_at, v.created_at) < :date_to")
+        assignment_where_parts.append("COALESCE(v.uploaded_at, v.created_at) < :date_to")
         params["date_to"] = upper
 
     rows = _safe_mappings(
@@ -1092,31 +1094,43 @@ def published_label_cards_for_period(
             l.slug,
             l.label,
             l.kind,
-            a.id AS assignment_id,
-            a.video_id,
-            a.start_ms,
-            a.end_ms,
-            a.confidence_score AS assignment_confidence,
-            a.evidence AS evidence_payload,
-            v.youtube_id,
-            v.title,
-            v.duration_seconds,
-            v.state,
-            v.caption_ingest_state,
-            v.diarization_state,
-            v.uploaded_at,
-            v.created_at,
-            v.updated_at,
-            v.channel_name,
-            v.language,
-            v.category,
-            EXISTS (SELECT 1 FROM segments s2 WHERE s2.video_id = v.id) AS has_whisper_transcript,
-            EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id) AS has_youtube_transcript
-        FROM archive_label_assignments a
-        JOIN archive_labels l ON l.id = a.label_id
-        JOIN videos v ON v.id = a.video_id
-        WHERE {' AND '.join(where_parts)}
-        ORDER BY l.slug ASC, a.confidence_score DESC, a.evidence_count DESC, COALESCE(v.uploaded_at, v.created_at) DESC NULLS LAST
+            evidence.*
+        FROM archive_labels l
+        CROSS JOIN LATERAL (
+            SELECT
+                a.id AS assignment_id,
+                a.video_id,
+                a.start_ms,
+                a.end_ms,
+                a.confidence_score AS assignment_confidence,
+                a.evidence AS evidence_payload,
+                a.evidence_count,
+                v.youtube_id,
+                v.title,
+                v.duration_seconds,
+                v.state,
+                v.caption_ingest_state,
+                v.diarization_state,
+                v.uploaded_at,
+                v.created_at,
+                v.updated_at,
+                v.channel_name,
+                v.language,
+                v.category,
+                EXISTS (SELECT 1 FROM segments s2 WHERE s2.video_id = v.id) AS has_whisper_transcript,
+                EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id) AS has_youtube_transcript
+            FROM archive_label_assignments a
+            JOIN videos v ON v.id = a.video_id
+            WHERE a.label_id = l.id
+              AND {' AND '.join(assignment_where_parts)}
+            ORDER BY a.confidence_score DESC, a.evidence_count DESC,
+                     COALESCE(v.uploaded_at, v.created_at) DESC NULLS LAST
+            LIMIT :per_label_limit
+        ) evidence
+        WHERE l.status = 'published'
+        ORDER BY l.slug ASC, evidence.assignment_confidence DESC,
+                 evidence.evidence_count DESC,
+                 COALESCE(evidence.uploaded_at, evidence.created_at) DESC NULLS LAST
         LIMIT :limit
         """,
         params,

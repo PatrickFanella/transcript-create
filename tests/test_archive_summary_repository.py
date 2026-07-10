@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from collections import Counter
 from datetime import date, datetime, timezone
 from types import MappingProxyType
 
@@ -271,6 +272,7 @@ def test_seed_named_periods_corrects_current_curated_windows(monkeypatch):
     seed_named_periods(db)
 
     by_slug = {row["slug"]: row for row in db.inserted_periods}
+    kind_counts = Counter(row["kind"] for row in by_slug.values())
     retired_update_slugs = {params["slug"] for sql, params in db.calls if "UPDATE archive_named_periods" in sql and "slug = :slug" in sql}
     retired_update_patterns = {params["pattern"] for sql, params in db.calls if "UPDATE archive_named_periods" in sql and "slug ~ :pattern" in sql}
 
@@ -301,6 +303,19 @@ def test_seed_named_periods_corrects_current_curated_windows(monkeypatch):
     assert by_slug["may-day"]["kind"] == "holiday"
     assert by_slug["may-day"]["recurring_month"] == 5
     assert by_slug["may-day"]["recurring_day"] == 1
+    assert kind_counts["event"] >= 10
+    assert kind_counts["leadup"] >= 5
+    assert kind_counts["fallout"] >= 5
+    assert kind_counts["holiday"] >= 8
+    assert kind_counts["anniversary"] >= 8
+    assert kind_counts["date"] >= 5
+    assert by_slug["january-6-capitol-attack"]["kind"] == "event"
+    assert by_slug["gamestop-saga"]["kind"] == "event"
+    assert by_slug["dobbs-leadup"]["kind"] == "leadup"
+    assert by_slug["2022-midterms-fallout"]["kind"] == "fallout"
+    assert by_slug["juneteenth"]["recurring_month"] == 6
+    assert by_slug["october-7-anniversary"]["recurring_day"] == 7
+    assert by_slug["2024-election-day"]["kind"] == "date"
 
 
 def test_refresh_named_period_stats_includes_metadata_in_public_payloads():

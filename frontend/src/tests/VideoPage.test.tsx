@@ -37,7 +37,10 @@ describe('VideoPage', () => {
       tags: [{ slug: 'chadvice', label: 'Chadvice', kind: 'category' }],
     } as never);
 
-    vi.spyOn(api, 'getTranscript').mockResolvedValue({ video_id: 'video-1', segments: [] } as never);
+    vi.spyOn(api, 'getTranscript').mockResolvedValue({
+      video_id: 'video-1',
+      segments: [],
+    } as never);
 
     render(
       <MemoryRouter initialEntries={['/v/video-1']}>
@@ -58,5 +61,35 @@ describe('VideoPage', () => {
     expect(screen.getByText('Guest One')).toBeInTheDocument();
     expect(screen.getByText('Chadvice')).toBeInTheDocument();
     expect(screen.getByText('Channel Alpha')).toBeInTheDocument();
+  });
+
+  it('shows a retry action when the transcript request fails', async () => {
+    vi.spyOn(http, 'get').mockImplementation(((path: string) => {
+      if (path === 'auth/me') return { json: vi.fn().mockResolvedValue({ user: null }) } as never;
+      return { json: vi.fn().mockResolvedValue({}) } as never;
+    }) as never);
+    vi.spyOn(api, 'getVideo').mockResolvedValue({
+      id: 'video-1',
+      youtube_id: 'abc123xyz89',
+      title: 'Slow episode',
+      has_whisper_transcript: true,
+    } as never);
+    vi.spyOn(api, 'getTranscript').mockRejectedValue(new Error('timeout'));
+
+    render(
+      <MemoryRouter initialEntries={['/v/video-1']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/v/:videoId" element={<VideoPage />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Transcript took too long to load' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(api.getTranscript).toHaveBeenCalledWith('video-1', 'whisper');
   });
 });

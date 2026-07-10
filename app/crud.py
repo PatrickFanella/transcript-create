@@ -98,16 +98,37 @@ def fetch_job(db, job_id: uuid.UUID):
 @_retry_on_transient_error
 @cache(prefix="segments", ttl=settings.CACHE_TRANSCRIPT_TTL if settings.ENABLE_CACHING else 0)
 def list_segments(db, video_id):
-    # Support both schemas: segments linked directly to video_id, or indirectly via transcripts
-    sql = """
-        SELECT s.start_ms, s.end_ms, s.text, s.speaker_label
-        FROM segments s
-        LEFT JOIN transcripts t ON t.id = s.transcript_id
-        WHERE s.video_id = :v OR (s.transcript_id IS NOT NULL AND t.video_id = :v)
-        ORDER BY s.start_ms
-    """
-    rows = db.execute(text(sql), {"v": str(video_id)}).all()
-    return rows
+    # Keep the common direct-video lookup indexable. Combining this with the
+    # legacy transcript relationship via OR forced PostgreSQL to scan the full
+    # segments table for every transcript request.
+    params = {"v": str(video_id)}
+    direct_rows = db.execute(
+        text(
+            """
+            SELECT s.start_ms, s.end_ms, s.text, s.speaker_label
+            FROM segments s
+            WHERE s.video_id = :v
+            ORDER BY s.start_ms
+            """
+        ),
+        params,
+    ).all()
+    if direct_rows:
+        return direct_rows
+
+    # Compatibility fallback for older rows linked only through transcripts.
+    return db.execute(
+        text(
+            """
+            SELECT s.start_ms, s.end_ms, s.text, s.speaker_label
+            FROM segments s
+            JOIN transcripts t ON t.id = s.transcript_id
+            WHERE t.video_id = :v
+            ORDER BY s.start_ms
+            """
+        ),
+        params,
+    ).all()
 
 
 @_retry_on_transient_error

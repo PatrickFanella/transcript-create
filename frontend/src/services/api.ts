@@ -151,9 +151,12 @@ export const api = {
 
     return http.get('archive/intelligence/periods').json<ArchivePeriodOptionsResponse>();
   },
-  async getTranscript(videoId: string) {
+  async getTranscript(videoId: string, source: 'best' | 'whisper' | 'youtube' = 'best') {
     return http
-      .get(`videos/${videoId}/transcript`, { searchParams: { mode: 'formatted', source: 'best' } })
+      .get(`videos/${videoId}/transcript`, {
+        searchParams: { mode: 'formatted', source },
+        timeout: 60_000,
+      })
       .json<TranscriptResponse>();
   },
   async getVideoChapters(videoId: string) {

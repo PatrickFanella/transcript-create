@@ -34,6 +34,9 @@ export default function VideoPage() {
   const [params, setParams] = useSearchParams();
   const [video, setVideo] = useState<VideoInfo | null>(null);
   const [transcript, setTranscript] = useState<TranscriptResponse | null>(null);
+  const [transcriptStatus, setTranscriptStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading'
+  );
   const [chapters, setChapters] = useState<VideoChapter[]>([]);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const { user } = useAuth();
@@ -80,20 +83,44 @@ export default function VideoPage() {
     });
   }, [scrollElementIntoView]);
 
+  const loadTranscript = useCallback(
+    async (id: string, source: 'best' | 'whisper' | 'youtube' = 'best') => {
+      setTranscript(null);
+      setTranscriptStatus('loading');
+      try {
+        const response = await api.getTranscript(id, source);
+        setTranscript(response);
+        setTranscriptStatus('ready');
+      } catch {
+        setTranscript(null);
+        setTranscriptStatus('error');
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     if (!videoId) return;
+    setVideo(null);
+    setChapters([]);
     api
       .getVideo(videoId)
-      .then(setVideo)
-      .catch(() => setVideo(null));
-    api
-      .getTranscript(videoId)
-      .then(setTranscript)
-      .catch(() => setTranscript(null));
+      .then((response) => {
+        setVideo(response);
+        void loadTranscript(videoId, response.has_whisper_transcript ? 'whisper' : 'best');
+      })
+      .catch(() => {
+        setVideo(null);
+        setTranscriptStatus('error');
+      });
     api
       .getVideoChapters(videoId)
       .then((response) => setChapters(response.chapters ?? []))
       .catch(() => setChapters([]));
+  }, [loadTranscript, videoId]);
+
+  useEffect(() => {
+    if (!videoId) return;
     if (transcriptQuery) {
       api
         .search(transcriptQuery, { video_id: videoId })
@@ -102,6 +129,10 @@ export default function VideoPage() {
     } else {
       setHits(null);
     }
+  }, [transcriptQuery, videoId]);
+
+  useEffect(() => {
+    if (!videoId) return;
     if (user) {
       apiListFavorites(videoId)
         .then((r) => {
@@ -116,7 +147,7 @@ export default function VideoPage() {
     } else {
       setServerFavs([]);
     }
-  }, [videoId, transcriptQuery, user]);
+  }, [user, videoId]);
 
   useEffect(() => {
     const unlockAutoFollow = () => setAutoFollowEnabled(false);
@@ -596,7 +627,7 @@ export default function VideoPage() {
             </header>
 
             <div className="transcript-body">
-              {!transcript && (
+              {transcriptStatus === 'loading' && (
                 <div className="py-24 text-center text-muted" role="status" aria-live="polite">
                   <span
                     className="mb-4 inline-block h-7 w-7 animate-spin rounded-full border-2 border-border border-t-accent"
@@ -607,7 +638,38 @@ export default function VideoPage() {
                   </p>
                 </div>
               )}
-              {transcript &&
+              {transcriptStatus === 'error' && (
+                <div className="mx-auto max-w-lg px-6 py-24 text-center" role="alert">
+                  <div
+                    className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-danger/20 bg-danger-soft text-danger"
+                    aria-hidden="true"
+                  >
+                    !
+                  </div>
+                  <h3 className="text-lg font-semibold text-ink">
+                    Transcript took too long to load
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    The source transcript is still available. Try the request again without leaving
+                    this episode.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-primary mt-5"
+                    onClick={() =>
+                      videoId &&
+                      void loadTranscript(
+                        videoId,
+                        video?.has_whisper_transcript ? 'whisper' : 'best'
+                      )
+                    }
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+              {transcriptStatus === 'ready' &&
+                transcript &&
                 (hasFormattedBlocks ? (
                   <FormattedTranscriptDocument
                     blocks={formattedBlocks}

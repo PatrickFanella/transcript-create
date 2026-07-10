@@ -482,37 +482,58 @@ export default function VideoPage() {
             viewMode === 'standard'
               ? 'transcript-rail'
               : viewMode === 'theater'
-                ? 'mx-auto max-w-6xl'
+                ? 'mx-auto max-w-6xl space-y-4'
                 : 'hidden'
           }
         >
-          <div className={viewMode === 'standard' ? 'lg:sticky lg:top-24 space-y-4' : 'space-y-4'}>
-            {video && <PlayerPanel video={video} start={start} playerRef={playerRef} />}
-            <div className="rail-panel">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="meta-label">Reading mode</span>
-                <span className="font-mono text-[10px] text-subtle">
-                  {transcript?.segments.length.toLocaleString() ?? '—'} segments
-                </span>
-              </div>
-              <div className="view-switch" role="group" aria-label="Transcript layout">
-                {(['standard', 'theater', 'reader'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={viewMode === mode ? 'view-switch-active' : ''}
-                    onClick={() => setViewMode(mode)}
-                  >
-                    {mode === 'standard' ? 'Split' : mode === 'theater' ? 'Watch' : 'Read'}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-3 text-xs leading-5 text-subtle">
-                Select any sentence to play from that moment. Scroll manually to pause auto-follow.
-              </p>
+          {video && (
+            <div className={viewMode === 'standard' ? 'split-player-sticky' : ''}>
+              <PlayerPanel video={video} start={start} playerRef={playerRef} />
             </div>
-            <EpisodeOutline chapters={chapters} currentMs={currentMs} onSelect={selectChapter} />
+          )}
+          <div className="rail-panel">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="meta-label">Reading mode</span>
+              <span className="font-mono text-[10px] text-subtle">
+                {transcript?.segments.length.toLocaleString() ?? '—'} segments
+              </span>
+            </div>
+            <div className="view-switch" role="group" aria-label="Transcript layout">
+              {(['standard', 'theater', 'reader'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={viewMode === mode ? 'view-switch-active' : ''}
+                  onClick={() => setViewMode(mode)}
+                >
+                  {mode === 'standard' ? 'Split' : mode === 'theater' ? 'Watch' : 'Read'}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-subtle">
+              Select any sentence to play from that moment. Scroll manually to pause auto-follow.
+            </p>
+            <div className="mt-4 border-t border-border/70 pt-4">
+              {autoFollowEnabled ? (
+                <div
+                  className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-accent"
+                  role="status"
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_rgba(183,255,60,0.65)]"
+                    aria-hidden="true"
+                  />
+                  Following live transcript
+                </div>
+              ) : (
+                <button type="button" className="follow-live-button" onClick={resumeAutoFollow}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+                  Enable follow live
+                </button>
+              )}
+            </div>
           </div>
+          <EpisodeOutline chapters={chapters} currentMs={currentMs} onSelect={selectChapter} />
         </aside>
 
         <section

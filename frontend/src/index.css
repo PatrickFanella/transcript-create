@@ -269,7 +269,15 @@ body {
   }
 
   .transcript-rail {
-    @apply min-w-0;
+    @apply min-w-0 self-stretch;
+  }
+
+  .transcript-rail > * + * {
+    margin-top: 1rem;
+  }
+
+  .split-player-sticky {
+    @apply lg:sticky lg:top-24 lg:z-10;
   }
 
   .rail-panel {
@@ -306,6 +314,10 @@ body {
 
   .toolbar-button-accent {
     @apply border-accent/30 bg-accent-soft text-accent;
+  }
+
+  .follow-live-button {
+    @apply flex w-full items-center justify-center gap-2 rounded-lg border border-accent/30 bg-accent-soft px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-accent transition-colors hover:border-accent/60 hover:bg-accent/15;
   }
 
   .transcript-body {

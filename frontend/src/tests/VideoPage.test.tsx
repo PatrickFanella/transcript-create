@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { AuthProvider } from '../services/auth';
 import { api } from '../services';
 import { http } from '../services/api';
@@ -61,6 +61,9 @@ describe('VideoPage', () => {
     expect(screen.getByText('Guest One')).toBeInTheDocument();
     expect(screen.getByText('Chadvice')).toBeInTheDocument();
     expect(screen.getByText('Channel Alpha')).toBeInTheDocument();
+
+    fireEvent.scroll(window);
+    expect(await screen.findByRole('button', { name: 'Enable follow live' })).toBeInTheDocument();
   });
 
   it('shows a retry action when the transcript request fails', async () => {

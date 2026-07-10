@@ -1383,6 +1383,7 @@ def _label_evidence_snippet(raw_evidence: object, label: str) -> str:
 
 def _published_label_card_from_group(label_row: dict, rows: list[dict]) -> ArchiveTopicCard:
     video_ids = {str(row["video_id"]) for row in rows if row.get("video_id") is not None}
+    total_moments = max((int(row.get("label_assignment_count") or 0) for row in rows), default=0) or len(rows)
     evidence = [
         _evidence_from_row({**row, "snippet": _label_evidence_snippet(row.get("evidence_payload"), label_row["label"])}, topic=label_row["label"])
         for row in rows[:2]
@@ -1396,10 +1397,10 @@ def _published_label_card_from_group(label_row: dict, rows: list[dict]) -> Archi
         status="published",
         is_editable=True,
         aliases=[],
-        total_moments=len(rows),
+        total_moments=total_moments,
         total_videos=len(video_ids),
         recent_mentions_90d=0,
-        trend_score=round((len(rows) * 2) + (len(video_ids) * 3) + confidence_average, 3),
+        trend_score=round((total_moments * 2) + (len(video_ids) * 3) + confidence_average, 3),
         related_topics=[],
         evidence=evidence,
     )
@@ -1413,7 +1414,7 @@ def published_label_cards_for_period(
 ) -> list[ArchiveTopicCard]:
     params: dict[str, object] = {
         "limit": max(limit * 8, limit),
-        "per_label_limit": 8,
+        "per_label_limit": 2,
     }
     assignment_where_parts = [
         "a.status IN ('auto_published', 'admin_approved')",
@@ -1421,11 +1422,13 @@ def published_label_cards_for_period(
     ]
     lower = _coerce_datetime(date_from)
     upper = _coerce_datetime(date_to, end=True)
+    if lower is not None or upper is not None:
+        assignment_where_parts.append("v.uploaded_at IS NOT NULL")
     if lower is not None:
-        assignment_where_parts.append("COALESCE(v.uploaded_at, v.created_at) >= :date_from")
+        assignment_where_parts.append("v.uploaded_at >= :date_from")
         params["date_from"] = lower
     if upper is not None:
-        assignment_where_parts.append("COALESCE(v.uploaded_at, v.created_at) < :date_to")
+        assignment_where_parts.append("v.uploaded_at < :date_to")
         params["date_to"] = upper
 
     rows = _safe_mappings(
@@ -1447,6 +1450,7 @@ def published_label_cards_for_period(
                 a.confidence_score AS assignment_confidence,
                 a.evidence AS evidence_payload,
                 a.evidence_count,
+                COUNT(*) OVER () AS label_assignment_count,
                 v.youtube_id,
                 v.title,
                 v.duration_seconds,
@@ -1471,7 +1475,8 @@ def published_label_cards_for_period(
         ) evidence
         WHERE l.status = 'published'
           AND l.source IN ('admin', 'seed', 'hybrid')
-        ORDER BY l.slug ASC, evidence.assignment_confidence DESC,
+        ORDER BY evidence.label_assignment_count DESC, l.label ASC,
+                 evidence.assignment_confidence DESC,
                  evidence.evidence_count DESC,
                  COALESCE(evidence.uploaded_at, evidence.created_at) DESC NULLS LAST
         LIMIT :limit

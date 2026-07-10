@@ -230,6 +230,9 @@ frontend/.tsbuildinfo
 **/node_modules/
 **/dist/
 
+# Local deepwork orchestration state
+.blacktower/deepwork/
+
 # Frontend env and local overrides
 frontend/.env
 frontend/.env.*

@@ -61,6 +61,14 @@ AUTO_TOPIC_STOP_TERMS = {
     "youtube",
 }
 
+
+def _is_junk_topic_label(value: str) -> bool:
+    # The labeling package imports this repository for alias boundary matching,
+    # so load its normalization rule lazily after this module is initialized.
+    from app.archive.labeling.normalization import is_junk_phrase
+
+    return is_junk_phrase(value)
+
 CURATED_NAMED_PERIODS: tuple[dict[str, object], ...] = (
     {
         "slug": "2020-election-leadup",
@@ -1462,6 +1470,7 @@ def published_label_cards_for_period(
             LIMIT :per_label_limit
         ) evidence
         WHERE l.status = 'published'
+          AND l.source IN ('admin', 'seed', 'hybrid')
         ORDER BY l.slug ASC, evidence.assignment_confidence DESC,
                  evidence.evidence_count DESC,
                  COALESCE(evidence.uploaded_at, evidence.created_at) DESC NULLS LAST
@@ -1486,9 +1495,15 @@ def published_label_cards_for_period(
     return sorted(cards, key=lambda card: (card.trend_score, card.total_videos, card.total_moments), reverse=True)[:limit]
 
 
+def _is_public_topic_card(card: ArchiveTopicCard) -> bool:
+    return card.source != "automatic" and not _is_junk_topic_label(card.label)
+
+
 def merge_label_topic_cards(existing: list[ArchiveTopicCard], label_cards: list[ArchiveTopicCard], limit: int) -> list[ArchiveTopicCard]:
-    by_slug: dict[str, ArchiveTopicCard] = {card.slug: card for card in existing}
+    by_slug: dict[str, ArchiveTopicCard] = {card.slug: card for card in existing if _is_public_topic_card(card)}
     for card in label_cards:
+        if not _is_public_topic_card(card):
+            continue
         current = by_slug.get(card.slug)
         if current is None or (card.evidence and (not current.evidence or card.trend_score >= current.trend_score)):
             by_slug[card.slug] = card
@@ -1614,7 +1629,11 @@ def _with_named_period_fallback_topics(db, period: ArchivePeriodIntelligence, to
 
 def _period_intelligence_from_row(row, topic_limit: int | None = None) -> ArchivePeriodIntelligence:
     top_topics_payload = _as_list(row.get("top_topics"))
-    top_topics = [_topic_card_from_payload(item) for item in top_topics_payload][: topic_limit or len(top_topics_payload)]
+    top_topics = [
+        card
+        for item in top_topics_payload
+        if _is_public_topic_card(card := _topic_card_from_payload(item))
+    ][: topic_limit or len(top_topics_payload)]
     evidence = [_evidence_from_payload(item) for item in _as_list(row.get("evidence"))]
     videos = [_video_info_from_payload(item) for item in _as_list(row.get("representative_videos"))]
     return ArchivePeriodIntelligence(
@@ -1894,7 +1913,7 @@ def autopublish_search_topics(db, limit: int = 20):
     for row in rows:
         term = row["term"]
         slug = slugify_topic(term)
-        if slug in AUTO_TOPIC_STOP_TERMS or term.strip().lower() in AUTO_TOPIC_STOP_TERMS:
+        if slug in AUTO_TOPIC_STOP_TERMS or term.strip().lower() in AUTO_TOPIC_STOP_TERMS or _is_junk_topic_label(term):
             continue
         if slug in existing:
             continue

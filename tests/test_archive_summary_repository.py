@@ -14,10 +14,12 @@ from app.archive.intelligence_repository import (
     SEED_TOPICS,
     RETIRED_NAMED_PERIOD_SLUGS,
     _month_bounds,
+    _period_intelligence_from_row,
     _safe_mappings,
     _week_bounds,
     alias_matches_text,
     autopublish_search_topics,
+    merge_label_topic_cards,
     seed_archive_topics,
     seed_named_periods,
     refresh_named_period_stats,
@@ -25,6 +27,7 @@ from app.archive.intelligence_repository import (
     refresh_topic_period_stats,
     slugify_topic,
 )
+from app.schemas import ArchiveTopicCard
 
 
 class _ImmutableMappingResult:
@@ -659,7 +662,15 @@ def test_autopublish_search_topics_skips_existing_slugs():
             sql_text = str(sql)
             self.calls.append((sql_text, params))
             if "FROM search_suggestions" in sql_text:
-                return _FakeResult(rows=[{"term": "new topic", "frequency": 9}, {"term": "ICE", "frequency": 5}])
+                return _FakeResult(
+                    rows=[
+                        {"term": "new topic", "frequency": 9},
+                        {"term": "number", "frequency": 8},
+                        {"term": "okay", "frequency": 7},
+                        {"term": "that's", "frequency": 6},
+                        {"term": "ICE", "frequency": 5},
+                    ]
+                )
             if "SELECT slug FROM archive_topics" in sql_text:
                 return _FakeResult(rows=[{"slug": "ice"}])
             return _FakeResult()
@@ -669,3 +680,58 @@ def test_autopublish_search_topics_skips_existing_slugs():
 
     assert stats["topics"] == 1
     assert any("'automatic'" in sql and "new topic" in str(params) for sql, params in db.calls if "INSERT INTO archive_topics" in sql)
+
+
+def test_merge_topic_cards_excludes_untrusted_automatic_and_junk_cards():
+    def card(slug: str, label: str, source: str, trend_score: float):
+        return ArchiveTopicCard(
+            slug=slug,
+            label=label,
+            source=source,
+            aliases=[label],
+            total_moments=10,
+            total_videos=2,
+            recent_mentions_90d=3,
+            trend_score=trend_score,
+            related_topics=[],
+            evidence=[],
+        )
+
+    merged = merge_label_topic_cards(
+        [card("know", "know", "automatic", 100), card("gaza", "Gaza", "hybrid", 20)],
+        [card("number", "number", "automatic", 80), card("abortion", "Abortion", "admin", 15)],
+        limit=8,
+    )
+
+    assert [item.slug for item in merged] == ["gaza", "abortion"]
+
+
+def test_cached_period_topics_are_revalidated_before_public_use():
+    cached_card = {
+        "slug": "know",
+        "label": "know",
+        "source": "automatic",
+        "aliases": ["know"],
+        "total_moments": 100,
+        "total_videos": 20,
+        "recent_mentions_90d": 100,
+        "trend_score": 100,
+        "related_topics": [],
+        "evidence": [],
+    }
+    trusted_card = {**cached_card, "slug": "gaza", "label": "Gaza", "source": "hybrid", "trend_score": 20}
+
+    period = _period_intelligence_from_row(
+        {
+            "slug": "2026-06",
+            "label": "June 2026",
+            "video_count": 2,
+            "total_duration_seconds": 100,
+            "top_topics": [cached_card, trusted_card],
+            "summary": "Cached snapshot",
+            "evidence": [],
+            "representative_videos": [],
+        }
+    )
+
+    assert [item.slug for item in period.top_topics] == ["gaza"]

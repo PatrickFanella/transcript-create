@@ -15,6 +15,7 @@ def test_published_label_cards_rank_evidence_per_label():
     sql = str(statement)
     assert "CROSS JOIN LATERAL" in sql
     assert "a.label_id = l.id" in sql
+    assert "l.source IN ('admin', 'seed', 'hybrid')" in sql
     assert "LIMIT :per_label_limit" in sql
     assert params["per_label_limit"] == 8
     assert params["limit"] == 64

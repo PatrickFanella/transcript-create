@@ -209,7 +209,7 @@ export default function ExplorePage() {
   const selectedPeriodIsEmpty = selectedPeriodVods === 0;
 
   useEffect(() => {
-    if (periodKind === 'latest' || filteredPeriodOptions.length > 0) {
+    if (periodKind === 'latest' || cachedPeriodOptions !== undefined) {
       setPeriodOptionsLoading(false);
       return;
     }
@@ -233,7 +233,7 @@ export default function ExplorePage() {
     return () => {
       cancelled = true;
     };
-  }, [filteredPeriodOptions.length, periodKind]);
+  }, [cachedPeriodOptions, periodKind]);
 
   const selectPeriodKind = (kind: PeriodKind) => {
     setPeriodKind(kind);

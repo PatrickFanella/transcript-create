@@ -231,6 +231,90 @@ body {
     @apply rounded-xl border border-border bg-surface/85 p-4 backdrop-blur-xl;
   }
 
+  .archive-masthead {
+    @apply relative overflow-hidden rounded-2xl border border-border bg-surface/95 shadow-[0_28px_90px_rgba(0,0,0,0.28)];
+  }
+
+  .archive-masthead::before {
+    content: '';
+    @apply pointer-events-none absolute inset-0 opacity-70;
+    background:
+      radial-gradient(circle at 82% 10%, rgba(183, 255, 60, 0.14), transparent 30%),
+      linear-gradient(120deg, transparent 0 58%, rgba(192, 132, 252, 0.055) 58% 100%);
+  }
+
+  .archive-masthead::after {
+    content: '';
+    @apply pointer-events-none absolute inset-y-0 left-0 w-1 bg-accent;
+  }
+
+  .archive-display {
+    @apply max-w-5xl text-[clamp(3rem,8vw,7rem)] font-semibold leading-[0.82] tracking-[-0.065em] text-ink;
+    text-wrap: balance;
+  }
+
+  .archive-command {
+    @apply relative rounded-xl border border-border-strong bg-canvas/80 p-2 shadow-[0_20px_55px_rgba(0,0,0,0.28)];
+  }
+
+  .archive-command:focus-within {
+    @apply border-accent/70 ring-2 ring-accent/15;
+  }
+
+  .archive-data-strip {
+    @apply grid divide-y divide-border border-y border-border bg-canvas/35 sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4;
+  }
+
+  .archive-data-cell {
+    @apply min-w-0 px-5 py-4 sm:px-6;
+  }
+
+  .archive-section {
+    @apply rounded-2xl border border-border bg-surface/90 p-4 shadow-[0_18px_55px_rgba(0,0,0,0.2)] sm:p-6;
+  }
+
+  .archive-rule-title {
+    @apply flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.22em] text-subtle;
+  }
+
+  .archive-rule-title::after {
+    content: '';
+    @apply h-px flex-1 bg-border;
+  }
+
+  .search-workspace {
+    @apply grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_18rem];
+  }
+
+  .search-result-card {
+    @apply overflow-hidden rounded-2xl border border-border bg-surface/90 shadow-[0_18px_55px_rgba(0,0,0,0.2)];
+  }
+
+  .search-result-head {
+    @apply grid gap-4 border-b border-border bg-surface-muted/45 p-4 sm:p-5 lg:grid-cols-[7.5rem_minmax(0,1fr)_auto];
+  }
+
+  .evidence-card {
+    @apply relative border-b border-border/70 px-4 py-5 transition-colors last:border-b-0 hover:bg-surface-muted/55 sm:px-6;
+  }
+
+  .signal-card {
+    @apply relative overflow-hidden rounded-xl border border-border bg-surface-muted/65 p-4 transition-all hover:-translate-y-0.5 hover:border-accent/65 hover:bg-surface;
+  }
+
+  .signal-card::after {
+    content: '';
+    @apply pointer-events-none absolute bottom-0 left-0 h-px w-0 bg-accent transition-all duration-300 group-hover:w-full;
+  }
+
+  .period-button {
+    @apply w-full border-l-2 border-transparent px-3 py-3 text-left transition-colors hover:border-border-strong hover:bg-surface-muted;
+  }
+
+  .period-button-active {
+    @apply border-accent bg-accent-soft/45;
+  }
+
   .alert-info {
     @apply rounded-2xl border border-accent/20 bg-accent-soft p-4 text-ink;
   }

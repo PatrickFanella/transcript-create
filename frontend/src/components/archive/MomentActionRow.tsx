@@ -25,26 +25,39 @@ export default function MomentActionRow({
   onSaveMoment,
 }: MomentActionRowProps) {
   return (
-    <div className="mt-4 flex flex-wrap gap-3 text-sm">
-      <Link to={buildTimestampLink(videoId, moment.start_ms, moment.id)} className="action-link" onClick={onOpenTimestamp}>
-        Open at timestamp
+    <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2 border-t border-border/60 pt-3 text-xs">
+      <Link
+        to={buildTimestampLink(videoId, moment.start_ms, moment.id)}
+        className="btn-secondary min-h-8 px-3 text-xs"
+        onClick={onOpenTimestamp}
+      >
+        Open moment
       </Link>
-      <button type="button" className="nav-link" onClick={onCopyTimestamp}>
-        Copy timestamp
-      </button>
-      <button type="button" className="nav-link" onClick={onCopyQuote}>
-        Copy quote
-      </button>
-      <button type="button" className="nav-link" disabled={saved} onClick={onSaveMoment}>
-        {saved ? 'Saved moment' : 'Save moment'}
-      </button>
       {query && (
-        <Link to={buildPlayMatchesLink(videoId, moment, query)} className="action-link">
+        <Link
+          to={buildPlayMatchesLink(videoId, moment, query)}
+          className="btn-ghost min-h-8 px-2 text-xs text-accent"
+        >
           Play from here
         </Link>
       )}
-      <Link to={`/v/${videoId}`} className="action-link">
-        Open VOD
+      <button type="button" className="btn-ghost min-h-8 px-2 text-xs" onClick={onCopyTimestamp}>
+        Copy link
+      </button>
+      <button type="button" className="btn-ghost min-h-8 px-2 text-xs" onClick={onCopyQuote}>
+        Copy quote
+      </button>
+      <button
+        type="button"
+        className="btn-ghost min-h-8 px-2 text-xs"
+        aria-label={saved ? 'Saved moment' : 'Save moment'}
+        disabled={saved}
+        onClick={onSaveMoment}
+      >
+        {saved ? 'Saved' : 'Save'}
+      </button>
+      <Link to={`/v/${videoId}`} className="btn-ghost min-h-8 px-2 text-xs">
+        Full VOD
       </Link>
     </div>
   );

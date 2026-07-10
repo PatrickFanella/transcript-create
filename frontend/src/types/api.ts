@@ -1,11 +1,17 @@
 export type UUID = string;
 
+export interface HighlightRange {
+  start: number;
+  end: number;
+}
+
 export interface SearchHit {
   id: number;
   video_id: UUID;
   start_ms: number;
   end_ms: number;
   snippet: string;
+  highlights?: HighlightRange[];
   source?: 'whisper' | 'youtube' | 'merged';
 }
 
@@ -15,6 +21,7 @@ export interface SearchMoment {
   start_ms: number;
   end_ms: number;
   snippet: string;
+  highlights?: HighlightRange[];
   source?: 'whisper' | 'youtube' | 'merged';
 }
 
@@ -66,6 +73,7 @@ export interface ArchiveEvidenceMoment {
   start_ms: number;
   end_ms: number;
   snippet: string;
+  highlights?: HighlightRange[];
   topic?: string | null;
 }
 

@@ -49,7 +49,7 @@ Compose.
 **Primary files:** `app/search/segment_repository.py`, `app/schemas.py`,
 `frontend/src/features/search/` and the four reviewed rendering sinks.
 
-- [ ] First deploy a backward-compatible safe frontend renderer that accepts
+- [x] First deploy a backward-compatible safe frontend renderer that accepts
   optional ranges and parses only exact legacy `b`/`em`/`mark` markers as inert
   data; it must never use DOM HTML insertion.
 - [ ] Add hostile-snippet API and frontend regression tests first.
@@ -58,7 +58,7 @@ Compose.
   slicing and defensively sorts/clamps/merges ranges.
 - [ ] Parse PostgreSQL/OpenSearch markers inside backend adapters; never expose
   backend-generated HTML.
-- [ ] Render highlights as React nodes and remove all four
+- [x] Render highlights as React nodes and remove all four
   `dangerouslySetInnerHTML` calls.
 - [ ] Finally remove `unsafe-eval` and `unsafe-inline` from production CSP in
   FastAPI, Helm/ingress, and the separately served frontend nginx origin. Move
@@ -277,7 +277,7 @@ high/critical advisories are cleared.
 
 | Review area | Implemented by | Status |
 | --- | --- | --- |
-| Stored HTML injection and highlight mismatch | Slice 1.1 | Pending |
+| Stored HTML injection and highlight mismatch | Slice 1.1 | In progress: safe frontend landed |
 | Session credential persistence/export and CSV injection | Slice 1.2 | Pending |
 | Public caching of private/secret responses | Slice 1.3 | Pending |
 | Dependency advisories | Slice 1.4 | Pending |

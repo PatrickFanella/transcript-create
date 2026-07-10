@@ -1,6 +1,7 @@
 import type { Segment } from '../../types/api';
 import type { TranscriptTurn } from '../../features/videoTranscript/transcript';
 import { formatTimestamp } from '../../features/archive/format';
+import HighlightedSnippet from '../HighlightedSnippet';
 
 type Props = {
   turns: TranscriptTurn[];
@@ -83,10 +84,12 @@ export default function PlainTranscriptTurns({
                   {turn.segments
                     .filter(({ match }) => match)
                     .map(({ match, id }) => (
-                      <div
+                      <HighlightedSnippet
                         key={id}
+                        as="div"
                         className="prose prose-xs max-w-none"
-                        dangerouslySetInnerHTML={{ __html: match?.snippet ?? '' }}
+                        snippet={match?.snippet ?? ''}
+                        highlights={match?.highlights}
                       />
                     ))}
                 </div>

@@ -223,7 +223,7 @@ export default function SearchPage() {
 
   async function saveMoment(videoId: string, moment: SearchHit, title: string) {
     const key = `${videoId}:${moment.start_ms}:${moment.end_ms}`;
-    const text = plainTextFromSnippet(moment.snippet);
+    const text = plainTextFromSnippet(moment.snippet, moment.highlights);
     try {
       if (user)
         await apiAddFavorite({

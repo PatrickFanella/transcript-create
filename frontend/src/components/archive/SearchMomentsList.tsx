@@ -1,5 +1,6 @@
 import type { SearchHit } from '../../types/api';
 import { formatTimestamp } from '../../features/archive/format';
+import HighlightedSnippet from '../HighlightedSnippet';
 import MomentActionRow from './MomentActionRow';
 
 type SearchMomentsListProps = {
@@ -45,9 +46,11 @@ export default function SearchMomentsList({
                 </div>
               </div>
               <div className="min-w-0">
-                <div
+                <HighlightedSnippet
+                  as="div"
                   className="archive-snippet"
-                  dangerouslySetInnerHTML={{ __html: moment.snippet }}
+                  snippet={moment.snippet}
+                  highlights={moment.highlights}
                 />
                 <MomentActionRow
                   videoId={videoId}

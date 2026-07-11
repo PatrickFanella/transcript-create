@@ -21,6 +21,22 @@ CAP_VOCABULARIES_GLOBAL = "vocabularies:global"
 CAP_ADMIN_ACCESS = "admin:access"
 
 API_KEY_SCOPES = frozenset({CAP_SEARCH_READ, CAP_VIDEOS_READ, CAP_EXPORTS_READ, CAP_JOBS_READ, CAP_JOBS_WRITE})
+DEFAULT_API_KEY_SCOPES = tuple(sorted(API_KEY_SCOPES))
+
+
+def required_api_key_scope(method: str, path: str) -> str | None:
+    """Map stable API surfaces to their least-privilege key scope."""
+    method = method.upper()
+    if path.startswith("/search"):
+        return CAP_SEARCH_READ
+    if path.startswith("/videos"):
+        return CAP_VIDEOS_READ if method == "GET" else CAP_JOBS_WRITE
+    if path.startswith("/exports"):
+        return CAP_EXPORTS_READ
+    if path.startswith("/jobs"):
+        return CAP_JOBS_READ if method == "GET" else CAP_JOBS_WRITE
+    return None
+
 
 BASE_CAPABILITIES = frozenset(
     {

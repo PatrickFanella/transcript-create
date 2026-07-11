@@ -137,7 +137,7 @@ def verify_api_key(db, api_key: str) -> Optional[dict]:
     result = (
         db.execute(
             text("""
-            SELECT u.*, k.id as api_key_id, k.name as api_key_name
+            SELECT u.*, k.id as api_key_id, k.name as api_key_name, k.scopes as api_key_scopes
             FROM api_keys k
             JOIN users u ON u.id = k.user_id
             WHERE k.key_hash = :hash
@@ -197,6 +197,25 @@ def get_user_optional(request: Request, db=Depends(get_db)) -> Optional[dict]:
     if api_key:
         user = verify_api_key(db, api_key)
         if user:
+            required_scope = policy.required_api_key_scope(request.method, request.url.path)
+            granted = {scope.strip() for scope in str(user.get("api_key_scopes") or "").split(",") if scope.strip()}
+            if required_scope is None or required_scope not in granted:
+                logger.warning(
+                    "API key scope denied",
+                    extra={"path": request.url.path, "method": request.method, "required_scope": required_scope},
+                )
+                raise AuthorizationError("API key is not authorized for this operation")
+            from .audit import ACTION_API_KEY_USED, log_audit_from_request
+
+            log_audit_from_request(
+                db,
+                request,
+                ACTION_API_KEY_USED,
+                user_id=user["id"],
+                resource_type="api_key",
+                resource_id=str(user["api_key_id"]),
+                details={"scope": required_scope, "path": request.url.path, "method": request.method},
+            )
             return user
 
     return None

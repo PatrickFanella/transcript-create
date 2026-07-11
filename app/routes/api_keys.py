@@ -12,6 +12,7 @@ from ..audit import ACTION_API_KEY_CREATED, ACTION_API_KEY_REVOKED, log_audit_fr
 from ..db import get_db
 from ..exceptions import AuthorizationError, NotFoundError, ValidationError
 from ..logging_config import get_logger
+from ..policy import API_KEY_SCOPES, DEFAULT_API_KEY_SCOPES
 from ..security import generate_api_key, get_user_required
 from ..settings import settings
 
@@ -30,7 +31,7 @@ class CreateAPIKeyRequest(BaseModel):
         ge=1,
         le=3650,  # Max 10 years
     )
-    scopes: Optional[str] = Field(default=None, description="Comma-separated list of scopes (future use)")
+    scopes: list[str] = Field(default_factory=lambda: list(DEFAULT_API_KEY_SCOPES), min_length=1)
 
 
 class APIKeyResponse(BaseModel):
@@ -43,7 +44,7 @@ class APIKeyResponse(BaseModel):
     expires_at: Optional[datetime]
     last_used_at: Optional[datetime]
     revoked_at: Optional[datetime]
-    scopes: Optional[str]
+    scopes: str
 
 
 class CreateAPIKeyResponse(BaseModel):
@@ -105,6 +106,15 @@ def create_api_key(
 ):
     """Create a new API key for the current user."""
     user_id = user.get("id")
+    requested_scopes = set(body.scopes)
+    unsupported = requested_scopes - API_KEY_SCOPES
+    if unsupported:
+        raise ValidationError(
+            "Unsupported API key scope",
+            field="scopes",
+            details={"unsupported": sorted(unsupported), "allowed": sorted(API_KEY_SCOPES)},
+        )
+    serialized_scopes = ",".join(sorted(requested_scopes))
 
     # Generate the API key
     api_key, api_key_hash = generate_api_key()
@@ -132,7 +142,7 @@ def create_api_key(
             "key_hash": api_key_hash,
             "key_prefix": key_prefix,
             "expires_at": expires_at,
-            "scopes": body.scopes,
+            "scopes": serialized_scopes,
         },
     )
     db.commit()
@@ -145,7 +155,11 @@ def create_api_key(
         user_id=user_id,
         resource_type="api_key",
         resource_id=str(key_id),
-        details={"name": body.name, "expires_at": expires_at.isoformat() if expires_at else None},
+        details={
+            "name": body.name,
+            "expires_at": expires_at.isoformat() if expires_at else None,
+            "scopes": sorted(requested_scopes),
+        },
     )
 
     logger.info(

@@ -1,13 +1,14 @@
 import uuid
 from typing import Literal, Union
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import text
 
 from .. import crud
 from ..archive.video_chapters import build_grounded_chapters
+from ..audit import ACTION_USER_DATA_DELETION, log_audit_from_request
 from ..db import get_db
-from ..exceptions import TranscriptNotReadyError, VideoNotFoundError
+from ..exceptions import AuthorizationError, TranscriptNotReadyError, VideoNotFoundError
 from ..schemas import (
     CleanedTranscriptResponse,
     CleanupConfig,
@@ -23,6 +24,8 @@ from ..schemas import (
     YouTubeTranscriptResponse,
     YTSegment,
 )
+from ..security import ROLE_ADMIN, get_user_required, get_user_role
+from ..source_deletion import delete_source
 from ..transcripts.blocks import FORMATTER_VERSION, build_transcript_blocks
 from ..transcripts.merged import build_merged_transcript
 from ..transcripts.service import TranscriptPresentationService
@@ -31,6 +34,36 @@ from ..transcripts.youtube_formatting import build_youtube_caption_blocks, forma
 
 router = APIRouter(prefix="", tags=["Videos"])
 transcript_presentation_service = TranscriptPresentationService()
+
+
+@router.delete("/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an ingested source")
+def delete_video_source(
+    video_id: uuid.UUID,
+    request: Request,
+    db=Depends(get_db),
+    user=Depends(get_user_required),
+):
+    owner = db.execute(
+        text("SELECT j.owner_user_id FROM videos v JOIN jobs j ON j.id=v.job_id WHERE v.id=:id"),
+        {"id": video_id},
+    ).scalar()
+    if owner is None:
+        raise VideoNotFoundError(str(video_id))
+    if str(owner) != str(user["id"]) and get_user_role(user) != ROLE_ADMIN:
+        raise AuthorizationError("You don't have permission to delete this source")
+    deleted = delete_source(db, video_id=video_id, deleted_by_user_id=user["id"])
+    if not deleted:
+        raise VideoNotFoundError(str(video_id))
+    log_audit_from_request(
+        db,
+        request,
+        ACTION_USER_DATA_DELETION,
+        user_id=user["id"],
+        resource_type="video",
+        resource_id=str(video_id),
+        details={"youtube_id": deleted["youtube_id"]},
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _cleanup_config() -> CleanupConfig:

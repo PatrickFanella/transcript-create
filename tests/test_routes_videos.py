@@ -58,6 +58,57 @@ class TestVideosRoutes:
         response = client.get(f"/videos/{non_existent_id}")
         assert response.status_code == 404
 
+    def test_owner_deletion_removes_source_and_records_backup_tombstone(
+        self, client: TestClient, db_session, authenticated_job_user, monkeypatch
+    ):
+        job_id = uuid.uuid4()
+        video_id = uuid.uuid4()
+        db_session.execute(
+            text("""
+                INSERT INTO users (id, email, name, oauth_provider, oauth_subject)
+                VALUES (:id, :email, 'Videos User', 'google', :subject)
+            """),
+            {
+                "id": authenticated_job_user["id"],
+                "email": authenticated_job_user["email"],
+                "subject": f"delete-{authenticated_job_user['id']}",
+            },
+        )
+        db_session.execute(
+            text("""
+                INSERT INTO jobs (id, kind, input_url, owner_user_id)
+                VALUES (:job_id, 'single', 'https://youtube.com/watch?v=delete-me', :owner)
+            """),
+            {"job_id": job_id, "owner": authenticated_job_user["id"]},
+        )
+        db_session.execute(
+            text("""
+                INSERT INTO videos (id, job_id, youtube_id, state)
+                VALUES (:video_id, :job_id, 'delete-me', 'completed')
+            """),
+            {"video_id": video_id, "job_id": job_id},
+        )
+        db_session.commit()
+        monkeypatch.setattr("app.source_deletion.invalidate_video_data", lambda _video_id: None)
+        monkeypatch.setattr("app.source_deletion._delete_files", lambda *_paths: None)
+        monkeypatch.setattr("app.source_deletion._delete_index_documents", lambda _video_id: None)
+
+        response = client.delete(f"/videos/{video_id}")
+
+        assert response.status_code == 204
+        assert db_session.execute(text("SELECT COUNT(*) FROM videos WHERE id=:id"), {"id": video_id}).scalar() == 0
+        tombstone = (
+            db_session.execute(
+                text(
+                    "SELECT youtube_id, backup_exclusion_until > now() AS active FROM source_deletions WHERE video_id=:id"
+                ),
+                {"id": video_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert tombstone == {"youtube_id": "delete-me", "active": True}
+
     def test_get_video_invalid_uuid(self, client: TestClient):
         """Test getting a video with invalid UUID."""
         response = client.get("/videos/not-a-uuid")
@@ -200,7 +251,9 @@ class TestVideosRoutes:
             {"id": str(uuid.uuid4()), "vid": str(video_id)},
         )
         db_session.execute(
-            text("INSERT INTO segments (video_id, start_ms, end_ms, text, speaker_label) VALUES (:vid, 0, 1000, 'raw', NULL)"),
+            text(
+                "INSERT INTO segments (video_id, start_ms, end_ms, text, speaker_label) VALUES (:vid, 0, 1000, 'raw', NULL)"
+            ),
             {"vid": str(video_id)},
         )
         db_session.execute(
@@ -307,7 +360,12 @@ class TestVideosRoutes:
         monkeypatch.setattr("app.routes.videos.crud.get_video", lambda db_arg, video_id_arg: {"id": video_id})
         monkeypatch.setattr(
             "app.routes.videos.crud.get_youtube_transcript",
-            lambda db_arg, video_id_arg: {"id": uuid.uuid4(), "language": "en", "kind": "asr", "full_text": "raw full text"},
+            lambda db_arg, video_id_arg: {
+                "id": uuid.uuid4(),
+                "language": "en",
+                "kind": "asr",
+                "full_text": "raw full text",
+            },
         )
         monkeypatch.setattr(
             "app.routes.videos.crud.list_youtube_segments",

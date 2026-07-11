@@ -171,6 +171,13 @@ class TestAPIKeyEndpoints:
         assert data["api_key"].startswith("tc_")
         assert data["key"]["name"] == "Test Key"
         assert data["key"]["key_prefix"].startswith("tc_")
+        assert set(data["key"]["scopes"].split(",")) == {
+            "search:read",
+            "videos:read",
+            "exports:read",
+            "jobs:read",
+            "jobs:write",
+        }
 
         # Verify key was stored in database
         stored = (
@@ -185,13 +192,11 @@ class TestAPIKeyEndpoints:
         # Verify audit log
         audit = (
             db_session.execute(
-                text(
-                    """
+                text("""
                     SELECT * FROM audit_logs
                     WHERE action = :action AND user_id = :uid
                     ORDER BY created_at DESC LIMIT 1
-                    """
-                ),
+                    """),
                 {"action": ACTION_API_KEY_CREATED, "uid": str(user_id)},
             )
             .mappings()
@@ -200,6 +205,32 @@ class TestAPIKeyEndpoints:
 
         assert audit is not None
         assert audit["success"] is True
+
+    def test_api_key_scope_blocks_job_writes(self, client: TestClient, db_session):
+        user_id = uuid.uuid4()
+        api_key, api_key_hash = generate_api_key()
+        db_session.execute(
+            text(
+                "INSERT INTO users (id, email, name, oauth_provider, oauth_subject) "
+                "VALUES (:id, 'scoped@example.com', 'Scoped', 'google', 'scoped')"
+            ),
+            {"id": user_id},
+        )
+        db_session.execute(
+            text("""
+                INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes)
+                VALUES (:id, :user_id, 'Read only', :hash, :prefix, 'jobs:read')
+            """),
+            {"id": uuid.uuid4(), "user_id": user_id, "hash": api_key_hash, "prefix": api_key[:10] + "..."},
+        )
+        db_session.commit()
+
+        response = client.post(
+            "/jobs",
+            headers={"X-API-Key": api_key},
+            json={"url": "https://youtube.com/watch?v=scoped-write"},
+        )
+        assert response.status_code == 403
 
     def test_revoke_api_key(self, client: TestClient, db_session):
         """Test revoking an API key."""
@@ -258,13 +289,11 @@ class TestAPIKeyEndpoints:
         # Verify audit log
         audit = (
             db_session.execute(
-                text(
-                    """
+                text("""
                     SELECT * FROM audit_logs
                     WHERE action = :action AND user_id = :uid
                     ORDER BY created_at DESC LIMIT 1
-                    """
-                ),
+                    """),
                 {"action": ACTION_API_KEY_REVOKED, "uid": str(user_id)},
             )
             .mappings()

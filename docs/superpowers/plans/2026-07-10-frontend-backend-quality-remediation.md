@@ -179,10 +179,10 @@ high/critical advisories are cleared.
 
 ### Slice 3.5: API keys and deletion
 
-- [ ] Add `search:read`, `videos:read`, `exports:read`, `jobs:read`, and
+- [x] Add `search:read`, `videos:read`, `exports:read`, `jobs:read`, and
   `jobs:write` scopes; admin scopes require admin issuance/auditing.
-- [ ] Migrate current keys to equivalent non-admin scopes.
-- [ ] Add owner/admin source deletion across PostgreSQL, caches, OpenSearch,
+- [x] Migrate current keys to equivalent non-admin scopes.
+- [x] Add owner/admin source deletion across PostgreSQL, caches, OpenSearch,
   exports, and future backup snapshots.
 
 ## Phase 4 — Make Search and API Contracts Reliable
@@ -293,7 +293,7 @@ high/critical advisories are cleared.
 | Event write amplification/taxonomy/retention | Slice 3.3 | Complete |
 | Metrics/compression/transactions/retries/error masking | Slice 3.4 | Complete |
 | Authorization model, repository size, runtime dependencies | Slices 3.1/3.4 | Complete |
-| API-key scopes and source deletion | Slice 3.5 | Pending |
+| API-key scopes and source deletion | Slice 3.5 | Complete |
 | OpenSearch sync/fallback/freshness | Phase 4 | Pending |
 | API compatibility and generated contracts | Phase 4 | Pending |
 | Anonymous saves, auth/admin/errors/player/filters/stale requests | Phases 4/5 | Pending |

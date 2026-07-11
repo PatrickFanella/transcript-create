@@ -1,10 +1,9 @@
 """Security middleware for headers, rate limiting, and request validation."""
 
-import gzip
-
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from .analytics_identity import AnalyticsIdentityMiddleware
@@ -183,64 +182,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             del self._request_counts[key]
 
 
-class CompressionMiddleware(BaseHTTPMiddleware):
-    """Middleware to compress responses using gzip."""
-
-    MIN_SIZE = 1024  # Only compress responses > 1KB
-
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-
-        # Check if client accepts gzip
-        accept_encoding = request.headers.get("accept-encoding", "")
-        if "gzip" not in accept_encoding.lower():
-            return response
-
-        # Skip compression for already compressed content
-        if response.headers.get("content-encoding"):
-            return response
-
-        # Skip compression for streaming responses
-        if hasattr(response, "body_iterator"):
-            return response
-
-        # Get response body
-        body = b""
-        async for chunk in response.body_iterator:
-            body += chunk
-
-        # Only compress if body is large enough
-        if len(body) < self.MIN_SIZE:
-            return Response(
-                content=body,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                media_type=response.media_type,
-            )
-
-        # Compress the body
-        compressed_body = gzip.compress(body, compresslevel=6)
-
-        # Only use compressed version if it's actually smaller
-        if len(compressed_body) < len(body):
-            response.headers["Content-Encoding"] = "gzip"
-            response.headers["Content-Length"] = str(len(compressed_body))
-            return Response(
-                content=compressed_body,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                media_type=response.media_type,
-            )
-
-        # Return uncompressed if compression didn't help
-        return Response(
-            content=body,
-            status_code=response.status_code,
-            headers=dict(response.headers),
-            media_type=response.media_type,
-        )
-
-
 class CacheControlMiddleware(BaseHTTPMiddleware):
     """Fail closed unless a safe anonymous GET route is explicitly public."""
 
@@ -318,7 +259,7 @@ def setup_security_middleware(app):
         app: FastAPI application instance
     """
     # Add compression middleware
-    app.add_middleware(CompressionMiddleware)
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
     # Add security headers
     app.add_middleware(SecurityHeadersMiddleware)

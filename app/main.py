@@ -280,8 +280,10 @@ async def metrics_middleware(request: Request, call_next):
 
     from app.metrics import http_request_duration_seconds, http_requests_in_flight, http_requests_total
 
-    # Normalize endpoint path for metrics (remove IDs)
-    endpoint = request.url.path
+    # FastAPI resolves the concrete route during ``call_next``. Until then,
+    # keep the in-flight series bounded under one label rather than using the
+    # raw resource path.
+    endpoint = "pending"
     method = request.method
 
     # Track in-flight requests
@@ -292,6 +294,8 @@ async def metrics_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
         status_code = response.status_code
+        route = request.scope.get("route")
+        endpoint = getattr(route, "path", "unmatched")
 
         # Record metrics
         duration = time.time() - start_time
@@ -300,6 +304,8 @@ async def metrics_middleware(request: Request, call_next):
 
         return response
     except Exception:
+        route = request.scope.get("route")
+        endpoint = getattr(route, "path", "unmatched")
         # Record error metrics
         duration = time.time() - start_time
         http_request_duration_seconds.labels(method=method, endpoint=endpoint).observe(duration)
@@ -307,7 +313,7 @@ async def metrics_middleware(request: Request, call_next):
         raise
     finally:
         # Decrement in-flight counter
-        http_requests_in_flight.labels(method=method, endpoint=endpoint).dec()
+        http_requests_in_flight.labels(method=method, endpoint="pending").dec()
 
 
 # Cache policy must wrap every other application middleware so rate-limit,

@@ -1,8 +1,10 @@
 """Tests for CRUD operations."""
 
 import uuid
+from unittest.mock import MagicMock
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app import crud
 
@@ -254,3 +256,15 @@ class TestRetryDecorator:
         """Test that the retry decorator preserves the function's __module__."""
         assert crud.create_job.__module__ == "app.crud"
         assert crud.fetch_job.__module__ == "app.crud"
+
+    def test_transient_retry_rolls_back_failed_transaction(self, monkeypatch):
+        db = MagicMock()
+        db.execute.side_effect = [OperationalError("select", {}, Exception("connection lost")), MagicMock()]
+        monkeypatch.setattr(crud.time, "sleep", lambda _delay: None)
+
+        @crud._retry_on_transient_error
+        def operation(session):
+            return session.execute("SELECT 1")
+
+        operation(db)
+        assert db.rollback.call_count == 1

@@ -170,12 +170,12 @@ high/critical advisories are cleared.
 
 ### Slice 3.4: Operational correctness and maintainability
 
-- [ ] Normalize metrics to route templates.
-- [ ] Replace custom compression with framework GZip middleware.
-- [ ] Roll back before classified database retries.
-- [ ] Return unavailable states instead of masking database failures as empty.
-- [ ] Split archive intelligence by bounded query concern.
-- [ ] Separate API and worker dependency/image surfaces.
+- [x] Normalize metrics to route templates.
+- [x] Replace custom compression with framework GZip middleware.
+- [x] Roll back before classified database retries.
+- [x] Return unavailable states instead of masking database failures as empty.
+- [x] Split archive intelligence by bounded query concern.
+- [x] Separate API and worker dependency/image surfaces.
 
 ### Slice 3.5: API keys and deletion
 
@@ -291,8 +291,8 @@ high/critical advisories are cleared.
 | Quota/idempotency races | Slice 3.2 | Complete |
 | Redis serialization/invalidation | Slice 3.3 | Complete |
 | Event write amplification/taxonomy/retention | Slice 3.3 | Complete |
-| Metrics/compression/transactions/retries/error masking | Slice 3.4 | Pending |
-| Authorization model, repository size, runtime dependencies | Slices 3.1/3.4 | Pending |
+| Metrics/compression/transactions/retries/error masking | Slice 3.4 | Complete |
+| Authorization model, repository size, runtime dependencies | Slices 3.1/3.4 | Complete |
 | API-key scopes and source deletion | Slice 3.5 | Pending |
 | OpenSearch sync/fallback/freshness | Phase 4 | Pending |
 | API compatibility and generated contracts | Phase 4 | Pending |

@@ -34,7 +34,7 @@ services:
         restart: unless-stopped
 
     migrations:
-        image: hasanara:latest
+        image: hasanara-api:latest
         env_file: .env
         environment:
             DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
@@ -47,10 +47,8 @@ services:
     api:
         build:
             context: .
-            args:
-                # Change to rocm6.1 or rocm6.2 if your host ROCm matches those
-                ROCM_WHEEL_INDEX: https://download.pytorch.org/whl/rocm6.0
-        image: hasanara:latest
+            dockerfile: Dockerfile.api
+        image: hasanara-api:latest
         env_file: .env
         environment:
             # Point app to the compose network Postgres
@@ -79,15 +77,13 @@ services:
                 condition: service_completed_successfully
         volumes:
             - ./data:/data
-            - ./cache:/root/.cache
-        devices:
-            - '/dev/kfd:/dev/kfd'
-            - '/dev/dri:/dev/dri'
-        group_add:
-            - 'video'
 
     worker:
-        image: hasanara:latest
+        build:
+            context: .
+            args:
+                ROCM_WHEEL_INDEX: https://download.pytorch.org/whl/rocm6.0
+        image: hasanara-worker:latest
         env_file: .env
         environment:
             DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts

@@ -12,6 +12,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 
 from app.archive.intelligence_facets import attach_archive_facets
+from app.archive.query_support import execute as _safe_execute
+from app.archive.query_support import execute_many as _safe_execute_many
+from app.archive.query_support import query_mappings as _safe_mappings
 from app.archive.repository import ARCHIVE_VIDEO_FILTER_SQL, archive_repository
 from app.archive.video_metadata_repository import get_video_metadata_map
 from app.exceptions import ValidationError
@@ -552,40 +555,6 @@ def alias_matches_text(alias: str, text_value: str) -> bool:
         return False
     escaped = re.escape(alias_value).replace(r"\ ", r"\s+")
     return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text_value) is not None
-
-
-def _safe_mappings(db, sql: str, params: dict | None = None):
-    try:
-        return [dict(row) for row in db.execute(text(sql), params or {}).mappings().all()]
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return []
-
-
-def _safe_scalar(db, sql: str, params: dict | None = None):
-    try:
-        return db.execute(text(sql), params or {}).scalar_one()
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return None
-
-
-def _safe_execute(db, sql: str, params: dict | None = None):
-    try:
-        return db.execute(text(sql), params or {})
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return None
-
-
-def _safe_execute_many(db, sql: str, rows: Sequence[dict]):
-    if not rows:
-        return None
-    try:
-        return db.execute(text(sql), list(rows))
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return None
 
 
 def _safe_video_metadata_map(db, video_ids: Sequence[object], published_only: bool = True):

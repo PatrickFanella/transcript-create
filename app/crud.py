@@ -34,6 +34,9 @@ def _retry_on_transient_error(func):
                 return func(*args, **kwargs)
             except OperationalError as e:
                 last_error = e
+                db = args[0] if args else kwargs.get("db")
+                if hasattr(db, "rollback"):
+                    db.rollback()
                 error_msg = str(e).lower()
                 # Check if it's a transient error worth retrying
                 if any(

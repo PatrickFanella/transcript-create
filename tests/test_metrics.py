@@ -66,6 +66,15 @@ def test_metrics_middleware_tracks_requests(client):
     assert "http_requests_total" in content or "http_request_duration_seconds" in content
 
 
+def test_metrics_use_route_templates_instead_of_resource_ids(client):
+    resource_id = "123e4567-e89b-12d3-a456-426614174000"
+    client.get(f"/videos/{resource_id}")
+
+    content = client.get("/metrics").text
+    assert 'endpoint="/videos/{video_id}"' in content
+    assert resource_id not in content
+
+
 def test_metrics_not_recursive(client):
     """Test that /metrics endpoint doesn't track itself."""
     # Get metrics twice

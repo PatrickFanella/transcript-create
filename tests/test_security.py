@@ -359,6 +359,13 @@ class TestAuditLogging:
         from app.audit import log_audit_event
 
         user_id = uuid.uuid4()
+        db_session.execute(
+            text(
+                "INSERT INTO users (id, email, oauth_provider, oauth_subject) "
+                "VALUES (:id, :email, 'google', :subject)"
+            ),
+            {"id": user_id, "email": f"audit-{user_id}@example.com", "subject": f"audit-{user_id}"},
+        )
         log_audit_event(
             db_session,
             action="test_action",

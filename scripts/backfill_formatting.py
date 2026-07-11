@@ -63,7 +63,7 @@ FORMATTING_VERSION = "1.0.0"
 def compute_config_hash(config: Dict[str, Any]) -> str:
     """
     Compute a stable hash of the formatting configuration.
-    
+
     This allows us to detect when the config has changed and reformat accordingly.
     """
     # Sort keys for stable hashing
@@ -82,63 +82,63 @@ def should_process_transcript(
 ) -> tuple[bool, Optional[str]]:
     """
     Check if a transcript should be processed.
-    
+
     Returns:
         tuple: (should_process: bool, reason: Optional[str])
     """
     if force:
         return True, "forced reprocessing"
-    
+
     # Check if transcript has cleanup_config
-    row = conn.execute(
-        text(
-            """
+    row = (
+        conn.execute(
+            text("""
             SELECT cleanup_config, is_cleaned
             FROM transcripts
             WHERE id = :tid
-        """
-        ),
-        {"tid": transcript_id},
-    ).mappings().fetchone()
-    
+        """),
+            {"tid": transcript_id},
+        )
+        .mappings()
+        .fetchone()
+    )
+
     if not row:
         return False, "transcript not found"
-    
+
     cleanup_config = row["cleanup_config"]
     is_cleaned = row["is_cleaned"]
-    
+
     # If never cleaned, process it
     if not is_cleaned or not cleanup_config:
         return True, "never formatted"
-    
+
     # Check version and config hash
     stored_version = cleanup_config.get("version", "0.0.0")
     stored_config_hash = cleanup_config.get("config_hash", "")
-    
+
     # Process if version or config has changed
     if stored_version != FORMATTING_VERSION:
         return True, f"version changed ({stored_version} -> {FORMATTING_VERSION})"
-    
+
     if stored_config_hash != current_config_hash:
         return True, "config changed"
-    
+
     return False, "already formatted with current version"
 
 
 def load_segments_for_video(conn, video_id: str) -> List[Dict[str, Any]]:
     """Load raw segments for a video."""
     rows = conn.execute(
-        text(
-            """
+        text("""
             SELECT id, start_ms, end_ms, text, speaker, speaker_label, idx
             FROM segments
             WHERE video_id = :vid
             ORDER BY start_ms
-        """
-        ),
+        """),
         {"vid": video_id},
     ).mappings()
-    
+
     segments = []
     for row in rows:
         seg = {
@@ -153,7 +153,7 @@ def load_segments_for_video(conn, video_id: str) -> List[Dict[str, Any]]:
         if row.get("speaker_label"):
             seg["speaker_label"] = row["speaker_label"]
         segments.append(seg)
-    
+
     return segments
 
 
@@ -167,13 +167,13 @@ def apply_formatting_to_video(
 ) -> Dict[str, Any]:
     """
     Apply formatting to a single video's segments.
-    
+
     Returns:
         dict: Statistics about the operation
     """
     # Load segments
     segments = load_segments_for_video(conn, video_id)
-    
+
     if not segments:
         return {
             "video_id": video_id,
@@ -182,16 +182,20 @@ def apply_formatting_to_video(
             "segments_processed": 0,
             "segments_updated": 0,
         }
-    
+
     original_count = len(segments)
-    
+
     # Get language from video metadata if available
-    video_info = conn.execute(
-        text("SELECT language FROM videos WHERE id = :vid"),
-        {"vid": video_id},
-    ).mappings().fetchone()
+    video_info = (
+        conn.execute(
+            text("SELECT language FROM videos WHERE id = :vid"),
+            {"vid": video_id},
+        )
+        .mappings()
+        .fetchone()
+    )
     language = video_info["language"] if video_info else None
-    
+
     # Apply formatting
     try:
         formatted_segments = formatter.format_segments(segments, language=language)
@@ -204,9 +208,9 @@ def apply_formatting_to_video(
             "segments_processed": 0,
             "segments_updated": 0,
         }
-    
+
     formatted_count = len(formatted_segments)
-    
+
     if dry_run:
         logger.info(
             f"[DRY RUN] Would format video {video_id}: {original_count} -> {formatted_count} segments",
@@ -222,70 +226,66 @@ def apply_formatting_to_video(
             "segments_processed": original_count,
             "segments_updated": formatted_count,
         }
-    
+
     # Update segments with cleaned text
     # Match formatted segments back to original segments by timing
     updated_count = 0
-    
+
     # Build a mapping from original segment IDs to formatted text
     # This is complex because formatting can split/merge segments
     # For now, we'll use a simple approach: update original segments with cleaned text
     # where we can match them, and mark cleanup_applied=true
-    
+
     # Use two pointers to efficiently match original segments to formatted segments
     # Both lists are sorted by start time, so we can optimize from O(n*m) to O(n+m)
     seg_id_to_formatted = {}
     f_idx = 0
     f_len = len(formatted_segments)
-    
+
     for orig_seg in segments:
         # Advance formatted pointer until we find the segment that contains orig_seg["start"]
         while f_idx < f_len and formatted_segments[f_idx]["end"] <= orig_seg["start"]:
             f_idx += 1
-        
+
         if f_idx < f_len:
             f = formatted_segments[f_idx]
             # Use <= for end bound to handle edge case where segment ends exactly at start
             if f["start"] <= orig_seg["start"] <= f["end"]:
                 seg_id_to_formatted[orig_seg["id"]] = f["text"]
-    
+
     # Update segments in database
     for seg_id, cleaned_text in seg_id_to_formatted.items():
         conn.execute(
-            text(
-                """
+            text("""
                 UPDATE segments
                 SET text_cleaned = :cleaned,
                     cleanup_applied = true
                 WHERE id = :sid
-            """
-            ),
+            """),
             {"sid": seg_id, "cleaned": cleaned_text},
         )
         updated_count += 1
-    
+
     # Update transcript metadata
     from datetime import datetime, timezone
-    
+
     cleanup_metadata = {
         "version": FORMATTING_VERSION,
         "config_hash": config_hash,
         "config": formatter.config,
         "applied_at": datetime.now(timezone.utc).isoformat(),
     }
-    
+
     conn.execute(
-        text(
-            """
+        text("""
             UPDATE transcripts
             SET cleanup_config = :config,
                 is_cleaned = true
             WHERE id = :tid
-        """
-        ),
+        """),
         {"tid": transcript_id, "config": json.dumps(cleanup_metadata)},
     )
-    
+
     logger.info(
         f"Formatted video {video_id}",
         extra={
@@ -296,7 +296,7 @@ def apply_formatting_to_video(
             "updated_segments": updated_count,
         },
     )
-    
+
     return {
         "video_id": video_id,
         "status": "success",
@@ -314,7 +314,7 @@ def get_videos_to_process(
 ) -> List[tuple[str, str]]:
     """
     Get a batch of videos to process.
-    
+
     Returns:
         List of (video_id, transcript_id) tuples
     """
@@ -323,23 +323,23 @@ def get_videos_to_process(
     # The where_clause is constructed from safe literals only
     where_clauses = ["v.state = 'completed'"]
     params = {"limit": batch_size}
-    
+
     if video_ids:
         placeholders = ",".join([f":vid{i}" for i in range(len(video_ids))])
         where_clauses.append(f"v.id IN ({placeholders})")
         for i, vid in enumerate(video_ids):
             params[f"vid{i}"] = vid
-    
+
     if channel_name:
         where_clauses.append("v.channel_name = :channel")
         params["channel"] = channel_name
-    
+
     if job_id:
         where_clauses.append("v.job_id = :job_id")
         params["job_id"] = job_id
-    
+
     where_clause = " AND ".join(where_clauses)
-    
+
     query = f"""
         SELECT v.id as video_id, t.id as transcript_id
         FROM videos v
@@ -348,7 +348,7 @@ def get_videos_to_process(
         ORDER BY v.created_at ASC
         LIMIT :limit
     """
-    
+
     rows = conn.execute(text(query), params).mappings()
     return [(row["video_id"], row["transcript_id"]) for row in rows]
 
@@ -365,7 +365,7 @@ def run_backfill(
 ):
     """
     Run the backfill operation.
-    
+
     Args:
         batch_size: Number of videos to process per iteration
         until_empty: Continue until no more videos to process
@@ -377,11 +377,11 @@ def run_backfill(
         job_id: Filter to specific job ID
     """
     engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
-    
+
     # Get current config
     current_config = get_current_formatting_config()
     current_config_hash = compute_config_hash(current_config)
-    
+
     logger.info(
         "Starting formatting backfill",
         extra={
@@ -392,18 +392,18 @@ def run_backfill(
             "force": force,
         },
     )
-    
+
     # Create formatter instance
     formatter = TranscriptFormatter(config=current_config)
-    
+
     total_processed = 0
     total_skipped = 0
     total_errors = 0
     iterations = 0
-    
+
     while True:
         iterations += 1
-        
+
         # Get videos to process
         with engine.begin() as conn:
             videos = get_videos_to_process(
@@ -413,16 +413,16 @@ def run_backfill(
                 channel_name=channel_name,
                 job_id=job_id,
             )
-        
+
         if not videos:
             logger.info("No more videos to process")
             break
-        
+
         logger.info(
             f"Processing batch {iterations}",
             extra={"batch_size": len(videos), "iteration": iterations},
         )
-        
+
         # Process each video in the batch
         batch_stats = []
         for video_id, transcript_id in videos:
@@ -431,7 +431,7 @@ def run_backfill(
                 should_process, reason = should_process_transcript(
                     conn, transcript_id, current_config_hash, force=force
                 )
-            
+
             if not should_process:
                 logger.debug(
                     f"Skipping video {video_id}: {reason}",
@@ -439,7 +439,7 @@ def run_backfill(
                 )
                 total_skipped += 1
                 continue
-            
+
             # Process the video
             with engine.begin() as conn:
                 result = apply_formatting_to_video(
@@ -450,16 +450,16 @@ def run_backfill(
                     current_config_hash,
                     dry_run=dry_run,
                 )
-            
+
             batch_stats.append(result)
-            
+
             if result["status"] == "success" or result["status"] == "dry_run":
                 total_processed += 1
             elif result["status"] == "error":
                 total_errors += 1
             else:
                 total_skipped += 1
-        
+
         logger.info(
             f"Batch {iterations} complete",
             extra={
@@ -473,24 +473,24 @@ def run_backfill(
                 "total_errors": total_errors,
             },
         )
-        
+
         # Check stopping conditions
         if not until_empty:
             break
-        
+
         if max_iterations and iterations >= max_iterations:
             logger.info(
                 f"Reached max iterations: {max_iterations}",
                 extra={"max_iterations": max_iterations},
             )
             break
-        
+
         # If we processed fewer videos than batch size and not filtering by specific IDs,
         # we're probably done
         if len(videos) < batch_size and not video_ids:
             logger.info("Processed partial batch, likely complete")
             break
-    
+
     # Final summary
     logger.info(
         "Formatting backfill complete",
@@ -502,7 +502,7 @@ def run_backfill(
             "dry_run": dry_run,
         },
     )
-    
+
     return {
         "iterations": iterations,
         "processed": total_processed,
@@ -533,7 +533,7 @@ Examples:
   python scripts/backfill_formatting.py --force --until-empty
         """,
     )
-    
+
     parser.add_argument(
         "--batch",
         type=int,
@@ -576,19 +576,19 @@ Examples:
         type=str,
         help="Filter to videos from a specific job UUID",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Validate arguments
     if args.batch <= 0:
         parser.error("--batch must be positive")
-    
+
     # Parse video IDs if provided
     video_ids = None
     if args.video_ids:
         video_ids = [vid.strip() for vid in args.video_ids.split(",")]
         logger.info(f"Filtering to {len(video_ids)} specific video(s)")
-    
+
     # Run the backfill
     try:
         result = run_backfill(
@@ -601,13 +601,13 @@ Examples:
             channel_name=args.channel_name,
             job_id=args.job_id,
         )
-        
+
         # Exit with appropriate code
         if result["errors"] > 0:
             sys.exit(1)
         else:
             sys.exit(0)
-    
+
     except Exception as e:
         logger.error(f"Fatal error during backfill: {e}", exc_info=True)
         sys.exit(1)

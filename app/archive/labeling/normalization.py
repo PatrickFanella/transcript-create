@@ -275,7 +275,9 @@ def is_junk_phrase(value: str) -> bool:
     if normalized in STOP_TERMS or normalized in _FILLER_TERMS:
         return True
 
-    if re.fullmatch(r"\d+\s+(second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)", normalized):
+    if re.fullmatch(
+        r"\d+\s+(second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)", normalized
+    ):
         return True
 
     if all(term in STOP_TERMS or term in _FILLER_TERMS for term in terms):

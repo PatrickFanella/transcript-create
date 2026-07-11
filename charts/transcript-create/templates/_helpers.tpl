@@ -1,6 +1,22 @@
 {{/*
 Expand the name of the chart.
 */}}
+{{- define "transcript-create.image" -}}
+{{- if .Values.image.digest -}}
+{{ .Values.image.repository }}@{{ .Values.image.digest }}
+{{- else -}}
+{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+{{- end -}}
+{{- end }}
+
+{{- define "transcript-create.migrationsImage" -}}
+{{- if .Values.migrations.image.digest -}}
+{{ .Values.migrations.image.repository }}@{{ .Values.migrations.image.digest }}
+{{- else -}}
+{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag | default .Chart.AppVersion }}
+{{- end -}}
+{{- end }}
+
 {{- define "transcript-create.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}

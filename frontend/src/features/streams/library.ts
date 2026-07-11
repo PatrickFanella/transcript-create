@@ -67,7 +67,11 @@ export function statusBadge(video: VideoInfo) {
     .map((value) => String(value).toLowerCase());
 
   if (states.some((value) => /error|failed|cancel/.test(value))) {
-    return { label: 'Needs attention', className: 'inline-flex items-center justify-center rounded-full bg-danger-soft px-2 pb-[3px] pt-[7px] text-center font-medium leading-none text-danger' };
+    return {
+      label: 'Needs attention',
+      className:
+        'inline-flex items-center justify-center rounded-full bg-danger-soft px-2 pb-[3px] pt-[7px] text-center font-medium leading-none text-danger',
+    };
   }
 
   if (states.some((value) => /ready|complete|done|finished/.test(value))) {
@@ -80,7 +84,8 @@ export function statusBadge(video: VideoInfo) {
 
   return {
     label: titleCase(video.state ?? 'Unknown'),
-    className: 'inline-flex items-center justify-center rounded-full bg-surface-muted px-2 pb-[3px] pt-[7px] text-center font-medium leading-none text-muted',
+    className:
+      'inline-flex items-center justify-center rounded-full bg-surface-muted px-2 pb-[3px] pt-[7px] text-center font-medium leading-none text-muted',
   };
 }
 

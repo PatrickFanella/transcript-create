@@ -245,10 +245,9 @@ class TestSchemaValidation:
             VideoInfo(id="not-a-uuid", youtube_id="test")
 
     def test_negative_timestamps(self):
-        """Test that negative timestamps are allowed (could be valid in some cases)."""
-        # Pydantic will accept negative ints unless we add validators
-        segment = Segment(start_ms=-100, end_ms=0, text="Negative start", speaker_label=None)
-        assert segment.start_ms == -100
+        """Test that negative transcript timestamps are rejected."""
+        with pytest.raises(ValidationError):
+            Segment(start_ms=-100, end_ms=0, text="Negative start", speaker_label=None)
 
     def test_empty_text_segment(self):
         """Test segment with empty text."""

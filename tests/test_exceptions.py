@@ -9,7 +9,6 @@ from app.exceptions import (
     ExternalServiceError,
     InvalidURLError,
     JobNotFoundError,
-    QuotaExceededError,
     RateLimitError,
     TranscriptNotReadyError,
     ValidationError,
@@ -96,21 +95,6 @@ class TestInvalidURLError:
         assert error.details["reason"] == "Not a YouTube URL"
 
 
-class TestQuotaExceededError:
-    """Tests for QuotaExceededError."""
-
-    def test_quota_exceeded_error(self):
-        """Test QuotaExceededError initialization."""
-        error = QuotaExceededError("searches", 5, 5, "free")
-        assert error.error_code == "quota_exceeded"
-        assert "searches" in error.message
-        assert error.status_code == 402
-        assert error.details["resource"] == "searches"
-        assert error.details["limit"] == 5
-        assert error.details["used"] == 5
-        assert error.details["plan"] == "free"
-
-
 class TestTranscriptNotReadyError:
     """Tests for TranscriptNotReadyError."""
 
@@ -146,12 +130,12 @@ class TestExternalServiceError:
 
     def test_external_service_error(self):
         """Test ExternalServiceError initialization."""
-        error = ExternalServiceError("Stripe", "API key invalid")
+        error = ExternalServiceError("YouTube", "request unavailable")
         assert error.error_code == "external_service_error"
-        assert "Stripe" in error.message
-        assert "API key invalid" in error.message
+        assert "YouTube" in error.message
+        assert "request unavailable" in error.message
         assert error.status_code == 503
-        assert error.details["service"] == "Stripe"
+        assert error.details["service"] == "YouTube"
 
 
 class TestAuthenticationError:

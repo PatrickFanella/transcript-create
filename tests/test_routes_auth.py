@@ -3,7 +3,7 @@
 import secrets
 import uuid
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -132,7 +132,9 @@ class TestAuthRoutes:
         # Mock the authorize_redirect to return a redirect response
         from fastapi.responses import RedirectResponse
 
-        mock_google.authorize_redirect.return_value = RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+        mock_google.authorize_redirect = AsyncMock(
+            return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+        )
 
         response = client.get("/auth/login/google", follow_redirects=False)
         # Should redirect to Google OAuth
@@ -149,13 +151,15 @@ class TestAuthRoutes:
 
         from fastapi.responses import RedirectResponse
 
-        mock_twitch.authorize_redirect.return_value = RedirectResponse(url="https://id.twitch.tv/oauth2/authorize")
+        mock_twitch.authorize_redirect = AsyncMock(
+            return_value=RedirectResponse(url="https://id.twitch.tv/oauth2/authorize")
+        )
 
         response = client.get("/auth/login/twitch", follow_redirects=False)
         assert response.status_code in [307, 302, 200]
 
-    def test_auth_me_free_plan_search_limit(self, client: TestClient, db_session):
-        """Test that free plan users see search limit information."""
+    def test_auth_me_free_plan_has_unrestricted_search(self, client: TestClient, db_session):
+        """Free plan users do not receive a retired billing-era search quota."""
         user_id = uuid.uuid4()
         session_token = secrets.token_urlsafe(32)
 
@@ -176,8 +180,7 @@ class TestAuthRoutes:
         assert response.status_code == 200
         data = response.json()
         assert data["user"]["plan"] == "free"
-        assert "search_limit" in data["user"]
-        assert data["user"]["search_limit"] is not None
+        assert "search_limit" not in data["user"]
 
     def test_auth_callback_missing_state(self, client: TestClient):
         """Test OAuth callback without state parameter."""

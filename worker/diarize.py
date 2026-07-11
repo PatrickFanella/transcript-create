@@ -63,11 +63,9 @@ def _get_pipeline():
 def _build_audio_input(wav_path):
     """Build pyannote input while avoiding torchcodec path decoding when possible.
 
-    pyannote.audio 4.x may try to decode file paths through torchcodec. The CUDA
-    image currently pins Torch/Torchaudio for GTX 1080 compatibility, which can
-    leave torchcodec unavailable or incompatible. Passing a preloaded waveform
-    keeps diarization optional and prevents that decoder mismatch from breaking
-    the worker.
+    pyannote.audio 4.x may try to decode file paths through torchcodec. Passing
+    a preloaded waveform avoids accelerator-specific decoder paths and keeps
+    diarization behavior consistent across CPU, CUDA, and ROCm workers.
     """
     try:
         import torchaudio  # type: ignore
@@ -95,7 +93,11 @@ def run_diarization(wav_path):
     logger.info("Running diarization", extra={"wav_path": str(wav_path)})
     diar_input = _build_audio_input(wav_path)
     diar_output = pipe(diar_input) if callable(pipe) else pipe(str(wav_path))
-    diar = getattr(diar_output, "speaker_diarization", diar_output)
+    diar = (
+        diar_output
+        if callable(getattr(diar_output, "itertracks", None))
+        else getattr(diar_output, "speaker_diarization", diar_output)
+    )
     diar_list = []
     label_first_time = {}
     for seg, _track, label in diar.itertracks(yield_label=True):

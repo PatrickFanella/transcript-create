@@ -11,8 +11,21 @@ global:
 image:
   repository: transcript-create
   tag: latest
+  # Set to sha256:... to pin every workload to an immutable verified image.
+  digest: ""
   pullPolicy: IfNotPresent
   pullSecrets: []
+
+analyticsRetention:
+  enabled: true
+  schedule: "17 3 * * *"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 # API configuration
 api:
@@ -256,6 +269,7 @@ migrations:
   image:
     repository: transcript-create
     tag: latest
+    digest: ""
   resources:
     requests:
       cpu: 100m

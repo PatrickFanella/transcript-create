@@ -9,10 +9,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from .. import crud
 from ..archive.repository import archive_repository
-from .intelligence_facets import attach_archive_facets
 from ..archive.video_metadata_repository import get_video_metadata_map
-from .intelligence_repository import SEED_TOPICS, SeedTopic, alias_matches_text, get_durable_archive_intelligence, merge_label_topic_cards, published_label_cards_for_period, slugify_topic
-from .intelligence_repository import list_period_options
 from ..schemas import (
     ArchiveEvidenceMoment,
     ArchiveIntelligenceResponse,
@@ -22,6 +19,17 @@ from ..schemas import (
     ArchiveTopicCard,
     ArchiveTrendingSearch,
     VideoInfo,
+)
+from .intelligence_facets import attach_archive_facets
+from .intelligence_repository import (
+    SEED_TOPICS,
+    SeedTopic,
+    alias_matches_text,
+    get_durable_archive_intelligence,
+    list_period_options,
+    merge_label_topic_cards,
+    published_label_cards_for_period,
+    slugify_topic,
 )
 
 
@@ -72,14 +80,12 @@ def _search_suggestions(db, limit: int) -> list[ArchiveTrendingSearch]:
     try:
         rows = (
             db.execute(
-                text(
-                    """
+                text("""
                     SELECT term, frequency
                     FROM search_suggestions
                     ORDER BY frequency DESC, last_used DESC NULLS LAST, term ASC
                     LIMIT :limit
-                    """
-                ),
+                    """),
                 {"limit": limit},
             )
             .mappings()
@@ -90,7 +96,12 @@ def _search_suggestions(db, limit: int) -> list[ArchiveTrendingSearch]:
         rows = []
 
     return [
-        ArchiveTrendingSearch(term=row["term"], frequency=int(row["frequency"] or 0), trend_score=float(row["frequency"] or 0), source="search")
+        ArchiveTrendingSearch(
+            term=row["term"],
+            frequency=int(row["frequency"] or 0),
+            trend_score=float(row["frequency"] or 0),
+            source="search",
+        )
         for row in rows
     ]
 
@@ -122,8 +133,7 @@ def _recent_evidence_for_videos(db, videos: list[VideoInfo], limit: int = 24) ->
     placeholders = ", ".join(f":{key}" for key in id_params)
     rows = (
         db.execute(
-            text(
-                f"""
+            text(f"""
                 SELECT * FROM (
                     SELECT
                         v.id AS video_id, v.youtube_id, v.title, v.duration_seconds, v.state,
@@ -152,8 +162,7 @@ def _recent_evidence_for_videos(db, videos: list[VideoInfo], limit: int = 24) ->
                 ) transcript_segments
                 ORDER BY COALESCE(uploaded_at, created_at) DESC NULLS LAST, transcript_source_priority ASC, start_ms ASC
                 LIMIT :limit
-                """
-            ),
+                """),
             {**id_params, "limit": limit},
         )
         .mappings()
@@ -173,7 +182,9 @@ def _recent_evidence_for_videos(db, videos: list[VideoInfo], limit: int = 24) ->
     ]
 
 
-def _matching_evidence(evidence_pool: list[ArchiveEvidenceMoment], aliases: Iterable[str], topic_label: str, limit: int = 2) -> list[ArchiveEvidenceMoment]:
+def _matching_evidence(
+    evidence_pool: list[ArchiveEvidenceMoment], aliases: Iterable[str], topic_label: str, limit: int = 2
+) -> list[ArchiveEvidenceMoment]:
     lowered_aliases = [alias.lower() for alias in aliases]
     matches: list[ArchiveEvidenceMoment] = []
     for moment in evidence_pool:
@@ -196,7 +207,9 @@ def _related_topics(snippets: Iterable[str], current_slug: str) -> list[str]:
     return related[:3]
 
 
-def _seed_topic_card(seed: SeedTopic, evidence_pool: list[ArchiveEvidenceMoment], search_frequency: int = 0) -> ArchiveTopicCard:
+def _seed_topic_card(
+    seed: SeedTopic, evidence_pool: list[ArchiveEvidenceMoment], search_frequency: int = 0
+) -> ArchiveTopicCard:
     evidence = _matching_evidence(evidence_pool, seed.aliases, seed.label, limit=2)
     total_moments = len(evidence)
     total_videos = len({moment.video.id for moment in evidence})
@@ -243,7 +256,9 @@ def _automatic_topic_cards(
     return cards
 
 
-def _suggested_searches(topic_cards: list[ArchiveTopicCard], popular: list[ArchiveTrendingSearch], limit: int) -> list[ArchiveTrendingSearch]:
+def _suggested_searches(
+    topic_cards: list[ArchiveTopicCard], popular: list[ArchiveTrendingSearch], limit: int
+) -> list[ArchiveTrendingSearch]:
     suggestions: list[ArchiveTrendingSearch] = []
     seen: set[str] = set()
 
@@ -266,7 +281,11 @@ def _suggested_searches(topic_cards: list[ArchiveTopicCard], popular: list[Archi
         key = item.term.lower()
         if key in seen:
             continue
-        suggestions.append(ArchiveTrendingSearch(term=item.term, frequency=item.frequency, trend_score=item.trend_score, source=item.source))
+        suggestions.append(
+            ArchiveTrendingSearch(
+                term=item.term, frequency=item.frequency, trend_score=item.trend_score, source=item.source
+            )
+        )
         seen.add(key)
         if len(suggestions) >= limit:
             break
@@ -342,14 +361,25 @@ def get_archive_intelligence(
         period_slug=period,
     )
     if cached is not None:
-        return attach_archive_facets(cached, db=db).model_copy(update={"query_time_ms": int((time.perf_counter() - start) * 1000)})
+        return attach_archive_facets(cached, db=db).model_copy(
+            update={"query_time_ms": int((time.perf_counter() - start) * 1000)}
+        )
 
     summary = archive_repository.get_summary(db, recent_limit=6, popular_limit=max(topic_limit, 8))
-    timeline = crud.get_archive_timeline(db, limit=max(period_limit, 1) * 25, granularity=granularity)
+    timeline = crud.get_archive_timeline(
+        db,
+        limit=max(period_limit, 1) * 25,
+        granularity=granularity,
+        date_from=date_from,
+        date_to=date_to,
+    )
     trending_searches = _search_suggestions(db, limit=max(topic_limit, 8))
     evidence_videos: list[VideoInfo] = []
     seen_video_ids: set[str] = set()
-    for video in [*summary.recent_videos, *(bucket_video for bucket in timeline.buckets for bucket_video in bucket.videos[:3])]:
+    for video in [
+        *summary.recent_videos,
+        *(bucket_video for bucket in timeline.buckets for bucket_video in bucket.videos[:3]),
+    ]:
         key = str(video.id)
         if key in seen_video_ids:
             continue
@@ -385,17 +415,20 @@ def get_archive_intelligence(
     if selected_period is None and period_options:
         selected_period = period_options[0]
 
-    return attach_archive_facets(ArchiveIntelligenceResponse(
-        summary=summary,
-        exploration_modes=["timeline", "topics", "trending", "suggested"],
-        trending_searches=trending_searches,
-        suggested_searches=suggested_searches,
-        topic_cards=topic_cards,
-        periods=periods,
-        selected_period=selected_period,
-        period_options=period_options,
-        query_time_ms=int((time.perf_counter() - start) * 1000),
-    ), db=db)
+    return attach_archive_facets(
+        ArchiveIntelligenceResponse(
+            summary=summary,
+            exploration_modes=["timeline", "topics", "trending", "suggested"],
+            trending_searches=trending_searches,
+            suggested_searches=suggested_searches,
+            topic_cards=topic_cards,
+            periods=periods,
+            selected_period=selected_period,
+            period_options=period_options,
+            query_time_ms=int((time.perf_counter() - start) * 1000),
+        ),
+        db=db,
+    )
 
 
 def get_archive_period_options(db, kind: str | None = None, limit: int = 120) -> ArchivePeriodOptionsResponse:

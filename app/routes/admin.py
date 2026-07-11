@@ -7,6 +7,7 @@ from sqlalchemy import text as _text
 from ..common.session import get_session_token as _get_session_token
 from ..common.session import get_user_from_session as _get_user_from_session
 from ..common.session import is_admin as _is_admin
+from ..csv_export import render_csv
 from ..db import get_db
 from ..exceptions import AuthorizationError, ValidationError
 from ..security import ROLE_ADMIN, require_role
@@ -92,7 +93,7 @@ def admin_events(
     if end:
         where.append("created_at <= :end")
         params["end"] = end
-    sql = "SELECT id, created_at, user_id, session_token, type, payload FROM events"
+    sql = "SELECT id, created_at, user_id, analytics_subject_id, type, payload FROM events"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id DESC LIMIT :limit OFFSET :offset"
@@ -144,7 +145,7 @@ def admin_events_csv(
     if end:
         where.append("created_at <= :end")
         params["end"] = end
-    sql = "SELECT id, created_at, user_id, session_token, type, payload FROM events"
+    sql = "SELECT id, created_at, user_id, analytics_subject_id, type, payload FROM events"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id DESC LIMIT :limit OFFSET :offset"
@@ -152,15 +153,8 @@ def admin_events_csv(
     params["offset"] = offset
     rows = db.execute(_text(sql), params).all()
 
-    def esc(x):
-        s = str(x) if x is not None else ""
-        if any(c in s for c in [",", '"', "\n"]):
-            s = '"' + s.replace('"', '""') + '"'
-        return s
-
-    header = "id,created_at,user_id,session_token,type,payload\n"
-    body = "".join([f"{esc(r[0])},{esc(r[1])},{esc(r[2])},{esc(r[3])},{esc(r[4])},{esc(r[5])}\n" for r in rows])
-    return PlainTextResponse(content=header + body, media_type="text/csv")
+    content = render_csv([["id", "created_at", "user_id", "analytics_subject_id", "type", "payload"], *rows])
+    return PlainTextResponse(content=content, media_type="text/csv")
 
 
 @router.get(

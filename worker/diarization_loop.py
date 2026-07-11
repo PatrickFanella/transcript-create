@@ -16,17 +16,19 @@ logger = get_logger(__name__)
 
 
 def _load_segments(conn, video_id):
-    rows = conn.execute(
-        text(
-            """
+    rows = (
+        conn.execute(
+            text("""
             SELECT id, start_ms, end_ms, text, speaker_label, confidence, avg_logprob, temperature, token_count
             FROM segments
             WHERE video_id = :v
             ORDER BY start_ms, id
-            """
-        ),
-        {"v": video_id},
-    ).mappings().all()
+            """),
+            {"v": video_id},
+        )
+        .mappings()
+        .all()
+    )
     return [
         {
             "_segment_id": row["id"],
@@ -45,9 +47,7 @@ def _load_segments(conn, video_id):
 
 
 def _claim_video(conn):
-    row = conn.execute(
-        text(
-            """
+    row = conn.execute(text("""
             SELECT v.id, v.wav_path
             FROM videos v
             WHERE v.state = 'completed'
@@ -57,9 +57,7 @@ def _claim_video(conn):
             ORDER BY v.updated_at, v.created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1
-            """
-        )
-    ).mappings().first()
+            """)).mappings().first()
     if not row:
         return None
     logger.info("Claiming diarization job", extra={"video_id": str(row["id"]), "wav_path": row["wav_path"]})
@@ -72,8 +70,7 @@ def _claim_video(conn):
 
 def _requeue_stale_running(conn):
     rows = conn.execute(
-        text(
-            """
+        text("""
             UPDATE videos
             SET diarization_state='pending',
                 diarization_error='Requeued stale running diarization job',
@@ -81,8 +78,7 @@ def _requeue_stale_running(conn):
             WHERE diarization_state='running'
               AND now() - updated_at > (:timeout_minutes * interval '1 minute')
             RETURNING id
-            """
-        ),
+            """),
         {"timeout_minutes": settings.DIARIZATION_RUNNING_TIMEOUT_MINUTES},
     ).fetchall()
     if rows:
@@ -147,13 +143,11 @@ def process_one(engine) -> bool:
             if assigned == 0:
                 raise RuntimeError("Diarization completed without assigning any speaker labels")
             conn.execute(
-                text(
-                    """
+                text("""
                     UPDATE videos
                     SET diarization_state='completed', diarization_error=NULL, updated_at=now()
                     WHERE id=:v
-                    """
-                ),
+                    """),
                 {"v": video_id},
             )
         logger.info(
@@ -165,13 +159,11 @@ def process_one(engine) -> bool:
         logger.exception("Diarization job failed", extra={"video_id": str(video_id), "error": str(e)})
         with engine.begin() as conn:
             conn.execute(
-                text(
-                    """
+                text("""
                     UPDATE videos
                     SET diarization_state='failed', diarization_error=:e, updated_at=now()
                     WHERE id=:v
-                    """
-                ),
+                    """),
                 {"v": video_id, "e": str(e)[:5000]},
             )
         return True

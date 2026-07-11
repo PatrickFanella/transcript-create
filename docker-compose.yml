@@ -128,6 +128,31 @@ services:
         group_add:
             - 'video'
 
+    analytics-retention:
+        image: hasanara:latest
+        env_file: .env
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            RETENTION_INTERVAL_SECONDS: ${RETENTION_INTERVAL_SECONDS:-86400}
+        depends_on:
+            migrations:
+                condition: service_completed_successfully
+        # The application image probes the HTTP API by default. This worker has
+        # no HTTP listener, so explicitly disable the inherited image check.
+        healthcheck:
+            disable: true
+        command:
+            - bash
+            # Exit immediately when a maintenance run fails so orchestration
+            # records/restarts a failed run instead of silently sleeping a day.
+            - -euc
+            - |
+                while true; do
+                  python3 /app/scripts/maintain_event_retention.py
+                  sleep "$${RETENTION_INTERVAL_SECONDS:-86400}"
+                done
+        restart: unless-stopped
+
     opensearch:
         image: opensearchproject/opensearch:2.12.0
         environment:

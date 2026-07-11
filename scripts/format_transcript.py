@@ -57,14 +57,12 @@ def load_segments_from_db(video_id: str) -> List[Dict[str, Any]]:
 
     with engine.begin() as conn:
         rows = conn.execute(
-            text(
-                """
+            text("""
             SELECT start_ms, end_ms, text, speaker, speaker_label
             FROM segments
             WHERE video_id = :vid
             ORDER BY start_ms
-        """
-            ),
+        """),
             {"vid": video_id},
         ).mappings()
 

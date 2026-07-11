@@ -108,16 +108,16 @@ def ensure_index(name: str, recreate: bool = False):
         return
     r = requests.put(url, json=mapping, timeout=60)
     if r.status_code >= 400:
-        logging.error("Index create failed: %s", r.text)
+        logger.error("Index create failed: %s", r.text)
     r.raise_for_status()
-    logging.info("Created index %s", name)
+    logger.info("Created index %s", name)
 
 
 def update_index_settings(name: str, new_settings: dict):
     url = f"{settings.OPENSEARCH_URL}/{name}/_settings"
     r = requests.put(url, json={"index": new_settings}, timeout=30)
     r.raise_for_status()
-    logging.info("Updated %s settings: %s", name, new_settings)
+    logger.info("Updated %s settings: %s", name, new_settings)
 
 
 def gen_bulk_actions(index: str, rows: Iterable[dict]):
@@ -145,7 +145,7 @@ def bulk_post(actions: List[dict], retries: int = 5, base_sleep: float = 0.5):
             r.raise_for_status()
             j = r.json()
             if j.get("errors"):
-                logging.warning("Bulk had item errors (continuing): %s", j.get("errors"))
+                logger.warning("Bulk had item errors (continuing): %s", j.get("errors"))
             return j
         except requests.HTTPError as e:
             last_exc = e
@@ -162,23 +162,19 @@ def bulk_post(actions: List[dict], retries: int = 5, base_sleep: float = 0.5):
 def index_table(engine, table: str, index: str, last_id: int, batch: int, bulk_docs: int) -> int:
     with engine.connect() as conn:
         if table == "segments":
-            sql = text(
-                """
+            sql = text("""
                 SELECT id, video_id, start_ms, end_ms, text
                 FROM segments WHERE id > :last_id
                 ORDER BY id ASC LIMIT :lim
-            """
-            )
+            """)
         else:
-            sql = text(
-                """
+            sql = text("""
                 SELECT ys.id, yt.video_id, ys.start_ms, ys.end_ms, ys.text
                 FROM youtube_segments ys
                 JOIN youtube_transcripts yt ON yt.id = ys.youtube_transcript_id
                 WHERE ys.id > :last_id
                 ORDER BY ys.id ASC LIMIT :lim
-            """
-            )
+            """)
         rows = conn.execute(sql, {"last_id": last_id, "lim": batch}).mappings().all()
         if not rows:
             return 0
@@ -207,7 +203,7 @@ def main(
                 settings.OPENSEARCH_INDEX_YOUTUBE, {"refresh_interval": "-1", "translog.durability": "async"}
             )
         except Exception as e:
-            logging.warning("Failed to disable refresh: %s", e)
+            logger.warning("Failed to disable refresh: %s", e)
     last_native = 0
     last_youtube = 0
     while True:
@@ -217,7 +213,7 @@ def main(
             if new_last:
                 last_native = new_last
                 progressed = True
-                logging.info("Indexed native up to id=%d", last_native)
+                logger.info("Indexed native up to id=%d", last_native)
         if source in ("youtube", "both"):
             new_last = index_table(
                 eng, "youtube_segments", settings.OPENSEARCH_INDEX_YOUTUBE, last_youtube, batch, bulk_docs
@@ -225,10 +221,10 @@ def main(
             if new_last:
                 last_youtube = new_last
                 progressed = True
-                logging.info("Indexed youtube up to id=%d", last_youtube)
+                logger.info("Indexed youtube up to id=%d", last_youtube)
         if not progressed:
             break
-    logging.info("Indexing complete")
+    logger.info("Indexing complete")
     # Restore refresh interval
     if refresh_off:
         try:
@@ -239,7 +235,7 @@ def main(
                 settings.OPENSEARCH_INDEX_YOUTUBE, {"refresh_interval": "1s", "translog.durability": "request"}
             )
         except Exception as e:
-            logging.warning("Failed to restore refresh: %s", e)
+            logger.warning("Failed to restore refresh: %s", e)
 
 
 if __name__ == "__main__":

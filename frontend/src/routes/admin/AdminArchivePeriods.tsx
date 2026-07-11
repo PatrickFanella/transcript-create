@@ -5,7 +5,15 @@ import type {
   ArchiveNamedPeriodUpsertPayload,
 } from '../../types/api';
 
-type PeriodKind = 'week' | 'month' | 'event' | 'date' | 'holiday' | 'anniversary' | 'leadup' | 'fallout';
+type PeriodKind =
+  | 'week'
+  | 'month'
+  | 'event'
+  | 'date'
+  | 'holiday'
+  | 'anniversary'
+  | 'leadup'
+  | 'fallout';
 type PeriodStatus = 'published' | 'hidden';
 
 const periodKinds: Array<{ value: 'all' | PeriodKind; label: string }> = [
@@ -69,14 +77,21 @@ function formatDateTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function formatRecurringDate(row: Pick<ArchiveNamedPeriodAdminResponse, 'recurring_month' | 'recurring_day'>) {
+function formatRecurringDate(
+  row: Pick<ArchiveNamedPeriodAdminResponse, 'recurring_month' | 'recurring_day'>
+) {
   if (!row.recurring_month || !row.recurring_day) return null;
   const sample = new Date(Date.UTC(2024, row.recurring_month - 1, row.recurring_day));
   if (Number.isNaN(sample.getTime())) return `Every ${row.recurring_month}/${row.recurring_day}`;
   return `Every ${sample.toLocaleDateString(undefined, { month: 'long', day: 'numeric', timeZone: 'UTC' })}`;
 }
 
-function formatDateRange(row: Pick<ArchiveNamedPeriodAdminResponse, 'date_from' | 'date_to' | 'recurring_month' | 'recurring_day'>) {
+function formatDateRange(
+  row: Pick<
+    ArchiveNamedPeriodAdminResponse,
+    'date_from' | 'date_to' | 'recurring_month' | 'recurring_day'
+  >
+) {
   const recurring = formatRecurringDate(row);
   if (recurring) return recurring;
   if (row.date_from && row.date_to) return `${row.date_from} → ${row.date_to}`;
@@ -183,7 +198,8 @@ export default function AdminArchivePeriods() {
     }
     if (sortOrder !== undefined) payload.sort_order = sortOrder;
 
-    const recurringMonth = form.recurring_month.trim() === '' ? undefined : Number(form.recurring_month);
+    const recurringMonth =
+      form.recurring_month.trim() === '' ? undefined : Number(form.recurring_month);
     const recurringDay = form.recurring_day.trim() === '' ? undefined : Number(form.recurring_day);
     if ((recurringMonth === undefined) !== (recurringDay === undefined)) {
       setSaving(false);
@@ -191,8 +207,10 @@ export default function AdminArchivePeriods() {
       return;
     }
     if (
-      (recurringMonth !== undefined && (!Number.isInteger(recurringMonth) || recurringMonth < 1 || recurringMonth > 12)) ||
-      (recurringDay !== undefined && (!Number.isInteger(recurringDay) || recurringDay < 1 || recurringDay > 31))
+      (recurringMonth !== undefined &&
+        (!Number.isInteger(recurringMonth) || recurringMonth < 1 || recurringMonth > 12)) ||
+      (recurringDay !== undefined &&
+        (!Number.isInteger(recurringDay) || recurringDay < 1 || recurringDay > 31))
     ) {
       setSaving(false);
       setError('Recurring month/day must be valid numbers.');
@@ -208,10 +226,14 @@ export default function AdminArchivePeriods() {
 
     try {
       if (editingSlug) {
-        await http.patch(`admin/archive/periods/${editingSlug}`, { json: payload }).json<ArchiveNamedPeriodAdminResponse>();
+        await http
+          .patch(`admin/archive/periods/${editingSlug}`, { json: payload })
+          .json<ArchiveNamedPeriodAdminResponse>();
         setNotice(`Updated ${payload.label}`);
       } else {
-        await http.post('admin/archive/periods', { json: payload }).json<ArchiveNamedPeriodAdminResponse>();
+        await http
+          .post('admin/archive/periods', { json: payload })
+          .json<ArchiveNamedPeriodAdminResponse>();
         setNotice(`Created ${payload.label}`);
       }
       resetForm();
@@ -247,7 +269,9 @@ export default function AdminArchivePeriods() {
     setNotice('');
 
     try {
-      await http.post(`admin/archive/periods/${row.slug}/refresh`).json<ArchiveNamedPeriodAdminResponse>();
+      await http
+        .post(`admin/archive/periods/${row.slug}/refresh`)
+        .json<ArchiveNamedPeriodAdminResponse>();
       setNotice(`Recalculated ${row.label}`);
       await refreshList();
     } catch (refreshError) {
@@ -265,7 +289,9 @@ export default function AdminArchivePeriods() {
 
     try {
       const result = await http.post('admin/archive/periods/seed').json<Record<string, unknown>>();
-      setNotice(`Seeded curated periods${Object.keys(result).length ? ` (${JSON.stringify(result)})` : ''}.`);
+      setNotice(
+        `Seeded curated periods${Object.keys(result).length ? ` (${JSON.stringify(result)})` : ''}.`
+      );
       await refreshList();
     } catch (seedError) {
       console.error('Failed to seed curated periods', seedError);
@@ -280,8 +306,8 @@ export default function AdminArchivePeriods() {
       <div className="space-y-2">
         <h1 className="page-title">Archive periods</h1>
         <p className="max-w-3xl text-sm text-muted">
-          Create interesting days, anniversaries, holidays, leadups, and fallout windows that power the
-          archive intelligence surface.
+          Create interesting days, anniversaries, holidays, leadups, and fallout windows that power
+          the archive intelligence surface.
         </p>
       </div>
 
@@ -336,7 +362,12 @@ export default function AdminArchivePeriods() {
           <button className="btn btn-primary" onClick={applyFilters} type="button">
             Apply
           </button>
-          <button className="btn btn-secondary" onClick={seedPeriods} type="button" disabled={seeding}>
+          <button
+            className="btn btn-secondary"
+            onClick={seedPeriods}
+            type="button"
+            disabled={seeding}
+          >
             {seeding ? 'Seeding…' : 'Seed curated periods'}
           </button>
         </div>
@@ -352,7 +383,9 @@ export default function AdminArchivePeriods() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Create or edit a period</h2>
-            <p className="text-sm text-muted">Use the form below to add a curated window or revise an existing one.</p>
+            <p className="text-sm text-muted">
+              Use the form below to add a curated window or revise an existing one.
+            </p>
           </div>
           {editingSlug && (
             <button className="btn btn-secondary" onClick={resetForm} type="button">
@@ -401,9 +434,11 @@ export default function AdminArchivePeriods() {
               placeholder="event"
             />
             <datalist id="period-kind-values">
-              {periodKinds.filter((option) => option.value !== 'all').map((option) => (
-                <option key={option.value} value={option.value} />
-              ))}
+              {periodKinds
+                .filter((option) => option.value !== 'all')
+                .map((option) => (
+                  <option key={option.value} value={option.value} />
+                ))}
             </datalist>
           </div>
           <div>
@@ -413,7 +448,9 @@ export default function AdminArchivePeriods() {
             <select
               id="period-status-form"
               value={form.status}
-              onChange={(e) => setForm((current) => ({ ...current, status: e.target.value as PeriodStatus }))}
+              onChange={(e) =>
+                setForm((current) => ({ ...current, status: e.target.value as PeriodStatus }))
+              }
               className="form-control"
             >
               <option value="published">Published</option>
@@ -460,7 +497,10 @@ export default function AdminArchivePeriods() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-ink" htmlFor="period-recurring-month">
+            <label
+              className="mb-1 block text-sm font-medium text-ink"
+              htmlFor="period-recurring-month"
+            >
               Recurring month
             </label>
             <input
@@ -469,14 +509,21 @@ export default function AdminArchivePeriods() {
               min={1}
               max={12}
               value={form.recurring_month}
-              onChange={(e) => setForm((current) => ({ ...current, recurring_month: e.target.value }))}
+              onChange={(e) =>
+                setForm((current) => ({ ...current, recurring_month: e.target.value }))
+              }
               className="form-control"
               placeholder="8"
             />
-            <p className="mt-1 text-xs text-muted">Set with recurring day for annual date periods like 8/21.</p>
+            <p className="mt-1 text-xs text-muted">
+              Set with recurring day for annual date periods like 8/21.
+            </p>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-ink" htmlFor="period-recurring-day">
+            <label
+              className="mb-1 block text-sm font-medium text-ink"
+              htmlFor="period-recurring-day"
+            >
               Recurring day
             </label>
             <input
@@ -485,11 +532,15 @@ export default function AdminArchivePeriods() {
               min={1}
               max={31}
               value={form.recurring_day}
-              onChange={(e) => setForm((current) => ({ ...current, recurring_day: e.target.value }))}
+              onChange={(e) =>
+                setForm((current) => ({ ...current, recurring_day: e.target.value }))
+              }
               className="form-control"
               placeholder="21"
             />
-            <p className="mt-1 text-xs text-muted">Recurring periods collect streams from that month/day across all years.</p>
+            <p className="mt-1 text-xs text-muted">
+              Recurring periods collect streams from that month/day across all years.
+            </p>
           </div>
           <div className="md:col-span-2">
             <label className="mb-1 block text-sm font-medium text-ink" htmlFor="period-description">
@@ -549,12 +600,22 @@ export default function AdminArchivePeriods() {
                   <td className="px-2 py-2 whitespace-nowrap">{formatDateRange(row)}</td>
                   <td className="px-2 py-2">{row.status}</td>
                   <td className="px-2 py-2">{row.video_count}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatDuration(row.total_duration_seconds)}</td>
-                  <td className="px-2 py-2 max-w-md text-muted">{row.summary || row.description || '—'}</td>
-                  <td className="px-2 py-2 whitespace-nowrap">{formatDateTime(row.calculated_at)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatDuration(row.total_duration_seconds)}
+                  </td>
+                  <td className="px-2 py-2 max-w-md text-muted">
+                    {row.summary || row.description || '—'}
+                  </td>
+                  <td className="px-2 py-2 whitespace-nowrap">
+                    {formatDateTime(row.calculated_at)}
+                  </td>
                   <td className="px-2 py-2">
                     <div className="flex flex-wrap gap-2">
-                      <button className="btn btn-secondary" type="button" onClick={() => beginEdit(row)}>
+                      <button
+                        className="btn btn-secondary"
+                        type="button"
+                        onClick={() => beginEdit(row)}
+                      >
                         Edit
                       </button>
                       <button
@@ -565,7 +626,11 @@ export default function AdminArchivePeriods() {
                       >
                         {refreshingSlug === row.slug ? 'Recalculating…' : 'Recalculate'}
                       </button>
-                      <button className="btn btn-secondary" type="button" onClick={() => void toggleStatus(row)}>
+                      <button
+                        className="btn btn-secondary"
+                        type="button"
+                        onClick={() => void toggleStatus(row)}
+                      >
                         {row.status === 'hidden' ? 'Publish' : 'Hide'}
                       </button>
                     </div>

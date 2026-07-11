@@ -9,7 +9,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.exceptions import ValidationError
 
-
 DEFAULT_TAG_SEEDS: tuple[dict[str, str], ...] = (
     {"slug": "chadvice", "label": "Chadvice"},
     {"slug": "okbuddy", "label": "OKBuddy"},
@@ -127,8 +126,7 @@ def seed_default_tags(db) -> dict[str, int]:
     inserted = 0
     for seed in DEFAULT_TAG_SEEDS:
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO archive_video_tags (
                     slug, label, kind, status, sort_order, created_at, updated_at
                 ) VALUES (
@@ -139,8 +137,7 @@ def seed_default_tags(db) -> dict[str, int]:
                     kind = EXCLUDED.kind,
                     status = EXCLUDED.status,
                     updated_at = now()
-                """
-            ),
+                """),
             seed,
         )
         inserted += 1
@@ -152,28 +149,26 @@ def seed_metadata_label_aliases(db) -> dict[str, int]:
     seeded_aliases = 0
 
     seed_default_tags(db)
-    tag_rows = db.execute(
-        text(
-            """
+    tag_rows = (
+        db.execute(
+            text("""
             SELECT slug, label, kind, description
             FROM archive_video_tags
             WHERE status = 'published'
               AND slug = ANY(:allowed_slugs)
             ORDER BY slug
-            """
-        ),
-        {"allowed_slugs": sorted(AUTO_TAG_SLUG_ALLOWLIST)},
-    ).mappings().all()
-    person_rows = db.execute(
-        text(
-            """
+            """),
+            {"allowed_slugs": sorted(AUTO_TAG_SLUG_ALLOWLIST)},
+        )
+        .mappings()
+        .all()
+    )
+    person_rows = db.execute(text("""
             SELECT slug, display_name AS label, aliases, description
             FROM archive_people
             WHERE status = 'published'
             ORDER BY slug
-            """
-        )
-    ).mappings().all()
+            """)).mappings().all()
 
     for row in tag_rows:
         slug = slugify(str(row.get("slug") or row.get("label") or ""))
@@ -181,9 +176,9 @@ def seed_metadata_label_aliases(db) -> dict[str, int]:
         kind = str(row.get("kind") or "category")
         if kind not in AUTO_TAG_KINDS:
             kind = "category"
-        label_row = db.execute(
-            text(
-                """
+        label_row = (
+            db.execute(
+                text("""
                 INSERT INTO archive_labels (
                     slug, label, kind, description, status, source, publish_tier, confidence_score, created_at, updated_at
                 ) VALUES (
@@ -197,10 +192,12 @@ def seed_metadata_label_aliases(db) -> dict[str, int]:
                     publish_tier = 'gold',
                     updated_at = now()
                 RETURNING id
-                """
-            ),
-            {"slug": slug, "label": label, "kind": kind, "description": row.get("description")},
-        ).mappings().first()
+                """),
+                {"slug": slug, "label": label, "kind": kind, "description": row.get("description")},
+            )
+            .mappings()
+            .first()
+        )
         if label_row is None:
             continue
         seeded_labels += 1
@@ -209,16 +206,14 @@ def seed_metadata_label_aliases(db) -> dict[str, int]:
             if not normalized:
                 continue
             db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO archive_label_aliases (
                         label_id, alias, normalized_alias, language, weight, source, status, is_ambiguous, created_at
                     ) VALUES (
                         :label_id, :alias, :normalized_alias, 'en', 1, 'seed', 'active', false, now()
                     )
                     ON CONFLICT (label_id, normalized_alias) DO NOTHING
-                    """
-                ),
+                    """),
                 {"label_id": label_row["id"], "alias": alias, "normalized_alias": normalized},
             )
             seeded_aliases += 1
@@ -226,9 +221,9 @@ def seed_metadata_label_aliases(db) -> dict[str, int]:
     for row in person_rows:
         slug = slugify(str(row.get("slug") or row.get("label") or ""))
         label = str(row.get("label") or slug).strip()
-        label_row = db.execute(
-            text(
-                """
+        label_row = (
+            db.execute(
+                text("""
                 INSERT INTO archive_labels (
                     slug, label, kind, description, status, source, publish_tier, confidence_score, created_at, updated_at
                 ) VALUES (
@@ -241,10 +236,12 @@ def seed_metadata_label_aliases(db) -> dict[str, int]:
                     publish_tier = 'gold',
                     updated_at = now()
                 RETURNING id
-                """
-            ),
-            {"slug": slug, "label": label, "description": row.get("description")},
-        ).mappings().first()
+                """),
+                {"slug": slug, "label": label, "description": row.get("description")},
+            )
+            .mappings()
+            .first()
+        )
         if label_row is None:
             continue
         seeded_labels += 1
@@ -254,16 +251,14 @@ def seed_metadata_label_aliases(db) -> dict[str, int]:
             if not normalized:
                 continue
             db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO archive_label_aliases (
                         label_id, alias, normalized_alias, language, weight, source, status, is_ambiguous, created_at
                     ) VALUES (
                         :label_id, :alias, :normalized_alias, 'en', 1, 'seed', 'active', false, now()
                     )
                     ON CONFLICT (label_id, normalized_alias) DO NOTHING
-                    """
-                ),
+                    """),
                 {"label_id": label_row["id"], "alias": alias, "normalized_alias": normalized},
             )
             seeded_aliases += 1
@@ -272,9 +267,9 @@ def seed_metadata_label_aliases(db) -> dict[str, int]:
 
 
 def materialize_label_assignments_to_metadata(db, limit: int = 500) -> dict[str, int]:
-    rows = db.execute(
-        text(
-            """
+    rows = (
+        db.execute(
+            text("""
             SELECT
                 a.id AS assignment_id,
                 a.video_id,
@@ -293,10 +288,12 @@ def materialize_label_assignments_to_metadata(db, limit: int = 500) -> dict[str,
               AND l.kind IN ('person', 'category', 'series', 'game', 'meme')
             ORDER BY a.updated_at DESC NULLS LAST, a.created_at DESC NULLS LAST
             LIMIT :limit
-            """
-        ),
-        {"limit": limit},
-    ).mappings().all()
+            """),
+            {"limit": limit},
+        )
+        .mappings()
+        .all()
+    )
 
     people_count = 0
     tag_count = 0
@@ -315,9 +312,9 @@ def materialize_label_assignments_to_metadata(db, limit: int = 500) -> dict[str,
         if kind == "person":
             if not _person_is_present(row.get("evidence")):
                 continue
-            person_row = db.execute(
-                text(
-                    """
+            person_row = (
+                db.execute(
+                    text("""
                     INSERT INTO archive_people (
                         slug, display_name, aliases, description, default_role, status, sort_order, created_at, updated_at
                     ) VALUES (
@@ -330,28 +327,28 @@ def materialize_label_assignments_to_metadata(db, limit: int = 500) -> dict[str,
                         status = CASE WHEN archive_people.status = 'hidden' THEN archive_people.status ELSE 'published' END,
                         updated_at = now()
                     RETURNING id, default_role
-                    """
-                ),
-                {
-                    "slug": slug,
-                    "display_name": label,
-                    "aliases": json.dumps([label]),
-                    "description": row.get("description"),
-                },
-            ).mappings().first()
+                    """),
+                    {
+                        "slug": slug,
+                        "display_name": label,
+                        "aliases": json.dumps([label]),
+                        "description": row.get("description"),
+                    },
+                )
+                .mappings()
+                .first()
+            )
             if person_row is None:
                 continue
             db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO archive_video_people (
                         video_id, person_id, role, confidence, notes, created_at
                     ) VALUES (
                         :video_id, :person_id, :role, :confidence, :notes, now()
                     )
                     ON CONFLICT (video_id, person_id) DO NOTHING
-                    """
-                ),
+                    """),
                 {
                     "video_id": video_id,
                     "person_id": person_row["id"],
@@ -368,9 +365,9 @@ def materialize_label_assignments_to_metadata(db, limit: int = 500) -> dict[str,
 
         if kind in AUTO_TAG_KINDS and slug in AUTO_TAG_SLUG_ALLOWLIST:
             tag_kind = "category" if kind == "series" else kind
-            tag_row = db.execute(
-                text(
-                    """
+            tag_row = (
+                db.execute(
+                    text("""
                     INSERT INTO archive_video_tags (
                         slug, label, kind, description, status, sort_order, created_at, updated_at
                     ) VALUES (
@@ -383,23 +380,23 @@ def materialize_label_assignments_to_metadata(db, limit: int = 500) -> dict[str,
                         status = CASE WHEN archive_video_tags.status = 'hidden' THEN archive_video_tags.status ELSE 'published' END,
                         updated_at = now()
                     RETURNING id
-                    """
-                ),
-                {"slug": slug, "label": label, "kind": tag_kind, "description": row.get("description")},
-            ).mappings().first()
+                    """),
+                    {"slug": slug, "label": label, "kind": tag_kind, "description": row.get("description")},
+                )
+                .mappings()
+                .first()
+            )
             if tag_row is None:
                 continue
             db.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO archive_video_taggings (
                         video_id, tag_id, confidence, notes, created_at
                     ) VALUES (
                         :video_id, :tag_id, :confidence, :notes, now()
                     )
                     ON CONFLICT (video_id, tag_id) DO NOTHING
-                    """
-                ),
+                    """),
                 {
                     "video_id": video_id,
                     "tag_id": tag_row["id"],
@@ -494,24 +491,28 @@ def list_people_admin(
     where_parts: list[str] = []
     params: dict[str, Any] = {"limit": limit, "offset": offset}
     if q:
-        where_parts.append("(p.display_name ILIKE :q OR p.slug ILIKE :q OR p.description ILIKE :q OR p.aliases::text ILIKE :q)")
+        where_parts.append(
+            "(p.display_name ILIKE :q OR p.slug ILIKE :q OR p.description ILIKE :q OR p.aliases::text ILIKE :q)"
+        )
         params["q"] = f"%{q}%"
     if status:
         where_parts.append("p.status = :status")
         params["status"] = status
     where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-    rows = db.execute(
-        text(
-            f"""
+    rows = (
+        db.execute(
+            text(f"""
             SELECT p.*
             FROM archive_people p
             {where_sql}
             ORDER BY p.sort_order ASC, p.display_name ASC, p.created_at DESC
             LIMIT :limit OFFSET :offset
-            """
-        ),
-        params,
-    ).mappings().all()
+            """),
+            params,
+        )
+        .mappings()
+        .all()
+    )
     return [dict(_normalize_person_row(row) or {}) for row in rows]
 
 
@@ -597,69 +598,71 @@ def list_tags_admin(
         where_parts.append("t.kind = :kind")
         params["kind"] = kind
     where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-    rows = db.execute(
-        text(
-            f"""
+    rows = (
+        db.execute(
+            text(f"""
             SELECT t.*
             FROM archive_video_tags t
             {where_sql}
             ORDER BY t.sort_order ASC, t.label ASC, t.created_at DESC
             LIMIT :limit OFFSET :offset
-            """
-        ),
-        params,
-    ).mappings().all()
+            """),
+            params,
+        )
+        .mappings()
+        .all()
+    )
     return [dict(_normalize_tag_row(row) or {}) for row in rows]
 
 
 def set_video_metadata(db, video_id, people: list[dict], tags: list[dict]) -> dict:
-    video_row = db.execute(
-        text("SELECT id FROM videos WHERE id = :video_id FOR UPDATE"),
-        {"video_id": video_id},
-    ).mappings().first()
+    video_row = (
+        db.execute(
+            text("SELECT id FROM videos WHERE id = :video_id FOR UPDATE"),
+            {"video_id": video_id},
+        )
+        .mappings()
+        .first()
+    )
     if video_row is None:
         raise ValidationError("video_id not found", field="video_id")
 
     video_id_str = str(video_id)
-    people_by_slug = {
-        str(item.get("slug") or "").strip(): item
-        for item in people
-        if (item.get("slug") or "").strip()
-    }
-    tag_by_input_slug = {
-        str(item.get("slug") or "").strip(): item
-        for item in tags
-        if (item.get("slug") or "").strip()
-    }
+    people_by_slug = {str(item.get("slug") or "").strip(): item for item in people if (item.get("slug") or "").strip()}
+    tag_by_input_slug = {str(item.get("slug") or "").strip(): item for item in tags if (item.get("slug") or "").strip()}
     people_slugs = list(people_by_slug.keys())
     tag_slugs = list(tag_by_input_slug.keys())
 
     person_rows = []
     if people_slugs:
         clause, params = _in_clause("slug", list(dict.fromkeys(people_slugs)))
-        person_rows = db.execute(
-            text(
-                f"""
+        person_rows = (
+            db.execute(
+                text(f"""
                 SELECT id, slug, display_name, aliases, description, status, sort_order
                 FROM archive_people
                 WHERE slug IN ({clause})
-                """
-            ),
-            params,
-        ).mappings().all()
+                """),
+                params,
+            )
+            .mappings()
+            .all()
+        )
     tag_rows = []
     if tag_slugs:
         clause, params = _in_clause("slug", list(dict.fromkeys(tag_slugs)))
-        tag_rows = db.execute(
-            text(
-                f"""
+        tag_rows = (
+            db.execute(
+                text(f"""
                 SELECT id, slug, label, kind, description, status, sort_order
                 FROM archive_video_tags
                 WHERE slug IN ({clause})
-                """
-            ),
-            params,
-        ).mappings().all()
+                """),
+                params,
+            )
+            .mappings()
+            .all()
+        )
 
     person_by_slug = {row["slug"]: row for row in person_rows}
     tag_by_slug = {row["slug"]: row for row in tag_rows}
@@ -675,15 +678,13 @@ def set_video_metadata(db, video_id, people: list[dict], tags: list[dict]) -> di
     for slug, item in people_by_slug.items():
         person = person_by_slug[slug]
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO archive_video_people (
                     video_id, person_id, role, confidence, notes, created_at
                 ) VALUES (
                     :video_id, :person_id, :role, :confidence, :notes, now()
                 )
-                """
-            ),
+                """),
             {
                 "video_id": video_id_str,
                 "person_id": person["id"],
@@ -696,15 +697,13 @@ def set_video_metadata(db, video_id, people: list[dict], tags: list[dict]) -> di
     for slug, item in tag_by_input_slug.items():
         tag = tag_by_slug[slug]
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO archive_video_taggings (
                     video_id, tag_id, confidence, notes, created_at
                 ) VALUES (
                     :video_id, :tag_id, :confidence, :notes, now()
                 )
-                """
-            ),
+                """),
             {
                 "video_id": video_id_str,
                 "tag_id": tag["id"],
@@ -717,18 +716,16 @@ def set_video_metadata(db, video_id, people: list[dict], tags: list[dict]) -> di
 
 
 def _get_video_metadata_map(db, video_ids: list, published_only: bool) -> dict[str, dict[str, list[dict]]]:
-    result: dict[str, dict[str, list[dict]]] = {
-        str(video_id): {"people": [], "tags": []} for video_id in video_ids
-    }
+    result: dict[str, dict[str, list[dict]]] = {str(video_id): {"people": [], "tags": []} for video_id in video_ids}
     if not video_ids:
         return result
 
     video_id_values = [str(video_id) for video_id in video_ids]
     clause, params = _in_clause("video_id", video_id_values)
 
-    people_rows = db.execute(
-        text(
-            f"""
+    people_rows = (
+        db.execute(
+            text(f"""
             SELECT
                 vp.video_id,
                 p.slug,
@@ -744,10 +741,12 @@ def _get_video_metadata_map(db, video_ids: list, published_only: bool) -> dict[s
             WHERE vp.video_id IN ({clause})
               {"AND p.status = 'published'" if published_only else ""}
             ORDER BY p.sort_order ASC, p.display_name ASC, vp.created_at ASC
-            """
-        ),
-        params,
-    ).mappings().all()
+            """),
+            params,
+        )
+        .mappings()
+        .all()
+    )
     for row in people_rows:
         video_key = str(row["video_id"])
         bucket = result.setdefault(video_key, {"people": [], "tags": []})
@@ -762,9 +761,9 @@ def _get_video_metadata_map(db, video_ids: list, published_only: bool) -> dict[s
             }
         )
 
-    tag_rows = db.execute(
-        text(
-            f"""
+    tag_rows = (
+        db.execute(
+            text(f"""
             SELECT
                 vt.video_id,
                 t.slug,
@@ -779,10 +778,12 @@ def _get_video_metadata_map(db, video_ids: list, published_only: bool) -> dict[s
             WHERE vt.video_id IN ({clause})
               {"AND t.status = 'published'" if published_only else ""}
             ORDER BY t.sort_order ASC, t.label ASC, vt.created_at ASC
-            """
-        ),
-        params,
-    ).mappings().all()
+            """),
+            params,
+        )
+        .mappings()
+        .all()
+    )
     for row in tag_rows:
         video_key = str(row["video_id"])
         bucket = result.setdefault(video_key, {"people": [], "tags": []})
@@ -813,9 +814,9 @@ def search_videos_for_admin(db, q: str | None = None, limit: int = 50) -> list[d
     if q:
         where_sql = "WHERE (v.title ILIKE :q OR v.youtube_id ILIKE :q OR v.channel_name ILIKE :q)"
         params["q"] = f"%{q}%"
-    rows = db.execute(
-        text(
-            f"""
+    rows = (
+        db.execute(
+            text(f"""
             SELECT
                 v.id,
                 v.youtube_id,
@@ -834,10 +835,12 @@ def search_videos_for_admin(db, q: str | None = None, limit: int = 50) -> list[d
             {where_sql}
             ORDER BY v.uploaded_at DESC NULLS LAST, v.created_at DESC
             LIMIT :limit
-            """
-        ),
-        params,
-    ).mappings().all()
+            """),
+            params,
+        )
+        .mappings()
+        .all()
+    )
     video_ids = [row["id"] for row in rows]
     metadata_map = _get_video_metadata_map(db, video_ids, published_only=False)
     results: list[dict] = []

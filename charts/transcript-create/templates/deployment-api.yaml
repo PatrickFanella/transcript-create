@@ -32,7 +32,7 @@ spec:
         {{- include "transcript-create.podSecurityContext" . | nindent 8 }}
       containers:
       - name: api
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        image: {{ include "transcript-create.image" . | quote }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
         ports:
@@ -62,6 +62,11 @@ spec:
             secretKeyRef:
               name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "transcript-create.fullname" .)) }}
               key: session-secret
+        - name: ANALYTICS_HMAC_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "transcript-create.fullname" .)) }}
+              key: analytics-hmac-secret
         - name: HF_TOKEN
           valueFrom:
             secretKeyRef:

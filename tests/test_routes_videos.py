@@ -99,7 +99,7 @@ class TestVideosRoutes:
         non_existent_id = uuid.uuid4()
         response = client.get(f"/videos/{non_existent_id}/transcript")
         assert response.status_code == 404
-        assert "No segments" in response.json()["detail"]
+        assert "not found" in response.json()["message"].lower()
 
     def test_get_transcript_with_segments(self, client: TestClient, db_session):
         """Test getting a transcript with segments."""
@@ -252,7 +252,7 @@ class TestVideosRoutes:
         non_existent_id = uuid.uuid4()
         response = client.get(f"/videos/{non_existent_id}/youtube-transcript")
         assert response.status_code == 404
-        assert "No YouTube transcript" in response.json()["detail"]
+        assert "not found" in response.json()["message"].lower()
 
     def test_get_youtube_transcript_with_data(self, client: TestClient, db_session):
         """Test getting a YouTube transcript with data."""

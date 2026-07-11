@@ -8,7 +8,6 @@ class TestIntegrationInfrastructure:
         """Test that all required modules can be imported."""
         import tests.integration.conftest
         import tests.integration.test_auth_flow
-        import tests.integration.test_billing_flow
         import tests.integration.test_export_flow
         import tests.integration.test_job_flow
         import tests.integration.test_search_flow

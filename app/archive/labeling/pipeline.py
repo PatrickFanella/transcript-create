@@ -48,13 +48,11 @@ def _fetch_first_dict(result: Any) -> dict | None:
 def _table_columns(db: Any, table_name: str) -> set[str]:
     try:
         result = db.execute(
-            text(
-                """
+            text("""
                 SELECT column_name
                 FROM information_schema.columns
                 WHERE table_name = :table_name
-                """
-            ),
+                """),
             {"table_name": table_name},
         )
         return {str(row["column_name"] if isinstance(row, dict) else row[0]) for row in _fetch_all_dicts(result)}
@@ -95,30 +93,26 @@ def _load_existing_aliases(db: Any) -> list[dict]:
     if "status" in alias_columns:
         where_clauses.append("a.status = 'active'")
 
-    statement = text(
-        f"""
+    statement = text(f"""
         SELECT {', '.join(select_columns)}
         FROM archive_labels AS l
         JOIN archive_label_aliases AS a ON a.label_id = l.id
         WHERE {' AND '.join(where_clauses)}
         ORDER BY l.label, a.alias
-        """
-    )
+        """)
     result = db.execute(statement)
     return _fetch_all_dicts(result)
 
 
 def _load_policy(db: Any, label_kind: str, unit_type: str, extraction_tier: str) -> dict:
-    statement = text(
-        """
+    statement = text("""
         SELECT *
         FROM archive_label_policies
         WHERE label_kind = :label_kind
           AND unit_type = :unit_type
           AND extraction_tier = :extraction_tier
         LIMIT 1
-        """
-    )
+        """)
     result = db.execute(
         statement,
         {"label_kind": label_kind, "unit_type": unit_type, "extraction_tier": extraction_tier},

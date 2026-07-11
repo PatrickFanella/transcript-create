@@ -48,13 +48,11 @@ def _create_parent_run(*, limit: int, extraction_tier: str, title_only: bool, wo
             model_name="deterministic",
         )
         db.execute(
-            text(
-                """
+            text("""
                 UPDATE archive_extraction_runs
                 SET metrics = CAST(:metrics AS jsonb)
                 WHERE id = :run_id
-                """
-            ),
+                """),
             {
                 "run_id": parent_run_id,
                 "metrics": json.dumps(
@@ -95,24 +93,30 @@ def _claim_video(
         duration_sql = "AND COALESCE(v.duration_seconds, 0) <= :max_duration_seconds"
         params["max_duration_seconds"] = max_duration_seconds
 
-    transcript_sql = "" if title_only else """
+    transcript_sql = (
+        ""
+        if title_only
+        else """
                   AND (EXISTS (SELECT 1 FROM segments AS s WHERE s.video_id = v.id)
                    OR EXISTS (SELECT 1 FROM youtube_transcripts AS yt WHERE yt.video_id = v.id))
     """
+    )
 
     db = SessionLocal()
     try:
-        parent_row = db.execute(
-            text(
-                """
+        parent_row = (
+            db.execute(
+                text("""
                 SELECT id, metrics
                 FROM archive_extraction_runs
                 WHERE id = :parent_run_id
                 FOR UPDATE
-                """
-            ),
-            {"parent_run_id": parent_run_id},
-        ).mappings().first()
+                """),
+                {"parent_run_id": parent_run_id},
+            )
+            .mappings()
+            .first()
+        )
         if parent_row is None:
             db.rollback()
             return None
@@ -123,8 +127,7 @@ def _claim_video(
             return None
 
         video_row = db.execute(
-            text(
-                f"""
+            text(f"""
                 SELECT v.id
                 FROM videos AS v
                 WHERE 1 = 1
@@ -148,8 +151,7 @@ def _claim_video(
                          COALESCE(v.uploaded_at, v.created_at) DESC NULLS LAST
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
-                """
-            ),
+                """),
             params,
         ).first()
         if video_row is None:

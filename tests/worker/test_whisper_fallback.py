@@ -12,6 +12,8 @@ Tests cover:
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from worker import whisper_runner
 
 

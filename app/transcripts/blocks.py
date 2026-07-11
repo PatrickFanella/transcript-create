@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from worker.formatter import TranscriptFormatter
 
 from .types import TranscriptSegment
-
 
 FORMATTER_VERSION = "rule-v4"
 
@@ -104,7 +103,12 @@ def _should_break_unlabeled(previous: dict | None, current: dict, current_text: 
         return True
     gap_ms = int(current["start"]) - int(previous["end"])
     previous_text = str(previous.get("text", ""))
-    return gap_ms >= 1200 or (_ends_sentence(previous_text) and not _looks_like_fragment(previous_text) and len(previous_text.split()) >= 18 and len(current_text.split()) >= 4)
+    return gap_ms >= 1200 or (
+        _ends_sentence(previous_text)
+        and not _looks_like_fragment(previous_text)
+        and len(previous_text.split()) >= 18
+        and len(current_text.split()) >= 4
+    )
 
 
 def _join_text(parts: Sequence[str]) -> str:

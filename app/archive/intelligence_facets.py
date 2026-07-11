@@ -82,26 +82,30 @@ def _topic_catalog_facets(db, slugs: list[str]) -> tuple[list[ArchivePerson], li
         return [], []
     params = {"slugs": slugs}
     try:
-        people_rows = db.execute(
-            text(
-                """
+        people_rows = (
+            db.execute(
+                text("""
                 SELECT slug, display_name, aliases, description, default_role, sort_order
                 FROM archive_people
                 WHERE status = 'published' AND slug IN :slugs
-                """
-            ).bindparams(bindparam("slugs", expanding=True)),
-            params,
-        ).mappings().all()
-        tag_rows = db.execute(
-            text(
-                """
+                """).bindparams(bindparam("slugs", expanding=True)),
+                params,
+            )
+            .mappings()
+            .all()
+        )
+        tag_rows = (
+            db.execute(
+                text("""
                 SELECT slug, label, kind, description, sort_order
                 FROM archive_video_tags
                 WHERE status = 'published' AND slug IN :slugs
-                """
-            ).bindparams(bindparam("slugs", expanding=True)),
-            params,
-        ).mappings().all()
+                """).bindparams(bindparam("slugs", expanding=True)),
+                params,
+            )
+            .mappings()
+            .all()
+        )
     except (OperationalError, ProgrammingError):
         db.rollback()
         return [], []
@@ -163,7 +167,7 @@ def attach_archive_facets(response: ArchiveIntelligenceResponse, db=None) -> Arc
         tags_by_slug.setdefault(tag.slug, _TagFacet(tag=tag, count=1))
 
     people = []
-    for slug, entry in sorted(
+    for _slug, entry in sorted(
         people_by_slug.items(),
         key=lambda item: (
             -item[1].count,

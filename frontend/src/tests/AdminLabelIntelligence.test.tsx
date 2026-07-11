@@ -10,6 +10,14 @@ function mockJsonResponse<T>(value: T) {
   };
 }
 
+function requestUrl(value: unknown): string {
+  return String(value);
+}
+
+function requestJson(value: unknown): Record<string, unknown> {
+  return (value as { json?: Record<string, unknown> } | undefined)?.json ?? {};
+}
+
 vi.mock('../services/api', () => ({
   http: {
     get: vi.fn(),
@@ -66,42 +74,47 @@ describe('AdminLabelIntelligence', () => {
       },
     ];
 
-    vi.mocked(http.get).mockImplementation((url: any) => {
-      if (url === 'admin/archive/labels') {
+    vi.mocked(http.get).mockImplementation((url: unknown) => {
+      if (requestUrl(url) === 'admin/archive/labels') {
         return mockJsonResponse({ items: labels }) as never;
       }
-      if (url === 'admin/archive/labels/label-1/assignments') {
+      if (requestUrl(url) === 'admin/archive/labels/label-1/assignments') {
         return mockJsonResponse({ items: assignments }) as never;
       }
-      if (url === 'admin/archive/labels/label-2/assignments') {
+      if (requestUrl(url) === 'admin/archive/labels/label-2/assignments') {
         return mockJsonResponse({ items: [] }) as never;
       }
       return mockJsonResponse({ items: [] }) as never;
     });
 
-    vi.mocked(http.post).mockImplementation((url: any, options?: any) => {
-      if (url === 'admin/archive/label-assignments/assignment-1/review') {
-        const action = options?.json?.action;
+    vi.mocked(http.post).mockImplementation((url: unknown, options?: unknown) => {
+      const action = String(requestJson(options).action ?? '');
+      if (requestUrl(url) === 'admin/archive/label-assignments/assignment-1/review') {
         assignments = assignments.map((assignment) =>
           assignment.id === 'assignment-1'
             ? {
                 ...assignment,
                 status: action === 'approve' ? 'admin_approved' : action,
-                label: { ...assignment.label, status: action === 'approve' ? 'published' : assignment.label.status },
+                label: {
+                  ...assignment.label,
+                  status: action === 'approve' ? 'published' : assignment.label.status,
+                },
               }
             : assignment
         );
         return mockJsonResponse(assignments[0]) as never;
       }
 
-      if (url === 'admin/archive/labels/label-1/review') {
-        const action = options?.json?.action;
-        const updated = { ...labels[0], status: action === 'publish' || action === 'approve' ? 'published' : action };
+      if (requestUrl(url) === 'admin/archive/labels/label-1/review') {
+        const updated = {
+          ...labels[0],
+          status: action === 'publish' || action === 'approve' ? 'published' : action,
+        };
         labels = labels.map((label) => (label.id === 'label-1' ? updated : label));
         return mockJsonResponse(updated) as never;
       }
 
-      if (url === 'admin/archive/labels/extract-video/video-99') {
+      if (requestUrl(url) === 'admin/archive/labels/extract-video/video-99') {
         return mockJsonResponse({
           video_id: 'video-99',
           extraction_tier: 'balanced',
@@ -126,7 +139,10 @@ describe('AdminLabelIntelligence', () => {
     expect(screen.getByText('Gaming')).toBeInTheDocument();
     expect(await screen.findByText('Labor organizing coverage')).toBeInTheDocument();
     expect(await screen.findByText('workers voted to unionize')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /window/i })).toHaveAttribute('href', '/v/video-1?t=120');
+    expect(screen.getByRole('link', { name: /window/i })).toHaveAttribute(
+      'href',
+      '/v/video-1?t=120'
+    );
 
     const user = userEvent.setup();
     const evidenceRows = screen.getByRole('table');
@@ -160,6 +176,8 @@ describe('AdminLabelIntelligence', () => {
         expect.objectContaining({ searchParams: { extraction_tier: 'balanced' } })
       );
     });
-    expect(await screen.findByText('Extraction queued for video-99: 4 candidates, 6 assignments.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Extraction queued for video-99: 4 candidates, 6 assignments.')
+    ).toBeInTheDocument();
   });
 });

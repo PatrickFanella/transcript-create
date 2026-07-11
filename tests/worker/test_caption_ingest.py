@@ -51,6 +51,7 @@ def test_ingest_available_captions_can_use_service_seam(mock_video_repo_cls):
     video_id = uuid.uuid4()
     db = Mock()
     db.execute.return_value.all.return_value = [(video_id, "yt-456")]
+    db.execute.return_value.first.return_value = (uuid.uuid4(),)
 
     repo = Mock()
     mock_video_repo_cls.return_value = repo

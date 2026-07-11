@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Request, Response
@@ -68,14 +68,12 @@ def should_refresh_session(db, token: Optional[str]) -> bool:
 
     result = (
         db.execute(
-            text(
-                """
+            text("""
             SELECT created_at, expires_at
             FROM sessions
             WHERE token = :t
             AND (expires_at IS NULL OR expires_at > now())
-            """
-            ),
+            """),
             {"t": token},
         )
         .mappings()
@@ -87,14 +85,17 @@ def should_refresh_session(db, token: Optional[str]) -> bool:
 
     # Refresh if session is older than threshold
     threshold = timedelta(hours=settings.SESSION_REFRESH_THRESHOLD_HOURS)
-    age = datetime.utcnow() - result["created_at"]
+    created_at = result["created_at"]
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - created_at
 
     return age > threshold
 
 
 def refresh_session(db, token: str):
     """Extend session expiration time."""
-    new_expires = datetime.utcnow() + timedelta(hours=settings.SESSION_EXPIRE_HOURS)
+    new_expires = datetime.now(timezone.utc) + timedelta(hours=settings.SESSION_EXPIRE_HOURS)
 
     db.execute(text("UPDATE sessions SET expires_at = :exp WHERE token = :t"), {"exp": new_expires, "t": token})
     db.commit()
@@ -103,6 +104,8 @@ def refresh_session(db, token: str):
 def is_admin(user) -> bool:
     if not user:
         return False
+    if (user.get("role") or "").lower() == "admin":
+        return True
     admins_env = os.environ.get("ADMIN_EMAILS", "")
     admins = set([e.strip().lower() for e in admins_env.split(",") if e.strip()])
     email = (user.get("email") or "").lower()

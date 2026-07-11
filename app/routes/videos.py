@@ -152,7 +152,9 @@ def get_transcript(
 
     segs = crud.list_segments(db, video_id)
     segments = [transcript_presentation_service.from_db_row(r) for r in segs]
-    yt, yt_segs, yt_segments_for_merge = _youtube_segments_for_merge(db, video_id) if source in ("best", "merged", "youtube") else (None, [], [])
+    yt, yt_segs, yt_segments_for_merge = (
+        _youtube_segments_for_merge(db, video_id) if source in ("best", "merged", "youtube") else (None, [], [])
+    )
 
     if source in ("best", "merged") and segments and yt_segments_for_merge:
         merged = build_merged_transcript(str(video_id), segments, yt_segments_for_merge)
@@ -174,7 +176,9 @@ def get_transcript(
         return FormattedTranscriptResponse(
             video_id=video_id,
             segments=merged_segments,
-            text="\n\n".join(f"{block.speaker_label}:\n{block.text}" if block.speaker_label else block.text for block in blocks),
+            text="\n\n".join(
+                f"{block.speaker_label}:\n{block.text}" if block.speaker_label else block.text for block in blocks
+            ),
             format="structured",
             cleanup_config=_cleanup_config(),
             blocks=blocks,
@@ -196,10 +200,7 @@ def get_transcript(
                     source="youtube",
                     source_label="YouTube captions",
                 )
-            blocks = [
-                _block_response(b)
-                for b in build_youtube_caption_blocks(rows)
-            ]
+            blocks = [_block_response(b) for b in build_youtube_caption_blocks(rows)]
             return FormattedTranscriptResponse(
                 video_id=video_id,
                 segments=yt_segments,
@@ -231,7 +232,9 @@ def get_transcript(
 
     elif mode == "formatted":
         persisted_blocks = [
-            block for block in crud.list_transcript_blocks(db, video_id) if block["formatter_version"] == FORMATTER_VERSION
+            block
+            for block in crud.list_transcript_blocks(db, video_id)
+            if block["formatter_version"] == FORMATTER_VERSION
         ]
         if persisted_blocks:
             blocks = [
@@ -249,10 +252,7 @@ def get_transcript(
                 for r in persisted_blocks
             ]
         else:
-            blocks = [
-                _block_response(b)
-                for b in build_transcript_blocks(segments)
-            ]
+            blocks = [_block_response(b) for b in build_transcript_blocks(segments)]
 
         formatted_text = "\n\n".join(
             f"{block.speaker_label}:\n{block.text}" if block.speaker_label else block.text for block in blocks
@@ -323,15 +323,13 @@ def get_video_chapters(video_id: uuid.UUID, db=Depends(get_db)):
 
     persisted_rows = (
         db.execute(
-            text(
-                """
+            text("""
                 SELECT chapter_index, start_ms, end_ms, title, summary,
                        confidence_score, status, source
                 FROM archive_video_chapters
                 WHERE video_id = :video_id AND status = 'published'
                 ORDER BY chapter_index
-                """
-            ),
+                """),
             {"video_id": str(video_id)},
         )
         .mappings()

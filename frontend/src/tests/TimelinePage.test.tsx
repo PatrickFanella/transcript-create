@@ -1,14 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import TimelinePage from '../routes/TimelinePage'
-import { api } from '../services'
-import { render } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import TimelinePage from '../routes/TimelinePage';
+import { api } from '../services';
+import { render } from '@testing-library/react';
 
 describe('TimelinePage', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   it('links browse this period to the matching VODs date range', async () => {
     vi.spyOn(api, 'getTimeline').mockResolvedValue([
@@ -27,19 +27,19 @@ describe('TimelinePage', () => {
           },
         ],
       },
-    ] as never)
+    ] as never);
 
     render(
       <MemoryRouter initialEntries={['/timeline']}>
         <TimelinePage />
       </MemoryRouter>
-    )
+    );
 
     await waitFor(() => {
       expect(screen.getByRole('link', { name: 'Browse this period' })).toHaveAttribute(
         'href',
         '/episodes?date_from=2026-05-01&date_to=2026-05-31'
-      )
-    })
-  })
-})
+      );
+    });
+  });
+});

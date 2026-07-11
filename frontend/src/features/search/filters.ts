@@ -25,12 +25,16 @@ export function serializeFilters(filters: SearchFilters) {
   if (filters.category) next.set('category', filters.category);
   if (filters.date_from) next.set('date_from', filters.date_from);
   if (filters.date_to) next.set('date_to', filters.date_to);
-  if (filters.min_duration != null && !Number.isNaN(filters.min_duration)) next.set('min_duration', String(filters.min_duration));
-  if (filters.max_duration != null && !Number.isNaN(filters.max_duration)) next.set('max_duration', String(filters.max_duration));
+  if (filters.min_duration != null && !Number.isNaN(filters.min_duration))
+    next.set('min_duration', String(filters.min_duration));
+  if (filters.max_duration != null && !Number.isNaN(filters.max_duration))
+    next.set('max_duration', String(filters.max_duration));
   if (filters.sort_by) next.set('sort_by', filters.sort_by);
   if (filters.video_id) next.set('video_id', filters.video_id);
-  if (filters.limit != null && !Number.isNaN(filters.limit)) next.set('limit', String(filters.limit));
-  if (filters.offset != null && !Number.isNaN(filters.offset)) next.set('offset', String(filters.offset));
+  if (filters.limit != null && !Number.isNaN(filters.limit))
+    next.set('limit', String(filters.limit));
+  if (filters.offset != null && !Number.isNaN(filters.offset))
+    next.set('offset', String(filters.offset));
   return next;
 }
 

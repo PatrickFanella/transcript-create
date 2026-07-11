@@ -265,8 +265,7 @@ def generate_period_summary_proposals(
 
     rows = (
         db.execute(
-            text(
-                """
+            text("""
             SELECT period, granularity, summary, evidence
             FROM archive_period_summaries
             WHERE granularity = :granularity
@@ -274,8 +273,7 @@ def generate_period_summary_proposals(
               AND jsonb_array_length(evidence) > 0
             ORDER BY period DESC
             LIMIT :limit
-            """
-            ),
+            """),
             {"granularity": granularity, "period": period, "limit": max(1, min(limit, 24))},
         )
         .mappings()
@@ -318,15 +316,13 @@ def generate_period_summary_proposals(
         proposals.append(proposal)
         if apply:
             db.execute(
-                text(
-                    """
+                text("""
                     UPDATE archive_period_summaries
                     SET summary = :summary,
                         calculated_at = now()
                     WHERE period = :period
                       AND granularity = :granularity
-                    """
-                ),
+                    """),
                 {
                     "summary": result.summary,
                     "period": str(row["period"]),
@@ -342,8 +338,7 @@ def _enrich_evidence_context(
     from sqlalchemy import text
 
     enriched: list[dict[str, Any]] = []
-    statement = text(
-        """
+    statement = text("""
         SELECT COALESCE(
             (
                 SELECT string_agg(s.text, ' ' ORDER BY s.start_ms)
@@ -361,8 +356,7 @@ def _enrich_evidence_context(
                   AND ys.start_ms <= :context_end_ms
             )
         ) AS context
-        """
-    )
+        """)
     for item in evidence[:MAX_EVIDENCE_ITEMS]:
         video_id = str(item.get("video_id") or "")
         start_ms = int(item.get("start_ms") or 0)

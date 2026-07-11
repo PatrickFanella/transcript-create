@@ -28,6 +28,7 @@ class FakeDB:
 def test_record_search_request_logs_event_for_authenticated_user(monkeypatch):
     db = FakeDB()
     request = MagicMock(spec=Request)
+    request.state.analytics_subject_id = "a" * 64
     user_id = uuid.uuid4()
 
     monkeypatch.setattr(search_analytics, "_get_session_token", lambda _request: "session-token")
@@ -37,8 +38,11 @@ def test_record_search_request_logs_event_for_authenticated_user(monkeypatch):
 
     context = search_analytics.record_search_request(request, db, q="test search", source="native")
 
-    assert context == SearchRequestContext(user_id=str(user_id), session_token="session-token", is_admin=False)
+    assert context == SearchRequestContext(user_id=str(user_id), is_admin=False)
     assert any("search_api" in str(statement) for statement, _params in db.calls)
+    event_params = next(params for statement, params in db.calls if "search_api" in str(statement))
+    assert event_params["analytics_subject_id"] == "a" * 64
+    assert "session-token" not in event_params.values()
     assert any(call[0] == "commit" for call in db.calls)
 
 
@@ -53,7 +57,7 @@ def test_record_search_request_skips_event_for_anonymous_user(monkeypatch):
 
     context = search_analytics.record_search_request(request, db, q="test search", source="native")
 
-    assert context == SearchRequestContext(user_id=None, session_token="session-token", is_admin=False)
+    assert context == SearchRequestContext(user_id=None, is_admin=False)
     assert all("search_api" not in str(statement) for statement, _params in db.calls)
 
 
@@ -66,7 +70,11 @@ def test_search_orchestrator_anonymous_search_skips_history(monkeypatch):
     request = MagicMock(spec=Request)
     save_history = MagicMock()
 
-    monkeypatch.setattr(search_analytics, "record_search_request", lambda *_args, **_kwargs: SearchRequestContext(user_id=None, session_token=None, is_admin=False))
+    monkeypatch.setattr(
+        search_analytics,
+        "record_search_request",
+        lambda *_args, **_kwargs: SearchRequestContext(user_id=None, is_admin=False),
+    )
     monkeypatch.setattr(search_analytics, "save_search_history", save_history)
     monkeypatch.setattr("app.search.orchestrator.PostgresSearchBackend", lambda _db: FakeBackend())
 
@@ -91,7 +99,11 @@ def test_search_orchestrator_mention_map_saves_history(monkeypatch):
         top_episodes=[],
     )
 
-    monkeypatch.setattr(search_analytics, "record_search_request", lambda *_args, **_kwargs: SearchRequestContext(user_id="user-1", session_token="token", is_admin=False))
+    monkeypatch.setattr(
+        search_analytics,
+        "record_search_request",
+        lambda *_args, **_kwargs: SearchRequestContext(user_id="user-1", is_admin=False),
+    )
     monkeypatch.setattr(search_analytics, "save_search_history", history)
     monkeypatch.setattr("app.search.orchestrator.crud.get_mention_map", lambda *_args, **_kwargs: mention_map)
 
@@ -130,7 +142,7 @@ def test_opensearch_uses_private_sentinels_and_returns_plain_ranges(monkeypatch)
     monkeypatch.setattr(
         search_analytics,
         "record_search_request",
-        lambda *_args, **_kwargs: SearchRequestContext(user_id=None, session_token=None, is_admin=False),
+        lambda *_args, **_kwargs: SearchRequestContext(user_id=None, is_admin=False),
     )
 
     result = SearchOrchestrator().search(FakeDB(), MagicMock(spec=Request), q="rent", source="native")

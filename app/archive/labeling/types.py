@@ -12,7 +12,9 @@ ChapterStatus = Literal["candidate", "published", "rejected", "hidden"]
 ChapterSource = Literal["automatic", "manual", "hybrid"]
 UnitType = Literal["vod", "chapter", "window", "segment"]
 AssignmentStatus = Literal["candidate", "auto_published", "admin_approved", "rejected", "shadow"]
-AssignmentSource = Literal["alias", "keyphrase", "search", "title", "embedding_cluster", "llm", "metadata", "admin", "hybrid"]
+AssignmentSource = Literal[
+    "alias", "keyphrase", "search", "title", "embedding_cluster", "llm", "metadata", "admin", "hybrid"
+]
 
 
 @dataclass(frozen=True)

@@ -7,10 +7,32 @@ from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from .analytics_identity import AnalyticsIdentityMiddleware
+from .common.session import SESSION_COOKIE
 from .logging_config import get_logger
 from .settings import settings
 
 logger = get_logger(__name__)
+
+PRIVATE_NO_STORE = "private, no-store"
+PUBLIC_CACHE_POLICIES = {
+    ("GET", "/search"): "public, max-age=60, stale-while-revalidate=30",
+    ("GET", "/search/grouped"): "public, max-age=60, stale-while-revalidate=30",
+    ("GET", "/search/mention-map"): "public, max-age=60, stale-while-revalidate=30",
+    ("GET", "/search/suggestions"): "public, max-age=30, stale-while-revalidate=15",
+    ("GET", "/search/popular"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/videos"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/videos/{video_id}"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/videos/{video_id}/chapters"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/videos/{video_id}/transcript"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/videos/{video_id}/youtube-transcript"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/archive/summary"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/archive/timeline"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/archive/intelligence"): "public, max-age=300, stale-while-revalidate=60",
+    ("GET", "/archive/intelligence/periods"): "public, max-age=300, stale-while-revalidate=60",
+}
+_CREDENTIAL_COOKIES = frozenset((SESSION_COOKIE, "tc_oauth_state"))
+_PUBLIC_VARY_HEADERS = ("Cookie", "Authorization", "X-API-Key")
 
 API_CONTENT_SECURITY_POLICY = "; ".join(
     (
@@ -220,50 +242,51 @@ class CompressionMiddleware(BaseHTTPMiddleware):
 
 
 class CacheControlMiddleware(BaseHTTPMiddleware):
-    """Middleware to add Cache-Control headers based on endpoint patterns."""
+    """Fail closed unless a safe anonymous GET route is explicitly public."""
+
+    @staticmethod
+    def _merge_vary(response: Response) -> None:
+        existing = [part.strip() for part in response.headers.get("Vary", "").split(",") if part.strip()]
+        seen = {part.casefold() for part in existing}
+        for header in _PUBLIC_VARY_HEADERS:
+            if header.casefold() not in seen:
+                existing.append(header)
+                seen.add(header.casefold())
+        response.headers["Vary"] = ", ".join(existing)
+
+    @staticmethod
+    def _request_has_credentials(request: Request) -> bool:
+        return (
+            "authorization" in request.headers
+            or "x-api-key" in request.headers
+            or any(cookie in request.cookies for cookie in _CREDENTIAL_COOKIES)
+        )
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
 
-        # Don't cache error responses
-        if response.status_code >= 400:
-            response.headers["Cache-Control"] = "no-store"
+        downstream_policy = response.headers.get("Cache-Control", "")
+        must_be_private = (
+            response.status_code >= 400
+            or request.method != "GET"
+            or self._request_has_credentials(request)
+            or "set-cookie" in response.headers
+            or "no-store" in downstream_policy.casefold()
+            or "private" in downstream_policy.casefold()
+        )
+        if must_be_private:
+            response.headers["Cache-Control"] = PRIVATE_NO_STORE
             return response
 
-        path = request.url.path
-
-        # Static assets (if any) - long cache
-        if path.startswith("/static/"):
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        route = request.scope.get("route")
+        route_template = getattr(route, "path", None)
+        public_policy = PUBLIC_CACHE_POLICIES.get((request.method, route_template))
+        if public_policy is None:
+            response.headers["Cache-Control"] = PRIVATE_NO_STORE
             return response
 
-        # Health check - no cache
-        if path in ["/health", "/metrics"]:
-            response.headers["Cache-Control"] = "no-store"
-            return response
-
-        # Video metadata - moderate cache with revalidation
-        if "/videos/" in path and not path.endswith("/transcript") and not path.endswith("/youtube-transcript"):
-            response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
-            return response
-
-        # Transcript data - longer cache with revalidation
-        if path.endswith("/transcript") or path.endswith("/youtube-transcript"):
-            response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=300"
-            return response
-
-        # Search results - short cache
-        if path.startswith("/search"):
-            response.headers["Cache-Control"] = "public, max-age=600, stale-while-revalidate=60"
-            return response
-
-        # User-specific data - private cache
-        if any(path.startswith(p) for p in ["/auth/", "/favorites/", "/admin/"]):
-            response.headers["Cache-Control"] = "private, max-age=60"
-            return response
-
-        # Default: short cache with must-revalidate
-        response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
+        response.headers["Cache-Control"] = public_policy
+        self._merge_vary(response)
 
         return response
 
@@ -297,9 +320,6 @@ def setup_security_middleware(app):
     # Add compression middleware
     app.add_middleware(CompressionMiddleware)
 
-    # Add cache control middleware
-    app.add_middleware(CacheControlMiddleware)
-
     # Add security headers
     app.add_middleware(SecurityHeadersMiddleware)
 
@@ -309,6 +329,10 @@ def setup_security_middleware(app):
 
     # Setup session middleware for OAuth
     setup_session_middleware(app)
+
+    # Establish a pseudonymous analytics identity independently from login
+    # sessions. This middleware never exposes or persists the login token.
+    app.add_middleware(AnalyticsIdentityMiddleware)
 
     logger.info(
         "Security middleware configured",

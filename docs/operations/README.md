@@ -21,6 +21,14 @@ Day-to-day backup operations guide including:
 - Maintenance tasks (weekly, monthly, quarterly)
 - Cloud storage operations
 
+### [Analytics Privacy and Credential Removal](analytics-privacy.md)
+Deployment order, credential scrub/session rotation, the temporary legacy-write
+guard, 90-day raw-event retention, and the roll-forward-only boundary.
+
+### [Blocking Dependency and SAST Gates](security-gates.md)
+Canonical pip-audit, Bandit, and npm-audit commands plus the expiring exception
+contract.
+
 ## Quick Links
 
 ### Running Backups

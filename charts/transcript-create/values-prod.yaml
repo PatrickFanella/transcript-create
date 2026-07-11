@@ -8,6 +8,7 @@ global:
 image:
   repository: ghcr.io/subculture-collective/transcript-create
   tag: "1.0.0"  # Use specific version tags, not 'latest'
+  digest: ""
   pullPolicy: IfNotPresent
   pullSecrets:
     - name: ghcr-pull-secret

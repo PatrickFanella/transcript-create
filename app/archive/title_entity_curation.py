@@ -108,8 +108,7 @@ def _upsert_person(db, *, canonical: str, aliases: list[str], notes: str | None,
     merged_aliases = _merge_aliases(_json_list(current.get("aliases") if current else None), aliases)
     if current is None:
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO archive_people (
                     slug, display_name, aliases, description, default_role, status, sort_order, created_at, updated_at
                 ) VALUES (
@@ -123,8 +122,7 @@ def _upsert_person(db, *, canonical: str, aliases: list[str], notes: str | None,
                     now(),
                     now()
                 )
-                """
-            ),
+                """),
             {
                 "slug": slug,
                 "display_name": canonical,
@@ -135,8 +133,7 @@ def _upsert_person(db, *, canonical: str, aliases: list[str], notes: str | None,
         )
         return slug
     db.execute(
-        text(
-            """
+        text("""
             UPDATE archive_people
             SET display_name = :display_name,
                 aliases = CAST(:aliases AS JSONB),
@@ -145,8 +142,7 @@ def _upsert_person(db, *, canonical: str, aliases: list[str], notes: str | None,
                 status = CASE WHEN status = 'hidden' THEN status ELSE 'published' END,
                 updated_at = now()
             WHERE slug = :slug
-            """
-        ),
+            """),
         {
             "slug": slug,
             "display_name": canonical,
@@ -170,21 +166,18 @@ def _upsert_tag(db, *, entity_type: str, canonical: str, notes: str | None) -> s
     current = db.execute(text("SELECT * FROM archive_video_tags WHERE slug = :slug"), {"slug": slug}).mappings().first()
     if current is None:
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO archive_video_tags (
                     slug, label, kind, description, status, sort_order, created_at, updated_at
                 ) VALUES (
                     :slug, :label, :kind, :description, 'published', 0, now(), now()
                 )
-                """
-            ),
+                """),
             {"slug": slug, "label": canonical, "kind": kind, "description": notes},
         )
         return slug
     db.execute(
-        text(
-            """
+        text("""
             UPDATE archive_video_tags
             SET label = :label,
                 kind = :kind,
@@ -192,8 +185,7 @@ def _upsert_tag(db, *, entity_type: str, canonical: str, notes: str | None) -> s
                 status = CASE WHEN status = 'hidden' THEN status ELSE 'published' END,
                 updated_at = now()
             WHERE slug = :slug
-            """
-        ),
+            """),
         {"slug": slug, "label": canonical, "kind": kind, "description": notes},
     )
     return slug
@@ -208,9 +200,9 @@ def _label_kind(entity_type: str) -> str:
 def _upsert_label_aliases(db, *, entity_type: str, canonical: str, aliases: list[str], notes: str | None) -> int:
     slug = slugify(canonical)
     kind = _label_kind(entity_type)
-    label_row = db.execute(
-        text(
-            """
+    label_row = (
+        db.execute(
+            text("""
             INSERT INTO archive_labels (
                 slug, label, kind, description, status, source, publish_tier, confidence_score, created_at, updated_at
             ) VALUES (
@@ -227,10 +219,12 @@ def _upsert_label_aliases(db, *, entity_type: str, canonical: str, aliases: list
                 publish_tier = 'gold',
                 updated_at = now()
             RETURNING id
-            """
-        ),
-        {"slug": slug, "label": canonical, "kind": kind, "description": notes},
-    ).mappings().first()
+            """),
+            {"slug": slug, "label": canonical, "kind": kind, "description": notes},
+        )
+        .mappings()
+        .first()
+    )
     if label_row is None:
         return 0
     count = 0
@@ -239,16 +233,14 @@ def _upsert_label_aliases(db, *, entity_type: str, canonical: str, aliases: list
         if not normalized:
             continue
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO archive_label_aliases (
                     label_id, alias, normalized_alias, language, weight, source, status, is_ambiguous, created_at
                 ) VALUES (
                     :label_id, :alias, :normalized_alias, 'en', 1, 'admin', 'active', false, now()
                 )
                 ON CONFLICT (label_id, normalized_alias) DO NOTHING
-                """
-            ),
+                """),
             {"label_id": label_row["id"], "alias": alias, "normalized_alias": normalized},
         )
         count += 1

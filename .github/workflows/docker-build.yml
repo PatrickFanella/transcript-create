@@ -4,14 +4,12 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       rocm_version:
-        description: 'ROCm version for build (e.g., 6.0, 6.1, 6.2)'
+        description: 'ROCm version for build (must be 7.1)'
         required: false
-        default: '6.0'
+        default: '7.1'
         type: string
       push_image:
         description: 'Push image to registry'
@@ -21,7 +19,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: onnwee/transcript-create
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
@@ -39,10 +37,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -50,7 +48,7 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -73,8 +71,11 @@ jobs:
       - name: Determine ROCm version and build args
         id: rocm
         run: |
-          # Use workflow input if provided, otherwise default to 6.0
-          ROCM_VERSION="${{ inputs.rocm_version || '6.0' }}"
+          ROCM_VERSION="${{ inputs.rocm_version || '7.1' }}"
+          if [[ "$ROCM_VERSION" != "7.1" ]]; then
+            echo "::error::The audited ML runtime supports ROCm 7.1 only"
+            exit 1
+          fi
           echo "version=${ROCM_VERSION}" >> $GITHUB_OUTPUT
           echo "wheel_index=https://download.pytorch.org/whl/rocm${ROCM_VERSION}" >> $GITHUB_OUTPUT
 
@@ -83,15 +84,17 @@ jobs:
             echo "rocm_tag=rocm${ROCM_VERSION}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build and push Docker image
-        id: build-push
-        uses: docker/build-push-action@v5
+      - name: Build the image that will be published
+        id: build-scan
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          push: ${{ (github.event_name != 'workflow_dispatch') || inputs.push_image }}
+          push: false
+          load: true
           tags: |
+            transcript-create:security-scan
             ${{ steps.meta.outputs.tags }}
             ${{ steps.rocm.outputs.rocm_tag != '' && format('{0}/{1}:{2}', env.REGISTRY, env.IMAGE_NAME, steps.rocm.outputs.rocm_tag) || '' }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -99,39 +102,86 @@ jobs:
             ROCM_WHEEL_INDEX=${{ steps.rocm.outputs.wheel_index }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
-
-      - name: Generate artifact attestation
-        if: ${{ (github.event_name != 'workflow_dispatch') || inputs.push_image }}
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build-push.outputs.digest }}
-          push-to-registry: true
 
       - name: Run Trivy vulnerability scanner
-        if: ${{ (github.event_name != 'workflow_dispatch') || inputs.push_image }}
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          image-ref: transcript-create:security-scan
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
+          pkg-types: 'library'
+          exit-code: '1'
 
       - name: Upload Trivy results to GitHub Security
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: 'trivy-results.sarif'
           category: 'trivy-container'
 
+      - name: Report base-image OS vulnerabilities
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: transcript-create:security-scan
+          format: 'sarif'
+          output: 'trivy-os-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          pkg-types: 'os'
+          exit-code: '0'
+
+      - name: Upload OS vulnerability report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-os-results.sarif'
+          category: 'trivy-container-os'
+
+      - name: Push the verified image without rebuilding
+        id: publish
+        if: ${{ success() && ((github.event_name != 'workflow_dispatch') || inputs.push_image) }}
+        env:
+          METADATA_TAGS: ${{ steps.meta.outputs.tags }}
+          ROCM_TAG: ${{ steps.rocm.outputs.rocm_tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t tags < <(printf '%s\n' "$METADATA_TAGS" | sed '/^[[:space:]]*$/d')
+          if [[ -n "$ROCM_TAG" ]]; then
+            tags+=("${REGISTRY}/${IMAGE_NAME}:${ROCM_TAG}")
+          fi
+          if [[ ${#tags[@]} -eq 0 ]]; then
+            echo "::error::No publication tags were generated"
+            exit 1
+          fi
+          for tag in "${tags[@]}"; do
+            docker push "$tag"
+          done
+          primary_tag="${tags[0]}"
+          repo_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$primary_tag")
+          digest="${repo_digest#*@}"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not resolve the published image digest"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "primary_tag=$primary_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Generate artifact attestation
+        if: ${{ success() && ((github.event_name != 'workflow_dispatch') || inputs.push_image) }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
       - name: Output image details
+        if: ${{ success() && ((github.event_name != 'workflow_dispatch') || inputs.push_image) }}
         run: |
           echo "### Docker Image Published :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Digest:** \`${{ steps.build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.publish.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

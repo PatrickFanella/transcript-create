@@ -19,6 +19,7 @@ ASSIGNMENT_SOURCES = {
     "hybrid",
 }
 
+
 def _extract_id(row: Any) -> str:
     if row is None:
         raise RuntimeError("expected a returned row")
@@ -37,13 +38,11 @@ def create_extraction_run(
     model_name: str | None = None,
 ) -> str:
     row = db.execute(
-        text(
-            """
+        text("""
             INSERT INTO archive_extraction_runs (scope, extraction_tier, video_id, model_name, status, started_at)
             VALUES (:scope, :extraction_tier, :video_id, :model_name, 'running', now())
             RETURNING id
-            """
-        ),
+            """),
         {
             "scope": scope,
             "extraction_tier": extraction_tier,
@@ -56,16 +55,14 @@ def create_extraction_run(
 
 def finish_extraction_run(db, run_id: str, status: str, metrics: dict, error: str | None = None) -> None:
     db.execute(
-        text(
-            """
+        text("""
             UPDATE archive_extraction_runs
             SET status = :status,
                 metrics = CAST(:metrics AS jsonb),
                 error = :error,
                 finished_at = now()
             WHERE id = :run_id
-            """
-        ),
+            """),
         {
             "run_id": run_id,
             "status": status,
@@ -93,8 +90,7 @@ def upsert_label_candidate(
     # across hot slugs, so serialize each slug within the current transaction.
     db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:slug))"), {"slug": slug})
     row = db.execute(
-        text(
-            """
+        text("""
             INSERT INTO archive_labels (
                 slug, label, kind, status, source, publish_tier,
                 confidence_score, created_by_run_id, created_at, updated_at
@@ -117,8 +113,7 @@ def upsert_label_candidate(
                 END,
                 updated_at = now()
             RETURNING id
-            """
-        ),
+            """),
         {
             "slug": slug,
             "label": label,
@@ -139,8 +134,7 @@ def upsert_label_candidate(
             continue
         seen_aliases.add(normalized)
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO archive_label_aliases (
                     label_id, alias, normalized_alias, source, status, weight, created_at
                 )
@@ -148,8 +142,7 @@ def upsert_label_candidate(
                     :label_id, :alias, :normalized_alias, :source, 'active', 1, now()
                 )
                 ON CONFLICT (label_id, normalized_alias) DO NOTHING
-                """
-            ),
+                """),
             {
                 "label_id": label_id,
                 "alias": alias,
@@ -207,8 +200,7 @@ def insert_assignment(
 
     key = assignment_key(label_id, video_id, unit_type, source, start_ms, end_ms, window_id, chapter_id)
     db.execute(
-        text(
-            """
+        text("""
             INSERT INTO archive_label_assignments (
                 label_id, video_id, unit_type, chapter_id, window_id, start_ms, end_ms,
                 status, publish_tier, confidence_score, evidence_count, evidence,
@@ -233,8 +225,7 @@ def insert_assignment(
                     ELSE EXCLUDED.status
                 END,
                 updated_at = now()
-            """
-        ),
+            """),
         {
             "label_id": label_id,
             "video_id": video_id,

@@ -43,6 +43,7 @@ helm install transcript-create ./charts/transcript-create \
    kubectl create secret generic transcript-secrets \
      --from-literal=database-url='postgresql+psycopg://user:pass@host:5432/db' \
      --from-literal=session-secret="$(openssl rand -hex 32)" \
+     --from-literal=analytics-hmac-secret="$(openssl rand -hex 32)" \
      --from-literal=hf-token='your-hf-token' \
      --namespace transcript-create
    ```

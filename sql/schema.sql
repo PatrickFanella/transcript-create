@@ -237,12 +237,23 @@ CREATE TABLE IF NOT EXISTS events (
     id BIGSERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    session_token TEXT,
+    analytics_subject_id CHAR(64),
     type TEXT NOT NULL,
-    payload JSONB NOT NULL DEFAULT '{}'::jsonb
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    CONSTRAINT events_analytics_subject_format_check
+        CHECK (analytics_subject_id IS NULL OR analytics_subject_id ~ '^[0-9a-f]{64}$')
 );
 CREATE INDEX IF NOT EXISTS events_created_idx ON events(created_at);
 CREATE INDEX IF NOT EXISTS events_type_idx ON events(type);
+CREATE INDEX IF NOT EXISTS events_analytics_subject_idx ON events(analytics_subject_id);
+
+CREATE TABLE IF NOT EXISTS event_daily_aggregates (
+    day DATE NOT NULL,
+    type TEXT NOT NULL,
+    count BIGINT NOT NULL CHECK (count >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (day, type)
+);
 
 -- ---
 -- Search enhancements: suggestions and search history

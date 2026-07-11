@@ -18,9 +18,7 @@ from app.archive.labeling.llm_review import review_label_batch_openai_compatible
 from app.archive.labeling.quality import assess_label_quality
 from app.db import SessionLocal
 
-
-LABEL_SQL = text(
-    """
+LABEL_SQL = text("""
     SELECT
         l.id::text AS id,
         l.label,
@@ -38,22 +36,18 @@ LABEL_SQL = text(
       AND (:publish_tier = '' OR l.publish_tier = :publish_tier)
     ORDER BY l.status, l.publish_tier, l.confidence_score DESC, l.label
     LIMIT :limit
-    """
-)
+    """)
 
-LABEL_STATS_SQL = text(
-    """
+LABEL_STATS_SQL = text("""
     SELECT
         COUNT(a.id)::int AS assignments,
         COUNT(DISTINCT a.video_id)::int AS distinct_videos,
         COALESCE(jsonb_agg(DISTINCT a.source) FILTER (WHERE a.source IS NOT NULL), '[]'::jsonb) AS assignment_sources
     FROM archive_label_assignments AS a
     WHERE a.label_id = :label_id
-    """
-)
+    """)
 
-CANONICAL_CONTEXT_SQL = text(
-    """
+CANONICAL_CONTEXT_SQL = text("""
     SELECT label
     FROM archive_labels
     WHERE kind IN ('topic', 'person', 'org', 'place', 'issue')
@@ -61,8 +55,7 @@ CANONICAL_CONTEXT_SQL = text(
       AND canonical_id IS NULL
     ORDER BY confidence_score DESC, label
     LIMIT :limit
-    """
-)
+    """)
 
 
 def _rows(db, args: argparse.Namespace) -> list[dict[str, Any]]:
@@ -164,9 +157,15 @@ def main() -> None:
     parser.add_argument("--status", default="published", help="Filter label status, or empty for all automatic labels.")
     parser.add_argument("--publish-tier", default="", help="Optional publish tier filter.")
     parser.add_argument("--limit", type=int, default=500)
-    parser.add_argument("--include-stats", action="store_true", help="Count assignments/videos per label; slower on large DBs.")
+    parser.add_argument(
+        "--include-stats", action="store_true", help="Count assignments/videos per label; slower on large DBs."
+    )
     parser.add_argument("--only-action", choices=("", "keep", "review", "mark_noise", "alias_to_canonical"), default="")
-    parser.add_argument("--llm", action="store_true", help="Send borderline proposals to an OpenAI-compatible chat/completions endpoint.")
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="Send borderline proposals to an OpenAI-compatible chat/completions endpoint.",
+    )
     parser.add_argument("--llm-base-url", default=os.getenv("LABEL_LLM_BASE_URL", os.getenv("OPENAI_BASE_URL", "")))
     parser.add_argument("--llm-api-key", default=os.getenv("LABEL_LLM_API_KEY", os.getenv("OPENAI_API_KEY", "")))
     parser.add_argument("--llm-model", default=os.getenv("LABEL_LLM_MODEL", "gpt-4.1-mini"))
@@ -203,7 +202,12 @@ def main() -> None:
 
         report = {
             "mode": "dry_run_proposals",
-            "filters": {"kind": args.kind, "status": args.status, "publish_tier": args.publish_tier, "limit": args.limit},
+            "filters": {
+                "kind": args.kind,
+                "status": args.status,
+                "publish_tier": args.publish_tier,
+                "limit": args.limit,
+            },
             "counts": {
                 "labels_scanned": len(rows),
                 "proposals": len(proposals),

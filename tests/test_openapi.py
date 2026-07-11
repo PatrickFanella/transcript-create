@@ -56,7 +56,6 @@ class TestOpenAPISpec:
             "Search",
             "Exports",
             "Auth",
-            "Billing",
             "Admin",
             "Favorites",
             "Events",
@@ -137,7 +136,7 @@ class TestOpenAPISpec:
             ("POST", "/jobs", ["401", "409", "422", "429"]),
             ("GET", "/jobs/{job_id}", ["404"]),
             ("GET", "/videos/{video_id}/transcript", ["404", "503"]),
-            ("GET", "/search", ["400", "429"]),
+            ("GET", "/search", ["422", "429"]),
         ]
 
         for method, path, expected_codes in test_cases:
@@ -192,7 +191,6 @@ class TestOpenAPISpec:
 
         post_endpoints = [
             "/jobs",
-            "/billing/checkout-session",
             "/users/me/favorites",
             "/events",
         ]

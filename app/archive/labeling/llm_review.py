@@ -4,7 +4,6 @@ import json
 from typing import Any
 from urllib import error, request
 
-
 SYSTEM_PROMPT = """You review noisy automatic labels for a HasanAbi VOD archive.
 Return only JSON. Distinguish aliases/merges from related terms.
 Actions:
@@ -16,7 +15,9 @@ Never put merely related entities into aliases. Related examples: Israel, Benjam
 """
 
 
-def build_label_review_messages(labels: list[dict[str, Any]], canonical_context: list[str] | None = None) -> list[dict[str, str]]:
+def build_label_review_messages(
+    labels: list[dict[str, Any]], canonical_context: list[str] | None = None
+) -> list[dict[str, str]]:
     payload = {
         "labels": labels,
         "canonical_context": canonical_context or [],

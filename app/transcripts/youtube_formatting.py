@@ -5,7 +5,6 @@ from collections.abc import Iterable, Sequence
 from app.transcripts.blocks import TranscriptBlock, build_transcript_blocks
 from app.transcripts.types import TranscriptSegment
 
-
 YouTubeCaptionRow = tuple[int, int, str]
 
 

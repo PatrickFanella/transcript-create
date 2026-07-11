@@ -1,19 +1,25 @@
 import json
+import uuid
 from datetime import date
 from typing import Any
-import uuid
 
 from fastapi import APIRouter, Depends, Query
-
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from .. import crud
-from ..cache import invalidate_cache, invalidate_cache_pattern
+from ..archive.intelligence import get_archive_intelligence, get_archive_period_options
+from ..archive.intelligence_repository import (
+    create_named_period,
+    list_named_periods_admin,
+    refresh_named_period_stats,
+    refresh_named_period_stats_for_slug,
+    seed_named_periods,
+    update_named_period,
+)
 from ..archive.labeling.normalization import slugify_label
 from ..archive.labeling.pipeline import extract_labels_for_video
 from ..archive.repository import archive_repository
-from ..archive.intelligence import get_archive_intelligence, get_archive_period_options
 from ..archive.video_metadata_repository import (
     create_person,
     create_tag,
@@ -26,14 +32,7 @@ from ..archive.video_metadata_repository import (
     update_person,
     update_tag,
 )
-from ..archive.intelligence_repository import (
-    create_named_period,
-    list_named_periods_admin,
-    refresh_named_period_stats,
-    refresh_named_period_stats_for_slug,
-    seed_named_periods,
-    update_named_period,
-)
+from ..cache import invalidate_cache, invalidate_cache_pattern
 from ..db import get_db
 from ..exceptions import NotFoundError, ValidationError
 from ..schemas import (
@@ -42,17 +41,17 @@ from ..schemas import (
     ArchiveLabelAssignmentResponse,
     ArchiveLabelExtractionResponse,
     ArchiveLabelListResponse,
-    ArchiveLabelReviewAction,
     ArchiveLabelResponse,
-    ArchivePersonAdmin,
-    ArchivePersonAdminListResponse,
-    ArchivePersonCreate,
-    ArchivePersonUpdate,
+    ArchiveLabelReviewAction,
     ArchiveNamedPeriodAdminListResponse,
     ArchiveNamedPeriodAdminResponse,
     ArchiveNamedPeriodCreate,
     ArchiveNamedPeriodUpdate,
     ArchivePeriodOptionsResponse,
+    ArchivePersonAdmin,
+    ArchivePersonAdminListResponse,
+    ArchivePersonCreate,
+    ArchivePersonUpdate,
     ArchiveSummary,
     ArchiveTimelineResponse,
     ArchiveVideoMetadataAdminListResponse,
@@ -144,13 +143,11 @@ def _assignment_response_from_row(row: dict[str, Any]) -> ArchiveLabelAssignment
 def _load_label_row(db, label_id: uuid.UUID | str) -> dict[str, Any] | None:
     return _fetch_first_row(
         db.execute(
-            text(
-                """
+            text("""
                 SELECT id, slug, label, kind, status, source, publish_tier, confidence_score, description, canonical_id
                 FROM archive_labels
                 WHERE id = :label_id
-                """
-            ),
+                """),
             {"label_id": str(label_id)},
         )
     )
@@ -159,8 +156,7 @@ def _load_label_row(db, label_id: uuid.UUID | str) -> dict[str, Any] | None:
 def _load_assignment_row(db, assignment_id: uuid.UUID | str) -> dict[str, Any] | None:
     return _fetch_first_row(
         db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     a.id,
                     a.video_id,
@@ -184,8 +180,7 @@ def _load_assignment_row(db, assignment_id: uuid.UUID | str) -> dict[str, Any] |
                 FROM archive_label_assignments AS a
                 JOIN archive_labels AS l ON l.id = a.label_id
                 WHERE a.id = :assignment_id
-                """
-            ),
+                """),
             {"assignment_id": str(assignment_id)},
         )
     )
@@ -203,15 +198,13 @@ def _insert_label_feedback(
     user: Any,
 ) -> None:
     db.execute(
-        text(
-            """
+        text("""
             INSERT INTO archive_label_feedback (
                 label_id, assignment_id, action, old_value, new_value, reason, user_id, created_at
             ) VALUES (
                 :label_id, :assignment_id, :action, CAST(:old_value AS jsonb), CAST(:new_value AS jsonb), :reason, :user_id, now()
             )
-            """
-        ),
+            """),
         {
             "label_id": None if label_id is None else str(label_id),
             "assignment_id": None if assignment_id is None else str(assignment_id),
@@ -285,7 +278,9 @@ def _review_label_action(db, label_id: uuid.UUID, payload: ArchiveLabelReviewAct
         if target is None:
             raise NotFoundError(f"Label {payload.target_label_id} not found", resource_type="archive_label")
         db.execute(
-            text("UPDATE archive_labels SET status = 'merged', canonical_id = :target_label_id, updated_at = now() WHERE id = :label_id"),
+            text(
+                "UPDATE archive_labels SET status = 'merged', canonical_id = :target_label_id, updated_at = now() WHERE id = :label_id"
+            ),
             {"target_label_id": str(payload.target_label_id), "label_id": str(label_id)},
         )
         new_value = {**old_value, "status": "merged", "canonical_id": str(payload.target_label_id)}
@@ -309,7 +304,9 @@ def _review_label_action(db, label_id: uuid.UUID, payload: ArchiveLabelReviewAct
     return _label_response_from_row(updated)
 
 
-def _review_assignment_action(db, assignment_id: uuid.UUID, payload: ArchiveLabelReviewAction, user: Any) -> ArchiveLabelAssignmentResponse:
+def _review_assignment_action(
+    db, assignment_id: uuid.UUID, payload: ArchiveLabelReviewAction, user: Any
+) -> ArchiveLabelAssignmentResponse:
     assignment = _load_assignment_row(db, assignment_id)
     if assignment is None:
         raise NotFoundError(f"Assignment {assignment_id} not found", resource_type="archive_label_assignment")
@@ -325,7 +322,9 @@ def _review_assignment_action(db, assignment_id: uuid.UUID, payload: ArchiveLabe
 
     if action == "approve":
         db.execute(
-            text("UPDATE archive_label_assignments SET status = 'admin_approved', updated_at = now() WHERE id = :assignment_id"),
+            text(
+                "UPDATE archive_label_assignments SET status = 'admin_approved', updated_at = now() WHERE id = :assignment_id"
+            ),
             {"assignment_id": str(assignment_id)},
         )
         db.execute(
@@ -335,13 +334,17 @@ def _review_assignment_action(db, assignment_id: uuid.UUID, payload: ArchiveLabe
         new_value = {**old_value, "status": "admin_approved", "label_status": "published"}
     elif action == "reject":
         db.execute(
-            text("UPDATE archive_label_assignments SET status = 'rejected', updated_at = now() WHERE id = :assignment_id"),
+            text(
+                "UPDATE archive_label_assignments SET status = 'rejected', updated_at = now() WHERE id = :assignment_id"
+            ),
             {"assignment_id": str(assignment_id)},
         )
         new_value = {**old_value, "status": "rejected"}
     elif action == "publish":
         db.execute(
-            text("UPDATE archive_label_assignments SET status = 'auto_published', updated_at = now() WHERE id = :assignment_id"),
+            text(
+                "UPDATE archive_label_assignments SET status = 'auto_published', updated_at = now() WHERE id = :assignment_id"
+            ),
             {"assignment_id": str(assignment_id)},
         )
         db.execute(
@@ -351,7 +354,9 @@ def _review_assignment_action(db, assignment_id: uuid.UUID, payload: ArchiveLabe
         new_value = {**old_value, "status": "auto_published", "label_status": "published"}
     elif action == "hide":
         db.execute(
-            text("UPDATE archive_label_assignments SET status = 'shadow', updated_at = now() WHERE id = :assignment_id"),
+            text(
+                "UPDATE archive_label_assignments SET status = 'shadow', updated_at = now() WHERE id = :assignment_id"
+            ),
             {"assignment_id": str(assignment_id)},
         )
         new_value = {**old_value, "status": "shadow"}
@@ -414,7 +419,9 @@ def archive_timeline(
 def archive_intelligence(
     topic_limit: int = Query(8, ge=1, le=20, description="Maximum number of topic cards to include"),
     period_limit: int = Query(24, ge=1, le=120, description="Maximum number of periods to include"),
-    granularity: str = Query("month", pattern="^(month|week)$", description="Period granularity for cached intelligence"),
+    granularity: str = Query(
+        "month", pattern="^(month|week)$", description="Period granularity for cached intelligence"
+    ),
     date_from: date | None = Query(None, description="Lower bound for cached intelligence periods"),
     date_to: date | None = Query(None, description="Upper bound for cached intelligence periods"),
     period: str | None = Query(None, description="Predefined archive period slug"),
@@ -602,7 +609,9 @@ def admin_list_archive_tags(
     db=Depends(get_db),
     user=Depends(require_role(ROLE_ADMIN)),
 ):
-    return ArchiveVideoTagAdminListResponse(items=list_tags_admin(db, q=q, status=status, kind=kind, limit=limit, offset=offset))
+    return ArchiveVideoTagAdminListResponse(
+        items=list_tags_admin(db, q=q, status=status, kind=kind, limit=limit, offset=offset)
+    )
 
 
 @router.post(
@@ -650,7 +659,9 @@ def admin_search_archive_videos_with_metadata(
     db=Depends(get_db),
     user=Depends(require_role(ROLE_ADMIN)),
 ):
-    return ArchiveVideoMetadataAdminListResponse(items=[ArchiveVideoMetadataAdminVideo(**dict(row)) for row in search_videos_for_admin(db, q=q, limit=limit)])
+    return ArchiveVideoMetadataAdminListResponse(
+        items=[ArchiveVideoMetadataAdminVideo(**dict(row)) for row in search_videos_for_admin(db, q=q, limit=limit)]
+    )
 
 
 @router.get(
@@ -737,15 +748,13 @@ def admin_list_archive_labels(
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     rows = _fetch_all_rows(
         db.execute(
-            text(
-                f"""
+            text(f"""
                 SELECT id, slug, label, kind, status, source, publish_tier, confidence_score, description
                 FROM archive_labels
                 {where_sql}
                 ORDER BY updated_at DESC, confidence_score DESC
                 LIMIT :limit OFFSET :offset
-                """
-            ),
+                """),
             params,
         )
     )
@@ -773,8 +782,7 @@ def admin_list_archive_label_assignments(
         params["status"] = status
     rows = _fetch_all_rows(
         db.execute(
-            text(
-                f"""
+            text(f"""
                 SELECT
                     a.id,
                     a.video_id,
@@ -800,8 +808,7 @@ def admin_list_archive_label_assignments(
                 WHERE {' AND '.join(clauses)}
                 ORDER BY a.updated_at DESC, a.confidence_score DESC
                 LIMIT :limit OFFSET :offset
-                """
-            ),
+                """),
             params,
         )
     )

@@ -5,8 +5,10 @@ Writes keys:
 DB_HOST_PORT, REDIS_HOST_PORT, API_HOST_PORT, PROMETHEUS_HOST_PORT,
 GRAFANA_HOST_PORT, OPENSEARCH_HOST_PORT, DASHBOARDS_HOST_PORT
 """
+
 import socket
 from pathlib import Path
+
 
 def free_port():
     s = socket.socket()
@@ -16,15 +18,16 @@ def free_port():
     s.close()
     return p
 
+
 def main():
     keys = [
-        'DB_HOST_PORT',
-        'REDIS_HOST_PORT',
-        'API_HOST_PORT',
-        'PROMETHEUS_HOST_PORT',
-        'GRAFANA_HOST_PORT',
-        'OPENSEARCH_HOST_PORT',
-        'DASHBOARDS_HOST_PORT',
+        "DB_HOST_PORT",
+        "REDIS_HOST_PORT",
+        "API_HOST_PORT",
+        "PROMETHEUS_HOST_PORT",
+        "GRAFANA_HOST_PORT",
+        "OPENSEARCH_HOST_PORT",
+        "DASHBOARDS_HOST_PORT",
     ]
     ports = {}
     used = set()
@@ -35,11 +38,11 @@ def main():
         used.add(p)
         ports[k] = p
 
-    out = Path('.env')
+    out = Path(".env")
 
     # If .env exists, back it up and preserve non-port keys.
     if out.exists():
-        stamp = __import__('datetime').datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+        stamp = __import__("datetime").datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         backup = out.with_name(f".env.bak.{stamp}")
         out.replace(backup)
         print(f"Existing .env backed up to {backup}")
@@ -47,9 +50,9 @@ def main():
         existing = {}
         try:
             for line in backup.read_text().splitlines():
-                if not line or line.strip().startswith('#') or '=' not in line:
+                if not line or line.strip().startswith("#") or "=" not in line:
                     continue
-                k, v = line.split('=', 1)
+                k, v = line.split("=", 1)
                 existing[k.strip()] = v.strip()
         except Exception:
             existing = {}
@@ -71,8 +74,8 @@ def main():
             used_values.add(p)
 
     # Write a new .env preserving other existing non-port lines
-    with out.open('w') as f:
-        f.write('# Generated .env - port assignments\n')
+    with out.open("w") as f:
+        f.write("# Generated .env - port assignments\n")
         # write back any existing non-port keys
         for k, v in existing.items():
             if k not in keys:
@@ -85,5 +88,6 @@ def main():
     for k, v in merged.items():
         print(f"{k}={v}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

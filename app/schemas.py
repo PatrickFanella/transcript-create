@@ -114,7 +114,9 @@ class TranscriptResponse(BaseModel):
 
     video_id: uuid.UUID = Field(..., description="Unique identifier for the video")
     segments: List[Segment] = Field(..., description="List of transcript segments in chronological order")
-    source: Literal["whisper", "youtube", "merged"] = Field("whisper", description="Transcript source used for this response")
+    source: Literal["whisper", "youtube", "merged"] = Field(
+        "whisper", description="Transcript source used for this response"
+    )
     source_label: str = Field("Whisper transcript", description="Human-readable transcript source label")
 
     model_config = {
@@ -180,7 +182,9 @@ class SearchHit(BaseModel):
         default_factory=list,
         description="Highlighted half-open ranges measured in Unicode code points",
     )
-    source: Literal["whisper", "youtube", "merged"] = Field("whisper", description="Transcript source containing this hit")
+    source: Literal["whisper", "youtube", "merged"] = Field(
+        "whisper", description="Transcript source containing this hit"
+    )
     video_title: Optional[str] = Field(None, description="Video title for progressive archive UIs")
     channel_name: Optional[str] = Field(None, description="Channel name for progressive archive UIs")
     uploaded_at: Optional[datetime] = Field(None, description="Video upload time")
@@ -258,10 +262,14 @@ class MentionMap(BaseModel):
     total_moments: int = Field(..., description="Total matched moments in the response window")
     total_videos: int = Field(..., description="Number of videos with at least one mention")
     first_mentioned_year: Optional[int] = Field(None, description="Year of the earliest dated mention")
-    most_discussed_period: Optional[str] = Field(None, description="Period with the most matched moments, usually a year")
+    most_discussed_period: Optional[str] = Field(
+        None, description="Period with the most matched moments, usually a year"
+    )
     most_discussed_count: int = Field(0, description="Number of matched moments in the most discussed period")
     recent_mentions_90d: int = Field(0, description="Matched moments from the last 90 days")
-    related_topics: List[str] = Field(default_factory=list, description="Citation-derived co-occurring terms from matched snippets")
+    related_topics: List[str] = Field(
+        default_factory=list, description="Citation-derived co-occurring terms from matched snippets"
+    )
     top_episodes_count: int = Field(0, description="Number of top episodes included in this mention map")
     first_mention: Optional[SearchMoment] = Field(None, description="Earliest matching mention")
     latest_mention: Optional[SearchMoment] = Field(None, description="Latest matching mention")
@@ -480,7 +488,9 @@ class ArchiveVideoMetadataAdminVideo(BaseModel):
 
 
 class ArchiveVideoMetadataAdminListResponse(BaseModel):
-    items: List[ArchiveVideoMetadataAdminVideo] = Field(default_factory=list, description="Videos with assigned metadata")
+    items: List[ArchiveVideoMetadataAdminVideo] = Field(
+        default_factory=list, description="Videos with assigned metadata"
+    )
 
 
 class ArchiveLabelResponse(BaseModel):
@@ -568,13 +578,23 @@ class ArchiveIntelligenceResponse(BaseModel):
     summary: ArchiveSummary = Field(..., description="Archive summary stats and recent VODs")
     exploration_modes: List[str] = Field(default_factory=list, description="Available exploration modes")
     trending_searches: List[ArchiveTrendingSearch] = Field(default_factory=list, description="Trending public searches")
-    suggested_searches: List[ArchiveTrendingSearch] = Field(default_factory=list, description="Suggested archive searches")
-    topic_cards: List[ArchiveTopicCard] = Field(default_factory=list, description="Hybrid curated/automatic topic cards")
-    periods: List[ArchivePeriodIntelligence] = Field(default_factory=list, description="Timeline periods enriched with topic/evidence data")
-    people: List[ArchivePerson] = Field(default_factory=list, description="Featured people facets for the selected scope")
+    suggested_searches: List[ArchiveTrendingSearch] = Field(
+        default_factory=list, description="Suggested archive searches"
+    )
+    topic_cards: List[ArchiveTopicCard] = Field(
+        default_factory=list, description="Hybrid curated/automatic topic cards"
+    )
+    periods: List[ArchivePeriodIntelligence] = Field(
+        default_factory=list, description="Timeline periods enriched with topic/evidence data"
+    )
+    people: List[ArchivePerson] = Field(
+        default_factory=list, description="Featured people facets for the selected scope"
+    )
     tags: List[ArchiveVideoTag] = Field(default_factory=list, description="Featured tag facets for the selected scope")
     selected_period: Optional[ArchivePeriodOption] = Field(None, description="Currently selected predefined period")
-    period_options: List[ArchivePeriodOption] = Field(default_factory=list, description="Available predefined archive periods")
+    period_options: List[ArchivePeriodOption] = Field(
+        default_factory=list, description="Available predefined archive periods"
+    )
     query_time_ms: Optional[int] = Field(None, description="Time taken to compose archive intelligence")
 
 
@@ -958,11 +978,17 @@ class TranscriptBlockResponse(BaseModel):
     segment_ids: List[int] = Field(..., description="Source segment indices included in the block")
     kind: Literal["paragraph", "speaker_turn"] = Field(..., description="Block kind")
     formatter_version: str = Field(..., description="Formatter version used to build the block")
-    primary_source: Optional[Literal["whisper", "youtube", "merged"]] = Field(None, description="Primary source selected for this block")
-    supporting_sources: List[Literal["whisper", "youtube"]] = Field(default_factory=list, description="Sources that supported or contributed to this block")
+    primary_source: Optional[Literal["whisper", "youtube", "merged"]] = Field(
+        None, description="Primary source selected for this block"
+    )
+    supporting_sources: List[Literal["whisper", "youtube"]] = Field(
+        default_factory=list, description="Sources that supported or contributed to this block"
+    )
     needs_review: bool = Field(False, description="True when source disagreement should be reviewed")
     merge_reason: Optional[str] = Field(None, description="Deterministic merge decision reason")
-    similarity: Optional[float] = Field(None, description="Token similarity between Whisper and YouTube text for this block")
+    similarity: Optional[float] = Field(
+        None, description="Token similarity between Whisper and YouTube text for this block"
+    )
 
 
 class VideoChapterEvidence(BaseModel):
@@ -999,7 +1025,9 @@ class FormattedTranscriptResponse(BaseModel):
     format: Literal["inline", "dialogue", "structured"] = Field(..., description="Formatting style used")
     cleanup_config: CleanupConfig = Field(..., description="Cleanup configuration used")
     blocks: List[TranscriptBlockResponse] = Field(default_factory=list, description="Formatted transcript blocks")
-    source: Literal["whisper", "youtube", "merged"] = Field("whisper", description="Transcript source used for this response")
+    source: Literal["whisper", "youtube", "merged"] = Field(
+        "whisper", description="Transcript source used for this response"
+    )
     source_label: str = Field("Whisper transcript", description="Human-readable transcript source label")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc), description="Timestamp of formatting"

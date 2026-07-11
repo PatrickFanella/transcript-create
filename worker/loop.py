@@ -9,10 +9,9 @@ from sqlalchemy import create_engine, text
 from app.logging_config import configure_logging, get_logger, video_id_ctx
 from app.settings import settings, validate_production_settings
 from app.ytdlp_validation import validate_js_runtime_or_exit
-from worker.metrics import setup_worker_info, try_collect_gpu_metrics
 from worker.caption_ingest import ingest_available_captions
+from worker.metrics import setup_worker_info, try_collect_gpu_metrics
 from worker.pipeline import expand_channel_if_needed
-from worker.video_pipeline import ProcessVideoCommand, default_video_processing_pipeline
 from worker.state_model import (
     IN_PROGRESS_VIDEO_STATES,
     OPEN_CAPTION_INGEST_STATES,
@@ -20,6 +19,7 @@ from worker.state_model import (
     VideoState,
     sql_string_list,
 )
+from worker.video_pipeline import ProcessVideoCommand, default_video_processing_pipeline
 
 engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
 POLL_INTERVAL = 3
@@ -48,8 +48,7 @@ def update_heartbeat():
         with engine.begin() as conn:
             # Upsert heartbeat record
             conn.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO worker_heartbeat (worker_id, hostname, pid, last_seen, metrics)
                     VALUES (:worker_id, :hostname, :pid, now(), :metrics)
                     ON CONFLICT (worker_id)
@@ -58,8 +57,7 @@ def update_heartbeat():
                         hostname = EXCLUDED.hostname,
                         pid = EXCLUDED.pid,
                         metrics = EXCLUDED.metrics
-                """
-                ),
+                """),
                 {
                     "worker_id": WORKER_ID,
                     "hostname": socket.gethostname(),
@@ -86,16 +84,12 @@ def update_queue_metrics():
             videos_pending.set(pending_count)
 
             # Count in-progress videos by state
-            states = conn.execute(
-                text(
-                    f"""
+            states = conn.execute(text(f"""
                     SELECT state, COUNT(*)
                     FROM videos
                     WHERE state IN ({IN_PROGRESS_VIDEO_STATES_SQL})
                     GROUP BY state
-                """
-                )
-            ).all()
+                """)).all()
 
             # Reset all in-progress gauges first
             for state in IN_PROGRESS_VIDEO_STATES:
@@ -254,15 +248,13 @@ def run():
                 if rescue_seconds > 0:
                     logger.debug("Rescue check: requeue videos stuck", extra={"threshold_seconds": rescue_seconds})
                     conn.execute(
-                        text(
-                            """
+                        text("""
                         UPDATE videos
                         SET state = 'pending', updated_at = now()
                         WHERE state IN ('downloading','transcoding','transcribing')
                           AND now() - updated_at > make_interval(secs => :secs)
                         RETURNING id
-                        """
-                        ),
+                        """),
                         {"secs": rescue_seconds},
                     )
             except Exception as e:
@@ -283,8 +275,7 @@ def run():
                 current_rank = model_hierarchy.get(current_model, 0)
                 if current_rank > 0:
                     requeue_result = conn.execute(
-                        text(
-                            """
+                        text("""
                         UPDATE videos v
                         SET state = 'pending', updated_at = now()
                         FROM transcripts t
@@ -305,8 +296,7 @@ def run():
                             END
                           ) < :current_rank
                         RETURNING v.id, t.model
-                    """
-                        ),
+                    """),
                         {"current_rank": current_rank, "completed_state": VideoState.COMPLETED.value},
                     )
                     requeued = requeue_result.fetchall()

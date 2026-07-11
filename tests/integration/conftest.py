@@ -46,11 +46,13 @@ def integration_db(integration_engine) -> Generator:
 
     connection = integration_engine.connect()
     transaction = connection.begin()
+    SessionLocal.remove()
     session = SessionLocal(bind=connection)
 
     yield session
 
     session.close()
+    SessionLocal.remove()
     transaction.rollback()
     connection.close()
 
@@ -76,6 +78,36 @@ def integration_client(integration_db) -> Generator:
             yield c
     finally:
         app.dependency_overrides.pop(real_get_db, None)
+
+
+@pytest.fixture(scope="function")
+def authenticated_client(integration_client, integration_db) -> Generator:
+    """Provide a current authenticated user session for protected workflows."""
+    user_id = uuid.uuid4()
+    token = f"test-session-{uuid.uuid4()}"
+    integration_db.execute(
+        text(
+            """
+            INSERT INTO users (id, email, name, oauth_provider, oauth_subject, plan, role)
+            VALUES (:id, :email, 'Integration User', 'google', :subject, 'pro', 'user')
+            """
+        ),
+        {
+            "id": user_id,
+            "email": f"integration-{user_id}@example.com",
+            "subject": f"integration-{user_id}",
+        },
+    )
+    integration_db.execute(
+        text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:user_id, :token, now() + interval '1 day')"),
+        {"user_id": user_id, "token": token},
+    )
+    integration_db.commit()
+    integration_client.cookies.set("tc_session", token)
+    try:
+        yield integration_client
+    finally:
+        integration_client.cookies.delete("tc_session")
 
 
 @pytest.fixture(scope="function")

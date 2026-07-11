@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-
 SAFE_SERIES_LABELS = {"chadvice", "okbuddy", "gaming", "guests"}
 
 
@@ -35,7 +34,8 @@ def derive_vod_label_assignments(
                 "publish_tier": "gold" if all(row.get("publish_tier") == "gold" for row in rows) else "silver",
                 "confidence_score": min(
                     0.99,
-                    sum(float(row.get("confidence_score") or 0) for row in rows) / len(rows) + min(0.10, duration_share),
+                    sum(float(row.get("confidence_score") or 0) for row in rows) / len(rows)
+                    + min(0.10, duration_share),
                 ),
                 "evidence_count": len(rows),
                 "evidence": rows[:5],

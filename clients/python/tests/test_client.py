@@ -98,7 +98,7 @@ class TestVideosAPI:
         video_id = uuid4()
         httpx_mock.add_response(
             method="GET",
-            url=f"{base_url}/videos/{video_id}/transcript",
+            url=f"{base_url}/videos/{video_id}/transcript?mode=raw",
             json={
                 "video_id": str(video_id),
                 "segments": [
@@ -210,7 +210,7 @@ class TestErrorHandling:
     async def test_rate_limit_error(self, httpx_mock: HTTPXMock, base_url: str) -> None:
         """Test rate limit error with Retry-After header."""
         httpx_mock.add_response(
-            url=f"{base_url}/search?q=test&source=native&limit=50&offset=0",
+            url=f"{base_url}/search?q=test&source=best&limit=50&offset=0",
             status_code=429,
             headers={"Retry-After": "60"},
             json={

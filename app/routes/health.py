@@ -129,7 +129,7 @@ async def check_opensearch() -> Dict[str, Any]:
             url,
             auth=auth,
             timeout=settings.HEALTH_CHECK_TIMEOUT,
-            verify=False,  # OpenSearch often uses self-signed certs in dev
+            verify=settings.OPENSEARCH_VERIFY_SSL,
         )
         response.raise_for_status()
 
@@ -255,27 +255,21 @@ async def check_worker() -> Dict[str, Any]:
 
             # Check for stuck jobs (in progress states for too long)
             stuck_count = conn.execute(
-                text(
-                    """
+                text("""
                     SELECT COUNT(*) FROM videos
                     WHERE state IN ('downloading', 'transcoding', 'transcribing', 'diarizing', 'persisting')
                     AND updated_at < now() - make_interval(secs => :seconds)
-                """
-                ),
+                """),
                 {"seconds": settings.RESCUE_STUCK_AFTER_SECONDS},
             ).scalar_one()
 
             # Check worker heartbeat
-            heartbeat_result = conn.execute(
-                text(
-                    """
+            heartbeat_result = conn.execute(text("""
                     SELECT worker_id, last_seen, metrics
                     FROM worker_heartbeat
                     ORDER BY last_seen DESC
                     LIMIT 1
-                """
-                )
-            ).fetchone()
+                """)).fetchone()
 
             result = {
                 "jobs_pending": pending_count,
@@ -382,8 +376,7 @@ async def liveness_probe():
     "/ready",
     summary="Readiness probe",
     description=(
-        "Kubernetes readiness probe. Checks if the service can accept traffic "
-        "by verifying critical dependencies."
+        "Kubernetes readiness probe. Checks if the service can accept traffic " "by verifying critical dependencies."
     ),
     responses={
         200: {
@@ -461,8 +454,7 @@ async def readiness_probe():
     "/health/detailed",
     summary="Detailed health check",
     description=(
-        "Comprehensive health check of all components including database, "
-        "OpenSearch, storage, and worker status."
+        "Comprehensive health check of all components including database, " "OpenSearch, storage, and worker status."
     ),
     responses={
         200: {

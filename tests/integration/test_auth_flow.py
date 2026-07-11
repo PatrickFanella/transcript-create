@@ -45,7 +45,8 @@ class TestAuthFlow:
         response = integration_client.get("/auth/callback/google?code=mock_auth_code")
 
         # Should handle callback (might not exist or return 404)
-        assert response.status_code in [200, 302, 307, 404, 500]
+        assert response.status_code == 422
+        assert response.json()["error"] == "validation_error"
 
     @pytest.mark.timeout(60)
     def test_logout(self, integration_client: TestClient, clean_test_data):
@@ -164,47 +165,6 @@ class TestAuthorizationFlow:
         }
 
 
-class TestQuotaEnforcement:
-    """Integration tests for quota enforcement."""
-
-    @pytest.mark.timeout(60)
-    def test_search_quota_enforcement(self, integration_client: TestClient, integration_db, clean_test_data):
-        """Test that search quota is enforced."""
-        # Create a user with quota limits (if user system exists)
-        user_id = uuid.uuid4()
-
-        # This would require a users table
-        try:
-            integration_db.execute(
-                text(
-                    """
-                    INSERT INTO users (id, email, search_quota, plan)
-                    VALUES (:user_id, 'test@example.com', 5, 'free')
-                """
-                ),
-                {"user_id": str(user_id)},
-            )
-            integration_db.commit()
-
-            # Exhaust quota
-            for _ in range(6):
-                response = integration_client.get("/search?q=test")
-                # First 5 should work, 6th should fail
-                if response.status_code == 402:
-                    # Quota exceeded
-                    break
-
-        except Exception:
-            # Users table might not exist
-            pytest.skip("Users/quota system not implemented")
-
-    @pytest.mark.timeout(60)
-    def test_quota_reset_after_upgrade(self, integration_client: TestClient, integration_db, clean_test_data):
-        """Test that quota resets/increases after plan upgrade."""
-        # Would require implementing user upgrade flow
-        pytest.skip("Plan upgrade flow not implemented in test")
-
-
 class TestSessionManagement:
     """Integration tests for session management."""
 
@@ -214,10 +174,11 @@ class TestSessionManagement:
         # Make a request that might create a session
         response = integration_client.get("/")
 
-        # Check for session cookie (name depends on implementation)
+        # Anonymous requests receive the separate analytics identity cookie,
+        # never an authentication session.
         cookies = response.cookies
-        # Session cookie might be named 'tc_session' or similar
-        assert isinstance(cookies, dict)
+        assert cookies.get("ha_analytics")
+        assert cookies.get("tc_session") is None
 
     @pytest.mark.timeout(60)
     def test_session_persistence(self, integration_client: TestClient, clean_test_data):

@@ -139,6 +139,36 @@ class TestOpenSearchHealthCheck:
             # Restore original setting
             settings.SEARCH_BACKEND = original_backend
 
+    @pytest.mark.asyncio
+    async def test_opensearch_health_check_verifies_tls_by_default(self, monkeypatch):
+        """The health probe must not disable certificate validation."""
+        import requests
+
+        from app.routes.health import check_opensearch
+        from app.settings import settings
+
+        class HealthyResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"status": "green"}
+
+        calls = []
+
+        def fake_get(*args, **kwargs):
+            calls.append((args, kwargs))
+            return HealthyResponse()
+
+        monkeypatch.setattr(settings, "SEARCH_BACKEND", "opensearch")
+        monkeypatch.setattr(settings, "OPENSEARCH_VERIFY_SSL", True)
+        monkeypatch.setattr(requests, "get", fake_get)
+
+        result = await check_opensearch()
+
+        assert result["status"] == "healthy"
+        assert calls[0][1]["verify"] is True
+
 
 class TestStorageHealthCheck:
     """Tests for storage health check component."""

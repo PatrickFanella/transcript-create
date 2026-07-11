@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from collections import defaultdict
 import re
+from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 
-from app.transcripts.blocks import TranscriptBlock, build_transcript_blocks
+from app.transcripts.blocks import build_transcript_blocks
 from app.transcripts.types import TranscriptSegment
-
 
 _TOKEN_RE = re.compile(r"[\w']+")
 

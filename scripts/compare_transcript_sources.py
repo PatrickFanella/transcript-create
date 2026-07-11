@@ -18,19 +18,21 @@ from app.transcripts.comparison import compare_sources, render_markdown_report
 def _load_candidates(conn, limit: int):
     from sqlalchemy import text
 
-    return conn.execute(
-        text(
-            """
+    return (
+        conn.execute(
+            text("""
             SELECT v.id, v.youtube_id, v.title
             FROM videos v
             WHERE EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.id)
               AND EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id)
             ORDER BY COALESCE(v.uploaded_at, v.created_at) DESC, v.created_at DESC
             LIMIT :limit
-            """
-        ),
-        {"limit": limit},
-    ).mappings().all()
+            """),
+            {"limit": limit},
+        )
+        .mappings()
+        .all()
+    )
 
 
 def _load_whisper_segments(conn, video_id):
@@ -60,8 +62,15 @@ def _load_youtube_segments(conn, video_id):
     return youtube_rows_to_segments([(r.start_ms, r.end_ms, r.text) for r in rows])
 
 
-def main(limit: int = 100, bucket_ms: int = 10000, output_dir: str = "reports", json_output: str | None = None, markdown_output: str | None = None) -> int:
+def main(
+    limit: int = 100,
+    bucket_ms: int = 10000,
+    output_dir: str = "reports",
+    json_output: str | None = None,
+    markdown_output: str | None = None,
+) -> int:
     from sqlalchemy import create_engine
+
     from app.settings import settings
 
     engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
@@ -90,9 +99,15 @@ def main(limit: int = 100, bucket_ms: int = 10000, output_dir: str = "reports", 
             "video_count": video_count,
             "recommendations": dict(recommendation_counts),
             "bucket_ms": bucket_ms,
-            "average_whisper_coverage": sum(v["metrics"]["whisper"]["coverage_ratio"] for v in videos) / video_count if video_count else 0.0,
-            "average_youtube_coverage": sum(v["metrics"]["youtube"]["coverage_ratio"] for v in videos) / video_count if video_count else 0.0,
-            "average_similarity": sum(v["metrics"]["whisper"]["average_similarity"] for v in videos) / video_count if video_count else 0.0,
+            "average_whisper_coverage": (
+                sum(v["metrics"]["whisper"]["coverage_ratio"] for v in videos) / video_count if video_count else 0.0
+            ),
+            "average_youtube_coverage": (
+                sum(v["metrics"]["youtube"]["coverage_ratio"] for v in videos) / video_count if video_count else 0.0
+            ),
+            "average_similarity": (
+                sum(v["metrics"]["whisper"]["average_similarity"] for v in videos) / video_count if video_count else 0.0
+            ),
         },
         "videos": videos,
     }
@@ -116,4 +131,12 @@ if __name__ == "__main__":
     parser.add_argument("--json-output")
     parser.add_argument("--markdown-output")
     args = parser.parse_args()
-    raise SystemExit(main(limit=args.limit, bucket_ms=args.bucket_ms, output_dir=args.output_dir, json_output=args.json_output, markdown_output=args.markdown_output))
+    raise SystemExit(
+        main(
+            limit=args.limit,
+            bucket_ms=args.bucket_ms,
+            output_dir=args.output_dir,
+            json_output=args.json_output,
+            markdown_output=args.markdown_output,
+        )
+    )

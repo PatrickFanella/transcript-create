@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from alembic import command
 from alembic.config import Config
@@ -24,8 +25,28 @@ def alembic_config():
 
 @pytest.fixture(scope="module")
 def test_db_url():
-    """Get test database URL from environment."""
-    return os.environ.get("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/transcripts")
+    """Create an isolated database for destructive migration tests."""
+    from app.settings import settings
+
+    original_url = settings.DATABASE_URL
+    base_url = make_url(
+        os.environ.get("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/transcripts")
+    )
+    admin_url = base_url.set(database="postgres")
+    migration_url = base_url.set(database="hasanara_migration_test")
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with admin_engine.connect() as conn:
+        conn.execute(text("DROP DATABASE IF EXISTS hasanara_migration_test WITH (FORCE)"))
+        conn.execute(text("CREATE DATABASE hasanara_migration_test"))
+
+    settings.DATABASE_URL = migration_url.render_as_string(hide_password=False)
+    try:
+        yield settings.DATABASE_URL
+    finally:
+        settings.DATABASE_URL = original_url
+        with admin_engine.connect() as conn:
+            conn.execute(text("DROP DATABASE IF EXISTS hasanara_migration_test WITH (FORCE)"))
+        admin_engine.dispose()
 
 
 @contextmanager
@@ -42,59 +63,13 @@ def get_engine(db_url: str):
 def clean_db(test_db_url):
     """Provide a clean database for each test."""
     with get_engine(test_db_url) as engine:
-        # Drop all tables and alembic version
+        # The database is dedicated to migration tests, so resetting the schema
+        # is both deterministic and safe. It also removes extension-owned
+        # objects as a unit instead of trying to drop their functions directly.
         with engine.begin() as conn:
-            # Drop all tables in public schema
-            conn.execute(
-                text(
-                    """
-                DO $$ DECLARE
-                    r RECORD;
-                BEGIN
-                    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
-                        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
-                    END LOOP;
-                END $$;
-            """
-                )
-            )
-
-            # Drop all types
-            conn.execute(
-                text(
-                    """
-                DO $$ DECLARE
-                    r RECORD;
-                BEGIN
-                    FOR r IN (
-                        SELECT typname FROM pg_type
-                        WHERE typtype = 'e'
-                        AND typnamespace = 'public'::regnamespace::oid
-                    ) LOOP
-                        EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
-                    END LOOP;
-                END $$;
-            """
-                )
-            )
-
-            # Drop all functions
-            conn.execute(
-                text(
-                    """
-                DO $$ DECLARE
-                    r RECORD;
-                BEGIN
-                    FOR r IN (SELECT proname, oidvectortypes(proargtypes) as argtypes
-                             FROM pg_proc INNER JOIN pg_namespace ns ON (pg_proc.pronamespace = ns.oid)
-                             WHERE ns.nspname = 'public') LOOP
-                        EXECUTE 'DROP FUNCTION IF EXISTS ' || quote_ident(r.proname)
-                                || '(' || r.argtypes || ') CASCADE';
-                    END LOOP;
-                END $$;
-            """
-                )
-            )
+            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+            conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
 
     yield
 

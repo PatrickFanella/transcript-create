@@ -14,6 +14,7 @@ This directory contains raw Kubernetes manifests for deploying transcript-create
 - **hpa.yaml** - Horizontal Pod Autoscaler for API and Worker
 - **poddisruptionbudget.yaml** - Pod disruption budgets for high availability
 - **migrations-job.yaml** - Pre-install database migration job
+- **analytics-retention-cronjob.yaml** - Daily 90-day raw-event retention job
 - **servicemonitor.yaml** - Prometheus ServiceMonitor for metrics collection
 - **networkpolicy.yaml** - Network policies for security
 
@@ -45,6 +46,7 @@ This directory contains raw Kubernetes manifests for deploying transcript-create
    kubectl create secret generic transcript-secrets \
      --from-literal=database-url='postgresql+psycopg://user:pass@host:5432/db' \
      --from-literal=session-secret="$(openssl rand -hex 32)" \
+     --from-literal=analytics-hmac-secret="$(openssl rand -hex 32)" \
      --from-literal=hf-token='your-hf-token' \
      -n transcript-create
    ```
@@ -63,6 +65,7 @@ This directory contains raw Kubernetes manifests for deploying transcript-create
    # Deploy services
    kubectl apply -f api-deployment.yaml -n transcript-create
    kubectl apply -f worker-deployment.yaml -n transcript-create
+   kubectl apply -f analytics-retention-cronjob.yaml -n transcript-create
    kubectl apply -f api-service.yaml -n transcript-create
    kubectl apply -f ingress.yaml -n transcript-create
    

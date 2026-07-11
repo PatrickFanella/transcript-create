@@ -16,6 +16,11 @@ The Terraform configuration creates:
 - **Secrets Manager**: Secure credential storage
 - **CloudWatch**: Monitoring and logging
 
+The AWS configuration generates independent 64-character values for
+`SESSION_SECRET` and `ANALYTICS_HMAC_SECRET`, stores them as separate Secrets
+Manager entries, and injects both into the API task. Do not replace the
+analytics entry with the session secret during manual overrides or imports.
+
 ## Prerequisites
 
 ```bash

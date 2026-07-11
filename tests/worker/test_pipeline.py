@@ -378,6 +378,10 @@ class TestExpandChannelJob:
 class TestProcessVideo:
     """Tests for process_video function."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_parent_job_refresh(self, monkeypatch):
+        monkeypatch.setattr(pipeline, "refresh_job_state", Mock())
+
     @patch("worker.pipeline.diarize_and_align")
     @patch("worker.pipeline.transcribe_chunk")
     @patch("worker.pipeline.chunk_audio")
@@ -507,6 +511,10 @@ class TestProcessVideo:
 
 
 class TestTranscriptBlockCrud:
+    @pytest.fixture(autouse=True)
+    def _stub_parent_job_refresh(self, monkeypatch):
+        monkeypatch.setattr(pipeline, "refresh_job_state", Mock())
+
     def test_replace_and_list_transcript_blocks(self, db_session):
         job_id = crud.create_job(db_session, "single", "https://youtube.com/watch?v=test")
         video_id = uuid.uuid4()

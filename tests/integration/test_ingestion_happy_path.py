@@ -180,14 +180,16 @@ class TestSingleVideoIngestion:
 class TestChannelIngestion:
     """Tests for channel/playlist ingestion flow."""
 
-    @patch('subprocess.check_output')
-    def test_channel_metadata_extraction(self, mock_subprocess, mock_yt_dlp_channel_playlist):
+    @patch('worker.youtube_captions.YtDlpExecutor.run_json')
+    def test_channel_metadata_extraction(self, mock_run_json, mock_yt_dlp_channel_playlist):
         """Test extraction of channel metadata with flat-playlist."""
-        mock_subprocess.return_value = json.dumps(mock_yt_dlp_channel_playlist).encode()
+        mock_run_json.return_value = mock_yt_dlp_channel_playlist
         
         from worker.youtube_captions import _yt_dlp_json
         
         result = _yt_dlp_json("https://youtube.com/channel/test_channel_123")
+
+        mock_run_json.assert_called_once()
         
         assert "entries" in result
         assert len(result["entries"]) == 3
@@ -219,13 +221,13 @@ class TestJobStateTransitions:
         
         db_session.execute(
             text("""
-                INSERT INTO jobs (id, youtube_id, type, state)
-                VALUES (:id, :youtube_id, :type, :state)
+                INSERT INTO jobs (id, kind, input_url, state)
+                VALUES (:id, :kind, :input_url, :state)
             """),
             {
                 "id": job_id,
-                "youtube_id": "test_video_123",
-                "type": "single",
+                "input_url": "https://youtube.com/watch?v=test_video_123",
+                "kind": "single",
                 "state": "pending",
             }
         )
@@ -247,13 +249,13 @@ class TestJobStateTransitions:
         # Create job
         db_session.execute(
             text("""
-                INSERT INTO jobs (id, youtube_id, type, state)
-                VALUES (:id, :youtube_id, :type, :state)
+                INSERT INTO jobs (id, kind, input_url, state)
+                VALUES (:id, :kind, :input_url, :state)
             """),
             {
                 "id": job_id,
-                "youtube_id": "test_video_123",
-                "type": "single",
+                "input_url": "https://youtube.com/watch?v=test_video_123",
+                "kind": "single",
                 "state": "expanded",
             }
         )
@@ -261,8 +263,8 @@ class TestJobStateTransitions:
         # Create video from expansion
         db_session.execute(
             text("""
-                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, status, idx)
-                VALUES (:id, :job_id, :youtube_id, :title, :duration, :status, :idx)
+                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, state, idx)
+                VALUES (:id, :job_id, :youtube_id, :title, :duration, :state, :idx)
             """),
             {
                 "id": video_id,
@@ -270,7 +272,7 @@ class TestJobStateTransitions:
                 "youtube_id": "test_video_123",
                 "title": "Test Video",
                 "duration": 120,
-                "status": "pending",
+                "state": "pending",
                 "idx": 0,
             }
         )
@@ -278,7 +280,7 @@ class TestJobStateTransitions:
         
         # Verify video exists
         result = db_session.execute(
-            text("SELECT status FROM videos WHERE id = :id"),
+            text("SELECT state FROM videos WHERE id = :id"),
             {"id": video_id}
         ).fetchone()
         
@@ -292,16 +294,21 @@ class TestJobStateTransitions:
         # Create video in pending state
         db_session.execute(
             text("""
-                INSERT INTO jobs (id, youtube_id, type, state)
-                VALUES (:id, :youtube_id, :type, :state)
+                INSERT INTO jobs (id, kind, input_url, state)
+                VALUES (:id, :kind, :input_url, :state)
             """),
-            {"id": job_id, "youtube_id": "test", "type": "single", "state": "expanded"}
+            {
+                "id": job_id,
+                "input_url": "https://youtube.com/watch?v=test",
+                "kind": "single",
+                "state": "expanded",
+            }
         )
         
         db_session.execute(
             text("""
-                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, status)
-                VALUES (:id, :job_id, :youtube_id, :title, :duration, :status)
+                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, state)
+                VALUES (:id, :job_id, :youtube_id, :title, :duration, :state)
             """),
             {
                 "id": video_id,
@@ -309,7 +316,7 @@ class TestJobStateTransitions:
                 "youtube_id": "test_video",
                 "title": "Test",
                 "duration": 60,
-                "status": "pending",
+                "state": "pending",
             }
         )
         db_session.commit()
@@ -319,13 +326,13 @@ class TestJobStateTransitions:
         
         for state in states:
             db_session.execute(
-                text("UPDATE videos SET status = :status WHERE id = :id"),
-                {"status": state, "id": video_id}
+                text("UPDATE videos SET state = :state WHERE id = :id"),
+                {"state": state, "id": video_id}
             )
             db_session.commit()
             
             result = db_session.execute(
-                text("SELECT status FROM videos WHERE id = :id"),
+                text("SELECT state FROM videos WHERE id = :id"),
                 {"id": video_id}
             ).fetchone()
             
@@ -398,16 +405,21 @@ class TestErrorRecovery:
         
         db_session.execute(
             text("""
-                INSERT INTO jobs (id, youtube_id, type, state)
-                VALUES (:id, :youtube_id, :type, :state)
+                INSERT INTO jobs (id, kind, input_url, state)
+                VALUES (:id, :kind, :input_url, :state)
             """),
-            {"id": job_id, "youtube_id": "test", "type": "single", "state": "expanded"}
+            {
+                "id": job_id,
+                "input_url": "https://youtube.com/watch?v=test",
+                "kind": "single",
+                "state": "expanded",
+            }
         )
         
         db_session.execute(
             text("""
-                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, status)
-                VALUES (:id, :job_id, :youtube_id, :title, :duration, :status)
+                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, state)
+                VALUES (:id, :job_id, :youtube_id, :title, :duration, :state)
             """),
             {
                 "id": video_id,
@@ -415,13 +427,13 @@ class TestErrorRecovery:
                 "youtube_id": "failed_video",
                 "title": "Failed Video",
                 "duration": 60,
-                "status": "failed",
+                "state": "failed",
             }
         )
         db_session.commit()
         
         result = db_session.execute(
-            text("SELECT status FROM videos WHERE id = :id"),
+            text("SELECT state FROM videos WHERE id = :id"),
             {"id": video_id}
         ).fetchone()
         
@@ -470,16 +482,21 @@ class TestIntegrationWorkflow:
         # Create job and video
         db_session.execute(
             text("""
-                INSERT INTO jobs (id, youtube_id, type, state)
-                VALUES (:id, :youtube_id, :type, :state)
+                INSERT INTO jobs (id, kind, input_url, state)
+                VALUES (:id, :kind, :input_url, :state)
             """),
-            {"id": job_id, "youtube_id": "test", "type": "single", "state": "expanded"}
+            {
+                "id": job_id,
+                "input_url": "https://youtube.com/watch?v=test",
+                "kind": "single",
+                "state": "expanded",
+            }
         )
         
         db_session.execute(
             text("""
-                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, status)
-                VALUES (:id, :job_id, :youtube_id, :title, :duration, :status)
+                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, state)
+                VALUES (:id, :job_id, :youtube_id, :title, :duration, :state)
             """),
             {
                 "id": video_id,
@@ -487,14 +504,14 @@ class TestIntegrationWorkflow:
                 "youtube_id": "completed_video",
                 "title": "Completed Video",
                 "duration": 60,
-                "status": "completed",
+                "state": "completed",
             }
         )
         db_session.commit()
         
         # All videos completed, job should be completable
         video_result = db_session.execute(
-            text("SELECT status FROM videos WHERE job_id = :job_id"),
+            text("SELECT state FROM videos WHERE job_id = :job_id"),
             {"job_id": job_id}
         ).fetchone()
         

@@ -1,28 +1,22 @@
-import { render, type RenderOptions } from '@testing-library/react'
-import type { ReactElement } from 'react'
-import { BrowserRouter } from 'react-router-dom'
-import { AuthProvider } from '../services/auth'
+import { render, type RenderOptions } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from '../services/auth';
 
 /**
  * Custom render function that wraps components with necessary providers
  */
-export function renderWithRouter(
-  ui: ReactElement,
-  options?: Omit<RenderOptions, 'wrapper'>
-) {
+export function renderWithRouter(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
   return render(ui, {
     wrapper: ({ children }) => <BrowserRouter>{children}</BrowserRouter>,
     ...options,
-  })
+  });
 }
 
 /**
  * Render with both Router and Auth providers
  */
-export function renderWithProviders(
-  ui: ReactElement,
-  options?: Omit<RenderOptions, 'wrapper'>
-) {
+export function renderWithProviders(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
   return render(ui, {
     wrapper: ({ children }) => (
       <BrowserRouter>
@@ -30,7 +24,7 @@ export function renderWithProviders(
       </BrowserRouter>
     ),
     ...options,
-  })
+  });
 }
 
 /**
@@ -41,7 +35,7 @@ export function mockAPIResponse(data: unknown, status = 200) {
     json: async () => data,
     status,
     ok: status >= 200 && status < 300,
-  }
+  };
 }
 
 /**
@@ -50,15 +44,15 @@ export function mockAPIResponse(data: unknown, status = 200) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mockAPIError(status: number, data?: any) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const error: any = new Error('HTTP Error')
+  const error: any = new Error('HTTP Error');
   error.response = {
     status,
     json: async () => data || { message: 'Error' },
-  }
-  return error
+  };
+  return error;
 }
 
 /**
  * Wait for async operations
  */
-export const waitFor = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+export const waitFor = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

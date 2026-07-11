@@ -4,10 +4,13 @@ import os
 
 import pytest
 
+ANALYTICS_SECRET = "analytics-secret-with-at-least-32-bytes"
+
 
 def _isolated_settings(**overrides):
     from app.settings import Settings
 
+    overrides.setdefault("ANALYTICS_HMAC_SECRET", ANALYTICS_SECRET)
     return Settings(_env_file=None, **overrides)
 
 
@@ -34,12 +37,111 @@ def test_validate_production_settings_allows_safe_config():
 
     config = _isolated_settings(
         ENVIRONMENT="production",
-        SESSION_SECRET="super-secret-value",
+        SESSION_SECRET="session-secret-with-at-least-32-bytes",
+        ANALYTICS_HMAC_SECRET=ANALYTICS_SECRET,
         DATABASE_URL="postgresql+psycopg://postgres:strong-password@db/transcripts",
         FRONTEND_ORIGIN="https://app.example.com",
     )
 
     validate_production_settings(config)
+
+
+def test_validate_production_settings_requires_dedicated_analytics_secret():
+    from app.settings import validate_production_settings
+
+    config = _isolated_settings(
+        ENVIRONMENT="production",
+        SESSION_SECRET="super-secret-value",
+        ANALYTICS_HMAC_SECRET="",
+        DATABASE_URL="postgresql+psycopg://postgres:strong-password@db/transcripts",
+        FRONTEND_ORIGIN="https://app.example.com",
+    )
+
+    with pytest.raises(ValueError, match="ANALYTICS_HMAC_SECRET"):
+        validate_production_settings(config)
+
+
+def test_validate_production_settings_rejects_reused_session_secret_for_analytics():
+    from app.settings import validate_production_settings
+
+    config = _isolated_settings(
+        ENVIRONMENT="production",
+        SESSION_SECRET="reused-secret-value-with-32-bytes",
+        ANALYTICS_HMAC_SECRET="reused-secret-value-with-32-bytes",
+        DATABASE_URL="postgresql+psycopg://postgres:strong-password@db/transcripts",
+        FRONTEND_ORIGIN="https://app.example.com",
+    )
+
+    with pytest.raises(ValueError, match="must differ from SESSION_SECRET"):
+        validate_production_settings(config)
+
+
+@pytest.mark.parametrize(
+    "placeholder",
+    [
+        "change-me-generate-a-different-secure-random-value",
+        "YOUR_ANALYTICS_HMAC_SECRET_HERE",
+        "your-independent-random-secret",
+    ],
+)
+def test_validate_production_settings_rejects_documented_analytics_placeholder(placeholder):
+    from app.settings import validate_production_settings
+
+    config = _isolated_settings(
+        ENVIRONMENT="production",
+        SESSION_SECRET="session-secret-value",
+        ANALYTICS_HMAC_SECRET=placeholder,
+        DATABASE_URL="postgresql+psycopg://postgres:strong-password@db/transcripts",
+        FRONTEND_ORIGIN="https://app.example.com",
+    )
+
+    with pytest.raises(ValueError, match="placeholder"):
+        validate_production_settings(config)
+
+
+def test_validate_production_settings_requires_32_byte_analytics_secret():
+    from app.settings import validate_production_settings
+
+    config = _isolated_settings(
+        ENVIRONMENT="production",
+        SESSION_SECRET="session-secret-value",
+        ANALYTICS_HMAC_SECRET="a" * 31,
+        DATABASE_URL="postgresql+psycopg://postgres:strong-password@db/transcripts",
+        FRONTEND_ORIGIN="https://app.example.com",
+    )
+
+    with pytest.raises(ValueError, match="at least 32 bytes"):
+        validate_production_settings(config)
+
+
+def test_validate_production_settings_allows_exactly_32_utf8_bytes():
+    from app.settings import validate_production_settings
+
+    config = _isolated_settings(
+        ENVIRONMENT="production",
+        SESSION_SECRET="session-secret-value",
+        ANALYTICS_HMAC_SECRET="é" * 16,
+        DATABASE_URL="postgresql+psycopg://postgres:strong-password@db/transcripts",
+        FRONTEND_ORIGIN="https://app.example.com",
+    )
+
+    validate_production_settings(config)
+
+
+def test_validate_production_settings_rejects_disabled_opensearch_tls_verification():
+    from app.settings import validate_production_settings
+
+    config = _isolated_settings(
+        ENVIRONMENT="production",
+        SESSION_SECRET="session-secret-value",
+        DATABASE_URL="postgresql+psycopg://postgres:strong-password@db/transcripts",
+        FRONTEND_ORIGIN="https://app.example.com",
+        OPENSEARCH_URL="https://opensearch.example.com",
+        OPENSEARCH_VERIFY_SSL=False,
+    )
+
+    with pytest.raises(ValueError, match="OPENSEARCH_VERIFY_SSL"):
+        validate_production_settings(config)
 
 
 @pytest.mark.parametrize(

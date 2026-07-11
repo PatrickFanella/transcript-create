@@ -56,38 +56,29 @@ These cannot coexist and must be installed separately based on the target hardwa
 
 ### Dockerfile Strategy
 
-The Dockerfile implements a two-stage installation:
+Each Dockerfile installs one audited runtime contract:
 
-1. **Install general dependencies** from requirements.txt
+1. **Read the ML versions** from `requirements-ml-runtime.txt` and install the
+   matching CPU, CUDA 12.8, or ROCm 7.1 wheels.
 
-   ```dockerfile
-   pip3 install -r requirements.txt
-   ```
-
-2. **Remove any conflicting torch packages** that may have been installed as transitive dependencies
+2. **Resolve general dependencies** under the audited Python 3.11 constraints.
 
    ```dockerfile
-   pip3 uninstall -y torch torchvision torchaudio
+   pip3 install -c constraints.txt -r requirements.txt
    ```
 
-3. **Install ROCm-specific PyTorch** from the appropriate wheel index
-
-   ```dockerfile
-   pip3 install --index-url ${ROCM_WHEEL_INDEX} \
-       torch==2.4.1+rocm6.0 torchaudio==2.4.1+rocm6.0
-   ```
+3. **Fail the build** unless `pip check` and imports of Torch, TorchAudio,
+   TorchCodec, and pyannote all succeed.
 
 ### Build Arguments
 
 - `ROCM_WHEEL_INDEX`: URL to PyTorch wheels for specific ROCm version
-  - Default: `https://download.pytorch.org/whl/rocm6.0`
-  - ROCm 6.1: `https://download.pytorch.org/whl/rocm6.1`
-  - ROCm 6.2: `https://download.pytorch.org/whl/rocm6.2`
+  - Audited/default: `https://download.pytorch.org/whl/rocm7.1`
 
 Example for different ROCm version:
 
 ```bash
-docker compose build --build-arg ROCM_WHEEL_INDEX=https://download.pytorch.org/whl/rocm6.1
+docker compose build --build-arg ROCM_WHEEL_INDEX=https://download.pytorch.org/whl/rocm7.1
 ```
 
 ### For CUDA/NVIDIA
@@ -97,14 +88,14 @@ To use NVIDIA GPUs instead:
 1. Change base image in Dockerfile:
 
    ```dockerfile
-   FROM nvidia/cuda:12.8.0-cudnn8-runtime-ubuntu22.04
+   FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
    ```
 
 2. Change PyTorch installation:
 
    ```dockerfile
-   pip3 install --index-url https://download.pytorch.org/whl/cu124 \
-       torch==2.4.1+cu124 torchaudio==2.4.1+cu124
+   pip3 install --index-url https://download.pytorch.org/whl/cu128 \
+       torch==2.11.0 torchaudio==2.11.0
    ```
 
 3. Update docker-compose.yml to use nvidia runtime
@@ -114,7 +105,8 @@ To use NVIDIA GPUs instead:
 For development without GPU:
 
 ```dockerfile
-pip3 install torch==2.4.1 torchaudio==2.4.1
+pip3 install --index-url https://download.pytorch.org/whl/cpu \
+  torch==2.11.0 torchaudio==2.11.0 torchcodec==0.14.0
 ```
 
 Set in .env:
@@ -130,8 +122,9 @@ FORCE_GPU=false
 1. Check for vulnerabilities:
 
    ```bash
-   pip-audit -r requirements.txt
-   safety check -r requirements.txt
+   pip-audit -r requirements.txt --no-deps --disable-pip
+   pip-audit -r constraints.txt --no-deps --disable-pip
+   npm --prefix frontend audit --audit-level=high
    ```
 
 2. Update specific package:
@@ -278,11 +271,7 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install --upgrade pip
-pip install -r requirements.txt
-
-# For CPU-only torch
-pip uninstall -y torch torchaudio
-pip install torch==2.4.1 torchaudio==2.4.1
+pip install -c constraints.txt -r requirements.txt
 ```
 
 ### Docker Development

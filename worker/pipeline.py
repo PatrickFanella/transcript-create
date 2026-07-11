@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,12 +10,11 @@ from sqlalchemy import text
 from app import crud
 from app.logging_config import get_logger
 from app.settings import settings
-from app.transcripts.blocks import build_transcript_blocks
-from app.transcripts.types import TranscriptSegment
 from worker.audio import chunk_audio, download_audio, ensure_wav_16k
 from worker.caption_ingest import ingest_captions_for_unprocessed_videos
 from worker.diarize import diarize_and_align
-from worker.native_pipeline import NativePipelineDependencies, process_video as process_native_video
+from worker.native_pipeline import NativePipelineDependencies
+from worker.native_pipeline import process_video as process_native_video
 from worker.state_model import ACTIVE_VIDEO_STATES, OPEN_CAPTION_INGEST_STATES, TERMINAL_VIDEO_STATES, sql_string_list
 from worker.whisper_runner import transcribe_chunk
 from worker.youtube.service import get_youtube_service
@@ -88,9 +86,9 @@ def _metadata_uploaded_at(metadata: dict[str, Any]) -> datetime | None:
 
 def refresh_job_state(conn, job_id, *, error: str | None = None) -> None:
     """Update a parent job based on child video terminal states."""
-    counts = conn.execute(
-        text(
-            f"""
+    counts = (
+        conn.execute(
+            text(f"""
             SELECT
               COUNT(*) AS total,
               COUNT(*) FILTER (WHERE state = 'completed') AS completed,
@@ -98,10 +96,12 @@ def refresh_job_state(conn, job_id, *, error: str | None = None) -> None:
               COUNT(*) FILTER (WHERE state IN ({ACTIVE_VIDEO_STATES_SQL})) AS active
             FROM videos
             WHERE job_id = :j
-            """
-        ),
-        {"j": job_id},
-    ).mappings().first()
+            """),
+            {"j": job_id},
+        )
+        .mappings()
+        .first()
+    )
 
     if not counts or int(counts["total"] or 0) == 0:
         return
@@ -129,8 +129,7 @@ def refresh_job_state(conn, job_id, *, error: str | None = None) -> None:
 def reconcile_terminal_jobs(conn) -> None:
     """Repair parent jobs whose child videos have already reached terminal states."""
     completed = conn.execute(
-        text(
-            f"""
+        text(f"""
             UPDATE jobs j
             SET state='completed', error=NULL, updated_at=now()
             WHERE j.state NOT IN ({TERMINAL_VIDEO_STATES_SQL})
@@ -140,15 +139,13 @@ def reconcile_terminal_jobs(conn) -> None:
                 WHERE v.job_id = j.id AND v.state <> 'completed'
               )
             RETURNING j.id
-            """
-        ),
+            """),
     ).fetchall()
     if completed:
         logger.info("Reconciled completed jobs", extra={"count": len(completed)})
 
     failed = conn.execute(
-        text(
-            f"""
+        text(f"""
             UPDATE jobs j
             SET state='failed',
                 error=COALESCE(j.error, 'One or more videos failed'),
@@ -160,8 +157,7 @@ def reconcile_terminal_jobs(conn) -> None:
                 WHERE v.job_id = j.id AND v.state IN ({ACTIVE_VIDEO_STATES_SQL})
               )
             RETURNING j.id
-            """
-        ),
+            """),
     ).fetchall()
     if failed:
         logger.info("Reconciled failed jobs", extra={"count": len(failed)})
@@ -210,10 +206,7 @@ def expand_channel_if_needed(conn):
     from worker.youtube_resilience import classify_error, get_circuit_breaker, retry_with_backoff
 
     logger.debug("Checking for pending channel jobs to expand")
-    jobs = (
-        conn.execute(
-            text(
-                """
+    jobs = conn.execute(text("""
         SELECT j.id, j.input_url, j.meta
         FROM jobs j
         WHERE j.kind='channel'
@@ -223,12 +216,7 @@ def expand_channel_if_needed(conn):
           )
         FOR UPDATE SKIP LOCKED
         LIMIT 5
-    """
-            )
-        )
-        .mappings()
-        .all()
-    )
+    """)).mappings().all()
 
     # Get circuit breaker for metadata operations
     circuit_breaker = None
@@ -247,15 +235,17 @@ def expand_channel_if_needed(conn):
                 "original_url": url,
                 "normalized_url": normalized_url,
                 "url_modified": url != normalized_url,
-            }
+            },
         )
 
         # Use factory function to capture loop variable correctly for retry closure
         def make_fetch_channel_metadata(channel_url: str):
             """Create channel metadata fetch function with explicit parameter binding."""
+
             def fetch_channel_metadata():
                 """Fetch channel metadata with timeout."""
                 return _fetch_ytdlp_metadata(channel_url, flat_playlist=True)
+
             return fetch_channel_metadata  # noqa: B023 (false positive - function returned immediately)
 
         fetch_channel_metadata = make_fetch_channel_metadata(normalized_url)
@@ -320,7 +310,7 @@ def expand_channel_if_needed(conn):
                     "channel_id": channel_id,
                     "entry_count": entry_count,
                     "url": normalized_url,
-                }
+                },
             )
 
             for idx, e in enumerate(entries):
@@ -331,13 +321,11 @@ def expand_channel_if_needed(conn):
                 video_channel_name = _metadata_channel_name(e, channel_name)
                 uploaded_at = _metadata_uploaded_at(e)
                 conn.execute(
-                    text(
-                        """
+                    text("""
                     INSERT INTO videos (job_id, youtube_id, idx, title, duration_seconds, uploaded_at, channel_name)
                     VALUES (:j,:y,:idx,:title,:dur,:uploaded_at,:channel_name)
                     ON CONFLICT (job_id, youtube_id) DO NOTHING
-                """
-                    ),
+                """),
                     {
                         "j": job["id"],
                         "y": yid,
@@ -355,15 +343,14 @@ def expand_channel_if_needed(conn):
                     "job_id": str(job["id"]),
                     "channel_id": channel_id,
                     "videos_inserted": entry_count,
-                }
+                },
             )
             conn.execute(text("UPDATE jobs SET state='downloading', updated_at=now() WHERE id=:i"), {"i": job["id"]})
             youtube_requests_total.labels(operation="channel_expansion", result="success").inc()
 
         except Exception as e:
             logger.error(
-                "Channel expansion failed after retries",
-                extra={"job_id": str(job["id"]), "error": str(e)[:200]}
+                "Channel expansion failed after retries", extra={"job_id": str(job["id"]), "error": str(e)[:200]}
             )
             youtube_requests_total.labels(operation="channel_expansion", result="failure").inc()
             conn.execute(
@@ -377,10 +364,7 @@ def expand_single_if_needed(conn):
     from worker.youtube_resilience import classify_error, get_circuit_breaker, retry_with_backoff
 
     logger.debug("Checking for pending single jobs to expand")
-    jobs = (
-        conn.execute(
-            text(
-                """
+    jobs = conn.execute(text("""
         SELECT j.id, j.input_url
         FROM jobs j
         WHERE j.kind='single'
@@ -390,12 +374,7 @@ def expand_single_if_needed(conn):
           )
         FOR UPDATE SKIP LOCKED
         LIMIT 5
-    """
-            )
-        )
-        .mappings()
-        .all()
-    )
+    """)).mappings().all()
 
     # Get circuit breaker for metadata operations
     circuit_breaker = None
@@ -409,10 +388,12 @@ def expand_single_if_needed(conn):
         # Use factory function to capture loop variable correctly for retry closure
         def make_fetch_video_metadata(video_url: str):
             """Create video metadata fetch function with explicit parameter binding."""
+
             def fetch_video_metadata():
                 """Fetch video metadata with timeout."""
                 # Use yt-dlp to robustly extract the video id for any YouTube URL form
                 return _fetch_ytdlp_metadata(video_url)
+
             return fetch_video_metadata  # noqa: B023 (false positive - function returned immediately)
 
         fetch_video_metadata = make_fetch_video_metadata(url)
@@ -461,13 +442,11 @@ def expand_single_if_needed(conn):
                 },
             )
             conn.execute(
-                text(
-                    """
+                text("""
                 INSERT INTO videos (job_id, youtube_id, idx, title, duration_seconds, uploaded_at, channel_name)
                 VALUES (:j,:y,:idx,:title,:dur,:uploaded_at,:channel_name)
                 ON CONFLICT (job_id, youtube_id) DO NOTHING
-            """
-                ),
+            """),
                 {
                     "j": job["id"],
                     "y": vid,
@@ -484,8 +463,7 @@ def expand_single_if_needed(conn):
 
         except Exception as e:
             logger.error(
-                "Single video expansion failed after retries",
-                extra={"job_id": str(job["id"]), "error": str(e)[:200]}
+                "Single video expansion failed after retries", extra={"job_id": str(job["id"]), "error": str(e)[:200]}
             )
             youtube_requests_total.labels(operation="video_expansion", result="failure").inc()
             conn.execute(
@@ -539,9 +517,7 @@ def promote_staged_batches_if_ready(conn) -> int:
     do not need a custom video state that would conflict with the existing DB
     enum. This helper is intentionally observational.
     """
-    rows = conn.execute(
-        text(
-            f"""
+    rows = conn.execute(text(f"""
             SELECT COALESCE(j.meta->>'batch_id', j.id::text) AS batch_id
             FROM jobs j
             JOIN videos v ON v.job_id = j.id
@@ -550,9 +526,7 @@ def promote_staged_batches_if_ready(conn) -> int:
             GROUP BY COALESCE(j.meta->>'batch_id', j.id::text)
             HAVING COUNT(DISTINCT j.id) >= COALESCE(MAX((j.meta->>'batch_expected_jobs')::int), 1)
                AND COUNT(*) FILTER (WHERE v.caption_ingest_state IN ({OPEN_CAPTION_INGEST_STATES_SQL})) = 0
-            """
-        )
-    ).fetchall()
+            """)).fetchall()
 
     ready = 0
     for (batch_id,) in rows:

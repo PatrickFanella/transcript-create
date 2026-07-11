@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
 from io import BytesIO
+
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from reportlab.lib import colors
@@ -15,8 +17,10 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 from sqlalchemy import text
 
 from .. import crud
+from ..analytics_identity import get_analytics_subject_id
 from ..common.session import get_session_token, get_user_from_session
 from ..db import get_db
+from ..event_taxonomy import sanitize_internal_event
 from ..exceptions import NotFoundError, TranscriptNotReadyError, VideoNotFoundError
 from ..settings import settings
 from ..transcripts.merged import build_merged_transcript
@@ -83,9 +87,18 @@ def _require_export_auth(
 def _log_export(db, request: Request, user, payload: dict):
     from ..metrics import exports_total
 
+    _, sanitized_payload = sanitize_internal_event("export", payload)
+
     db.execute(
-        text("INSERT INTO events (user_id, session_token, type, payload) VALUES (:u,:t,'export',CAST(:p AS JSONB))"),
-        {"u": str(user["id"]) if user else None, "t": get_session_token(request), "p": payload},
+        text(
+            "INSERT INTO events (user_id, analytics_subject_id, type, payload) "
+            "VALUES (:u,:analytics_subject_id,'export',CAST(:p AS JSONB))"
+        ),
+        {
+            "u": str(user["id"]) if user else None,
+            "analytics_subject_id": get_analytics_subject_id(request),
+            "p": json.dumps(sanitized_payload),
+        },
     )
     db.commit()
 
@@ -105,7 +118,9 @@ def _load_best_export_source(db, video_id: uuid.UUID):
     if segs and yt:
         whisper_segments = [transcript_presentation_service.from_db_row(r) for r in segs]
         yt_segs = crud.list_youtube_segments(db, yt["id"])
-        youtube_segments = [TranscriptSegment(start_ms=r[0], end_ms=r[1], text=r[2], speaker_label=None) for r in yt_segs]
+        youtube_segments = [
+            TranscriptSegment(start_ms=r[0], end_ms=r[1], text=r[2], speaker_label=None) for r in yt_segs
+        ]
         merged = build_merged_transcript(str(video_id), whisper_segments, youtube_segments)
         cue_rows = [(s.start_ms, s.end_ms, s.text, s.speaker_label) for s in merged.segments]
         return "merged", v, cue_rows, merged.blocks
@@ -144,9 +159,6 @@ def _load_best_export_source(db, video_id: uuid.UUID):
 )
 def get_youtube_transcript_srt(video_id: uuid.UUID, request: Request, db=Depends(get_db)):
     """Export YouTube captions as SRT subtitle file."""
-    yt = crud.get_youtube_transcript(db, video_id)
-    if not yt:
-        raise TranscriptNotReadyError(str(video_id), "no_youtube_transcript")
     user = get_user_from_session(db, get_session_token(request))
     gate = _require_export_auth(
         db,
@@ -156,6 +168,9 @@ def get_youtube_transcript_srt(video_id: uuid.UUID, request: Request, db=Depends
     )
     if gate is not None:
         return gate
+    yt = crud.get_youtube_transcript(db, video_id)
+    if not yt:
+        raise TranscriptNotReadyError(str(video_id), "no_youtube_transcript")
     segs = crud.list_youtube_segments(db, yt["id"])
     blocks = build_youtube_caption_blocks([(r[0], r[1], r[2]) for r in segs])
     lines = []
@@ -186,9 +201,6 @@ def get_youtube_transcript_srt(video_id: uuid.UUID, request: Request, db=Depends
 )
 def get_youtube_transcript_vtt(video_id: uuid.UUID, request: Request, db=Depends(get_db)):
     """Export YouTube captions as WebVTT subtitle file."""
-    yt = crud.get_youtube_transcript(db, video_id)
-    if not yt:
-        raise TranscriptNotReadyError(str(video_id), "no_youtube_transcript")
     user = get_user_from_session(db, get_session_token(request))
     gate = _require_export_auth(
         db,
@@ -198,6 +210,9 @@ def get_youtube_transcript_vtt(video_id: uuid.UUID, request: Request, db=Depends
     )
     if gate is not None:
         return gate
+    yt = crud.get_youtube_transcript(db, video_id)
+    if not yt:
+        raise TranscriptNotReadyError(str(video_id), "no_youtube_transcript")
     segs = crud.list_youtube_segments(db, yt["id"])
     blocks = build_youtube_caption_blocks([(r[0], r[1], r[2]) for r in segs])
 
@@ -228,16 +243,16 @@ def get_youtube_transcript_vtt(video_id: uuid.UUID, request: Request, db=Depends
 )
 def get_native_transcript_srt(video_id: uuid.UUID, request: Request, db=Depends(get_db)):
     """Export best available transcript as SRT subtitle file."""
-    source, _v, segs, blocks = _load_best_export_source(db, video_id)
     user = get_user_from_session(db, get_session_token(request))
     gate = _require_export_auth(
         db,
         request,
         user,
-        require_auth=source == "youtube",
+        require_auth=True,
     )
     if gate is not None:
         return gate
+    source, _v, segs, blocks = _load_best_export_source(db, video_id)
     lines = []
     if blocks is not None:
         cue_rows = [(block.start_ms, block.end_ms, block.text, None) for block in blocks]
@@ -271,16 +286,16 @@ def get_native_transcript_srt(video_id: uuid.UUID, request: Request, db=Depends(
 )
 def get_native_transcript_vtt(video_id: uuid.UUID, request: Request, db=Depends(get_db)):
     """Export best available transcript as WebVTT subtitle file."""
-    source, _v, segs, blocks = _load_best_export_source(db, video_id)
     user = get_user_from_session(db, get_session_token(request))
     gate = _require_export_auth(
         db,
         request,
         user,
-        require_auth=source == "youtube",
+        require_auth=True,
     )
     if gate is not None:
         return gate
+    source, _v, segs, blocks = _load_best_export_source(db, video_id)
 
     lines = ["WEBVTT", ""]
     if blocks is not None:
@@ -328,16 +343,16 @@ def get_native_transcript_vtt(video_id: uuid.UUID, request: Request, db=Depends(
 )
 def get_native_transcript_json(video_id: uuid.UUID, request: Request, db=Depends(get_db)):
     """Export best available transcript as JSON."""
-    source, _v, segs, blocks = _load_best_export_source(db, video_id)
     user = get_user_from_session(db, get_session_token(request))
     gate = _require_export_auth(
         db,
         request,
         user,
-        require_auth=source == "youtube",
+        require_auth=True,
     )
     if gate is not None:
         return gate
+    source, _v, segs, blocks = _load_best_export_source(db, video_id)
     if source == "youtube":
         payload = {
             "video_id": str(video_id),
@@ -352,10 +367,7 @@ def get_native_transcript_json(video_id: uuid.UUID, request: Request, db=Depends
             "video_id": str(video_id),
             "source": "merged",
             "source_label": "Merged transcript",
-            "segments": [
-                {"start_ms": r[0], "end_ms": r[1], "text": r[2], "speaker_label": r[3]}
-                for r in segs
-            ],
+            "segments": [{"start_ms": r[0], "end_ms": r[1], "text": r[2], "speaker_label": r[3]} for r in segs],
             "full_text": "\n\n".join(block.text for block in (blocks or [])),
             "blocks": [_block_to_payload(block) for block in (blocks or [])],
         }
@@ -437,7 +449,11 @@ def get_youtube_transcript_json(video_id: uuid.UUID, request: Request, db=Depend
 )
 def get_native_transcript_pdf(video_id: uuid.UUID, request: Request, db=Depends(get_db)):
     """Export Whisper transcript as formatted PDF."""
-    # Check resource existence before auth gating
+    user = get_user_from_session(db, get_session_token(request))
+    gate = _require_export_auth(db, request, user, require_auth=True)
+    if gate is not None:
+        return gate
+
     v = crud.get_video(db, video_id)
     if not v:
         from ..exceptions import VideoNotFoundError
@@ -453,14 +469,6 @@ def get_native_transcript_pdf(video_id: uuid.UUID, request: Request, db=Depends(
             details={"video_id": str(video_id)},
         )
 
-    user = get_user_from_session(db, get_session_token(request))
-    gate = _require_export_auth(
-        db,
-        request,
-        user,
-    )
-    if gate is not None:
-        return gate
     # Build PDF in-memory
     buf = BytesIO()
     doc = SimpleDocTemplate(

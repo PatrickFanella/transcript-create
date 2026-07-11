@@ -21,7 +21,9 @@ export default function SavedSearchItem({ saved, onDelete }: SavedSearchItemProp
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-semibold text-ink">{saved.query}</div>
-          <div className="mt-1 text-sm text-muted">Saved {formatDate(saved.created_at ?? null)}</div>
+          <div className="mt-1 text-sm text-muted">
+            Saved {formatDate(saved.created_at ?? null)}
+          </div>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-subtle">
             {saved.filters.source && <span>{sourceLabel(saved.filters.source)}</span>}
             {saved.filters.category && <span>Type {saved.filters.category}</span>}

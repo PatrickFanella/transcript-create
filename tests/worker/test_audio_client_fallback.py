@@ -92,7 +92,7 @@ class TestBuildClientStrategies:
         strategies = _build_client_strategies()
 
         assert len(strategies) == 1
-        assert strategies[0].name == "web_safari"
+        assert strategies[0].name == "default"
 
     @patch("worker.audio.settings")
     def test_web_safari_has_hls_args(self, mock_settings):
@@ -104,7 +104,7 @@ class TestBuildClientStrategies:
         assert len(strategies) == 1
         strategy = strategies[0]
         assert "youtube:player_client=web_safari" in " ".join(strategy.extractor_args)
-        assert "Referer" in " ".join(strategy.headers)
+        assert strategy.headers == []
 
     @patch("worker.audio.settings")
     def test_tv_client_uses_tv_embedded(self, mock_settings):
@@ -177,7 +177,7 @@ class TestYtDlpCmd:
 
         assert cmd[0] == "yt-dlp"
         assert "-f" in cmd
-        assert "bestaudio" in cmd
+        assert cmd[cmd.index("-f") + 1] == "bestaudio/best"
         assert "-o" in cmd
         assert str(out) in cmd
         assert url in cmd

@@ -19,11 +19,20 @@ def setup_test_video(db_session):
     """Create a test video with transcript segments."""
     video_id = uuid.uuid4()
     youtube_id = "test_video_123"
-    
+    job_id = uuid.uuid4()
+
+    db_session.execute(
+        text("""
+            INSERT INTO jobs (id, kind, input_url, state)
+            VALUES (:id, 'single', :input_url, 'completed')
+        """),
+        {"id": job_id, "input_url": f"https://youtube.com/watch?v={youtube_id}"},
+    )
+
     # Insert test video
     db_session.execute(
         text("""
-            INSERT INTO videos (id, youtube_id, title, duration_seconds, status, job_id)
+            INSERT INTO videos (id, youtube_id, title, duration_seconds, state, job_id)
             VALUES (:id, :youtube_id, :title, :duration, 'completed', :job_id)
         """),
         {
@@ -31,7 +40,7 @@ def setup_test_video(db_session):
             "youtube_id": youtube_id,
             "title": "Test Video",
             "duration": 120,
-            "job_id": uuid.uuid4(),
+            "job_id": job_id,
         }
     )
     
@@ -39,15 +48,15 @@ def setup_test_video(db_session):
     transcript_id = uuid.uuid4()
     db_session.execute(
         text("""
-            INSERT INTO transcripts (id, video_id, model, backend, language)
-            VALUES (:id, :video_id, :model, :backend, :language)
+            INSERT INTO transcripts (id, video_id, model, language, full_text)
+            VALUES (:id, :video_id, :model, :language, :full_text)
         """),
         {
             "id": transcript_id,
             "video_id": video_id,
             "model": "base",
-            "backend": "faster-whisper",
             "language": "en",
+            "full_text": "um hello world this is like a test TESTING ALL CAPS [MUSIC] some music here [MUSIC]",
         }
     )
     
@@ -59,18 +68,18 @@ def setup_test_video(db_session):
         (6000, 8000, "[MUSIC] some music here [MUSIC]", None),
     ]
     
-    for start, end, text, speaker in segments_data:
+    for start, end, segment_text, speaker in segments_data:
         db_session.execute(
             text("""
-                INSERT INTO segments (id, transcript_id, start_ms, end_ms, text, speaker_label)
-                VALUES (:id, :transcript_id, :start_ms, :end_ms, :text, :speaker_label)
+                INSERT INTO segments (video_id, transcript_id, start_ms, end_ms, text, speaker_label)
+                VALUES (:video_id, :transcript_id, :start_ms, :end_ms, :text, :speaker_label)
             """),
             {
-                "id": uuid.uuid4(),
+                "video_id": video_id,
                 "transcript_id": transcript_id,
                 "start_ms": start,
                 "end_ms": end,
-                "text": text,
+                "text": segment_text,
                 "speaker_label": speaker,
             }
         )
@@ -84,33 +93,43 @@ def setup_test_video(db_session):
 def setup_test_video_with_speakers(db_session):
     """Create a test video with speaker labels."""
     video_id = uuid.uuid4()
-    
+    job_id = uuid.uuid4()
+    youtube_id = "test_speakers_456"
+
     db_session.execute(
         text("""
-            INSERT INTO videos (id, youtube_id, title, duration_seconds, status, job_id)
+            INSERT INTO jobs (id, kind, input_url, state)
+            VALUES (:id, 'single', :input_url, 'completed')
+        """),
+        {"id": job_id, "input_url": f"https://youtube.com/watch?v={youtube_id}"},
+    )
+
+    db_session.execute(
+        text("""
+            INSERT INTO videos (id, youtube_id, title, duration_seconds, state, job_id)
             VALUES (:id, :youtube_id, :title, :duration, 'completed', :job_id)
         """),
         {
             "id": video_id,
-            "youtube_id": "test_speakers_456",
+            "youtube_id": youtube_id,
             "title": "Test Video with Speakers",
             "duration": 60,
-            "job_id": uuid.uuid4(),
+            "job_id": job_id,
         }
     )
     
     transcript_id = uuid.uuid4()
     db_session.execute(
         text("""
-            INSERT INTO transcripts (id, video_id, model, backend, language)
-            VALUES (:id, :video_id, :model, :backend, :language)
+            INSERT INTO transcripts (id, video_id, model, language, full_text)
+            VALUES (:id, :video_id, :model, :language, :full_text)
         """),
         {
             "id": transcript_id,
             "video_id": video_id,
             "model": "base",
-            "backend": "faster-whisper",
             "language": "en",
+            "full_text": "Hello everyone Nice to meet you How are you",
         }
     )
     
@@ -121,18 +140,18 @@ def setup_test_video_with_speakers(db_session):
         (4000, 6000, "How are you", "Speaker 1"),
     ]
     
-    for start, end, text, speaker in segments_data:
+    for start, end, segment_text, speaker in segments_data:
         db_session.execute(
             text("""
-                INSERT INTO segments (id, transcript_id, start_ms, end_ms, text, speaker_label)
-                VALUES (:id, :transcript_id, :start_ms, :end_ms, :text, :speaker_label)
+                INSERT INTO segments (video_id, transcript_id, start_ms, end_ms, text, speaker_label)
+                VALUES (:video_id, :transcript_id, :start_ms, :end_ms, :text, :speaker_label)
             """),
             {
-                "id": uuid.uuid4(),
+                "video_id": video_id,
                 "transcript_id": transcript_id,
                 "start_ms": start,
                 "end_ms": end,
-                "text": text,
+                "text": segment_text,
                 "speaker_label": speaker,
             }
         )
@@ -388,9 +407,9 @@ class TestCachingHeaders:
         video_id = setup_test_video
         
         response = client.get(f"/videos/{video_id}/transcript?mode=raw")
-        
+
         assert "cache-control" in response.headers
-        assert "max-age" in response.headers["cache-control"]
+        assert response.headers["cache-control"] == "private, no-store"
 
 
 class TestErrorResponses:
@@ -406,28 +425,37 @@ class TestErrorResponses:
         data = response.json()
         assert "error" in data or "detail" in data
 
-    def test_503_for_video_without_transcript(self, client, db_session):
-        """Test 503 error for video still processing."""
+    def test_409_for_video_with_transcript_still_processing(self, client, db_session):
+        """Test explicit not-ready state for a video still processing."""
         # Create video without transcript
         video_id = uuid.uuid4()
+        job_id = uuid.uuid4()
         db_session.execute(
             text("""
-                INSERT INTO videos (id, youtube_id, title, duration_seconds, status, job_id)
-                VALUES (:id, :youtube_id, :title, :duration, 'processing', :job_id)
+                INSERT INTO jobs (id, kind, input_url, state)
+                VALUES (:id, 'single', :input_url, 'transcribing')
+            """),
+            {"id": job_id, "input_url": "https://youtube.com/watch?v=processing_video"},
+        )
+        db_session.execute(
+            text("""
+                INSERT INTO videos (id, youtube_id, title, duration_seconds, state, job_id)
+                VALUES (:id, :youtube_id, :title, :duration, 'transcribing', :job_id)
             """),
             {
                 "id": video_id,
                 "youtube_id": "processing_video",
                 "title": "Processing Video",
                 "duration": 120,
-                "job_id": uuid.uuid4(),
+                "job_id": job_id,
             }
         )
         db_session.commit()
         
         response = client.get(f"/videos/{video_id}/transcript?mode=raw")
         
-        assert response.status_code == 503
+        assert response.status_code == 409
+        assert response.json()["error"] == "transcript_not_ready"
         data = response.json()
         assert "error" in data or "detail" in data
 

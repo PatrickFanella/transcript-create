@@ -91,8 +91,8 @@ def _get_model():
                     models = [settings.WHISPER_MODEL] + [m for m in models if m != settings.WHISPER_MODEL]
 
                 last_err = None
-                for dev in devices:
-                    for model_name in models:
+                for model_name in models:
+                    for dev in devices:
                         for ctype in compute_types:
                             try:
                                 logger.info(

@@ -36,7 +36,7 @@ class CreateAPIKeyRequest(BaseModel):
 class APIKeyResponse(BaseModel):
     """Response containing API key details."""
 
-    id: str
+    id: uuid.UUID
     name: str
     key_prefix: str
     created_at: datetime
@@ -70,14 +70,12 @@ def list_api_keys(request: Request, db=Depends(get_db), user=Depends(get_user_re
 
     result = (
         db.execute(
-            text(
-                """
+            text("""
             SELECT id, name, key_prefix, created_at, expires_at, last_used_at, revoked_at, scopes
             FROM api_keys
             WHERE user_id = :user_id
             ORDER BY created_at DESC
-        """
-            ),
+        """),
             {"user_id": str(user_id)},
         )
         .mappings()
@@ -123,12 +121,10 @@ def create_api_key(
     # Insert into database
     key_id = uuid.uuid4()
     db.execute(
-        text(
-            """
+        text("""
             INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, expires_at, scopes)
             VALUES (:id, :user_id, :name, :key_hash, :key_prefix, :expires_at, :scopes)
-        """
-        ),
+        """),
         {
             "id": str(key_id),
             "user_id": str(user_id),
@@ -157,20 +153,18 @@ def create_api_key(
         extra={
             "user_id": str(user_id),
             "key_id": str(key_id),
-            "name": body.name,
+            "api_key_name": body.name,
         },
     )
 
     # Retrieve the created key
     key_data = (
         db.execute(
-            text(
-                """
+            text("""
             SELECT id, name, key_prefix, created_at, expires_at, last_used_at, revoked_at, scopes
             FROM api_keys
             WHERE id = :id
-        """
-            ),
+        """),
             {"id": str(key_id)},
         )
         .mappings()
@@ -204,13 +198,11 @@ def revoke_api_key(
     # Verify the key belongs to the user
     key = (
         db.execute(
-            text(
-                """
+            text("""
             SELECT id, name, user_id, revoked_at
             FROM api_keys
             WHERE id = :id
-        """
-            ),
+        """),
             {"id": key_id},
         )
         .mappings()
@@ -228,13 +220,11 @@ def revoke_api_key(
 
     # Revoke the key
     db.execute(
-        text(
-            """
+        text("""
             UPDATE api_keys
             SET revoked_at = now()
             WHERE id = :id
-        """
-        ),
+        """),
         {"id": key_id},
     )
     db.commit()
@@ -255,7 +245,7 @@ def revoke_api_key(
         extra={
             "user_id": str(user_id),
             "key_id": key_id,
-            "name": key["name"],
+            "api_key_name": key["name"],
         },
     )
 

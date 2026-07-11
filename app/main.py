@@ -8,7 +8,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError, SQLAlchemyError
 
 from .exceptions import AppError
 from .logging_config import configure_logging, get_logger, request_id_ctx, user_id_ctx
-from .middleware import setup_security_middleware
+from .middleware import PRIVATE_NO_STORE, CacheControlMiddleware, setup_security_middleware
 from .settings import settings, validate_production_settings
 from .ytdlp_validation import validate_js_runtime_or_exit
 
@@ -215,6 +215,7 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
 
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        headers={"Cache-Control": PRIVATE_NO_STORE},
         content={
             "error": "database_error",
             "message": "A database error occurred. Please try again later.",
@@ -236,6 +237,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        headers={"Cache-Control": PRIVATE_NO_STORE},
         content={
             "error": "internal_server_error",
             "message": "An unexpected error occurred. Please try again later.",
@@ -308,11 +310,16 @@ async def metrics_middleware(request: Request, call_next):
         http_requests_in_flight.labels(method=method, endpoint=endpoint).dec()
 
 
+# Cache policy must wrap every other application middleware so rate-limit,
+# authentication, CORS, logging, and endpoint responses all fail closed.
+app.add_middleware(CacheControlMiddleware)
+
+
 from .routes.admin import router as admin_router  # noqa: E402
 from .routes.analytics import router as analytics_router  # noqa: E402
 from .routes.api_keys import router as api_keys_router  # noqa: E402
-from .routes.auth import router as auth_router  # noqa: E402
 from .routes.archive import router as archive_router  # noqa: E402
+from .routes.auth import router as auth_router  # noqa: E402
 from .routes.events import router as events_router  # noqa: E402
 from .routes.exports import router as exports_router  # noqa: E402
 from .routes.favorites import router as favorites_router  # noqa: E402

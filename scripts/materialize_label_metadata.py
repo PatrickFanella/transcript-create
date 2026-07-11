@@ -26,8 +26,12 @@ def main(limit: int, seed_label_aliases: bool) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Materialize accepted label assignments into Explore people/tags metadata.")
+    parser = argparse.ArgumentParser(
+        description="Materialize accepted label assignments into Explore people/tags metadata."
+    )
     parser.add_argument("--limit", type=int, default=500)
-    parser.add_argument("--no-seed-label-aliases", action="store_true", help="Skip seeding published metadata into label aliases first")
+    parser.add_argument(
+        "--no-seed-label-aliases", action="store_true", help="Skip seeding published metadata into label aliases first"
+    )
     args = parser.parse_args()
     main(args.limit, seed_label_aliases=not args.no_seed_label_aliases)

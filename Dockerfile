@@ -16,10 +16,10 @@
 # =============================================================================
 # Stage 1: Base image with system dependencies
 # =============================================================================
-FROM rocm/dev-ubuntu-22.04:6.0.2 AS base
+FROM rocm/dev-ubuntu-22.04:7.1 AS base
 
 # Build argument for PyTorch ROCm wheel index
-ARG ROCM_WHEEL_INDEX=https://download.pytorch.org/whl/rocm6.0
+ARG ROCM_WHEEL_INDEX=https://download.pytorch.org/whl/rocm7.1
 
 # Set environment variables for non-interactive installs
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -61,25 +61,38 @@ RUN curl -fsSL https://deno.land/install.sh | sh && \
 FROM base AS python-deps
 
 # Copy only requirements files to leverage layer caching
-COPY requirements.txt constraints.txt* ./
+COPY requirements.txt requirements-ml-runtime.txt constraints.txt ./
+COPY scripts/verify_ml_runtime.py /tmp/verify_ml_runtime.py
 
 # Install Python dependencies with pip cache mount for faster rebuilds
 # Use BuildKit cache mount to persist pip cache across builds
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install --no-cache-dir -r requirements.txt && \
-    # Remove any torch variants pulled in by other dependencies
-    (pip3 uninstall -y torch torchvision torchaudio || true) && \
-    # Install ROCm PyTorch wheels explicitly
+    pip3 install --no-cache-dir --upgrade setuptools==81.0.0 wheel==0.47.0 && \
+    TORCH_VERSION="$(sed -n 's/^torch==//p' requirements-ml-runtime.txt)" && \
+    TORCHAUDIO_VERSION="$(sed -n 's/^torchaudio==//p' requirements-ml-runtime.txt)" && \
+    TORCHCODEC_VERSION="$(sed -n 's/^torchcodec==//p' requirements-ml-runtime.txt)" && \
+    # Install the accelerator-specific runtime before resolving pyannote.
     pip3 install --no-cache-dir --index-url ${ROCM_WHEEL_INDEX} \
-        torch==2.4.1+rocm6.0 torchaudio==2.4.1+rocm6.0
+        "torch==${TORCH_VERSION}" "torchaudio==${TORCHAUDIO_VERSION}" && \
+    # TorchCodec does not publish ROCm wheels. Its CPU wheel is compatible
+    # with Torch 2.11 and pyannote receives in-memory waveforms in our worker.
+    pip3 install --no-cache-dir --no-deps \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torchcodec==${TORCHCODEC_VERSION}" && \
+    pip3 install --no-cache-dir -c constraints.txt -r requirements.txt && \
+    pip3 check && \
+    python3 /tmp/verify_ml_runtime.py
 
-# Verify PyTorch installation
-RUN python3 -c "import torch; print('Torch version:', torch.__version__); print('HIP version:', getattr(torch.version, 'hip', None)); print('cuda.is_available:', torch.cuda.is_available())"
+# Verify the selected accelerator metadata without requiring a GPU at build time.
+RUN python3 -c "import torch; assert '+rocm7.1' in torch.__version__; print('Torch version:', torch.__version__); print('HIP version:', torch.version.hip)"
 
 # =============================================================================
 # Stage 3: Final application stage
 # =============================================================================
 FROM base AS app
+
+# Avoid merging distro/base packaging libraries into the audited builder tree.
+RUN rm -rf /usr/local/lib/python3.10/dist-packages/*
 
 # Copy Python packages from deps stage
 COPY --from=python-deps /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages

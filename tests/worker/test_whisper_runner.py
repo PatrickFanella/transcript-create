@@ -6,6 +6,14 @@ import pytest
 
 from worker import whisper_runner
 
+TRANSCRIBE_KWARGS = {
+    "language": "",
+    "beam_size": 5,
+    "temperature": 0.0,
+    "word_timestamps": False,
+    "vad_filter": False,
+}
+
 
 class TestTranscribeChunkFasterWhisper:
     """Tests for transcribe_chunk with faster-whisper backend."""
@@ -33,7 +41,7 @@ class TestTranscribeChunkFasterWhisper:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert len(result) == 1
         assert result[0]["start"] == 0.0
@@ -70,7 +78,7 @@ class TestTranscribeChunkFasterWhisper:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert len(result) == 3
         for i, seg in enumerate(result):
@@ -100,7 +108,7 @@ class TestTranscribeChunkFasterWhisper:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert result[0]["text"] == "Text with spaces"
 
@@ -132,7 +140,7 @@ class TestTranscribeChunkPyTorch:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert len(result) == 1
         assert result[0]["start"] == 0.0
@@ -155,7 +163,7 @@ class TestTranscribeChunkPyTorch:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        whisper_runner.transcribe_chunk(wav_path)
+        whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         # Verify transcribe was called with fp16=False
         call_kwargs = mock_model.transcribe.call_args[1]
@@ -191,7 +199,7 @@ class TestTranscribeChunkPyTorch:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         # Should have fallen back to CT2
         assert len(result) == 1
@@ -226,7 +234,7 @@ class TestTranscribeChunkPyTorch:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert len(result) == 1
         assert result[0]["text"] == "HIP fallback"
@@ -245,7 +253,7 @@ class TestTranscribeChunkPyTorch:
         wav_path.touch()
 
         with pytest.raises(RuntimeError, match="Some other error"):
-            whisper_runner.transcribe_chunk(wav_path)
+            whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
 
 class TestSegmentFormatting:
@@ -273,7 +281,7 @@ class TestSegmentFormatting:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         segment = result[0]
         assert "start" in segment
@@ -306,7 +314,7 @@ class TestSegmentFormatting:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         # Should handle gracefully - getattr with None default
         assert "confidence" in result[0]

@@ -13,11 +13,11 @@ export default function ExportMenu({ videoId }: Props) {
   }
   return (
     <details className="relative inline-block group">
-      <summary className="btn-secondary list-none px-3 py-1.5 text-sm">
-        Export
-      </summary>
+      <summary className="btn-secondary list-none px-3 py-1.5 text-sm">Export</summary>
       <div className="absolute z-10 mt-2 w-64 rounded-[1.25rem] border border-border bg-surface/95 p-3 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-subtle">Transcript</div>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-subtle">
+          Transcript
+        </div>
         <div className="flex flex-wrap gap-2">
           <a
             className="btn-secondary min-h-0 px-2 py-1 text-xs"
@@ -52,8 +52,12 @@ export default function ExportMenu({ videoId }: Props) {
             PDF
           </a>
         </div>
-        <div className="mt-2 text-xs text-muted">Exports use the best transcript available for this VOD.</div>
-        <div className="mt-3 mb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-subtle">Per-section</div>
+        <div className="mt-2 text-xs text-muted">
+          Exports use the best transcript available for this VOD.
+        </div>
+        <div className="mt-3 mb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-subtle">
+          Per-section
+        </div>
         <div className="text-xs text-muted">
           Use the inline copy link next to any segment, or select text to build a custom pack
           (coming soon).

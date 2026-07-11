@@ -32,7 +32,7 @@ class TestDownloadAudio:
         first_call_args = mock_run.call_args_list[0][0][0]
         assert first_call_args[0] == "yt-dlp"
         assert "-f" in first_call_args
-        assert "bestaudio" in first_call_args
+        assert first_call_args[first_call_args.index("-f") + 1] == "bestaudio/best"
 
     @patch("worker.audio.subprocess.run")
     def test_download_audio_command_structure(self, mock_run, tmp_path):
@@ -53,7 +53,7 @@ class TestDownloadAudio:
         call_args = mock_run.call_args_list[0][0][0]
         assert call_args[0] == "yt-dlp"
         assert "-f" in call_args
-        assert "bestaudio" in call_args
+        assert call_args[call_args.index("-f") + 1] == "bestaudio/best"
         assert "-o" in call_args
         assert url in call_args
 

@@ -7,7 +7,6 @@ from typing import TypeAlias, TypeVar
 
 import psycopg
 
-
 ESSENTIAL_TABLES = (
     "jobs",
     "videos",

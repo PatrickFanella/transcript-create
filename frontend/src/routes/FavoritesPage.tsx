@@ -12,7 +12,10 @@ import {
 import type { SavedSearch, SavedSearchFilters } from '../types/api';
 import { SavedMomentItem, SavedSearchForm, SavedSearchItem } from '../components/favorites';
 
-function readSavedSearchFilters(params: URLSearchParams): { query: string; filters: SavedSearchFilters } {
+function readSavedSearchFilters(params: URLSearchParams): {
+  query: string;
+  filters: SavedSearchFilters;
+} {
   return {
     query: params.get('query') ?? params.get('q') ?? '',
     filters: {
@@ -34,10 +37,18 @@ export default function FavoritesPage() {
   const { user } = useAuth();
   const [params] = useSearchParams();
   const [items, setItems] = useState(favorites.list());
-  const [remote, setRemote] = useState<Array<{ id: string; video_id: string; start_ms: number; end_ms: number; text?: string }> | null>(null);
+  const [remote, setRemote] = useState<Array<{
+    id: string;
+    video_id: string;
+    start_ms: number;
+    end_ms: number;
+    text?: string;
+  }> | null>(null);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[] | null>(null);
   const [query, setQuery] = useState(readSavedSearchFilters(params).query);
-  const [filters, setFilters] = useState<SavedSearchFilters>(readSavedSearchFilters(params).filters);
+  const [filters, setFilters] = useState<SavedSearchFilters>(
+    readSavedSearchFilters(params).filters
+  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -142,7 +153,11 @@ export default function FavoritesPage() {
           <div className="surface-card space-y-4">
             <div className="flex items-center justify-between gap-3">
               <h2 className="section-title">Saved searches</h2>
-              {user ? <span className="badge-success">Synced</span> : <span className="badge-warning">Local only</span>}
+              {user ? (
+                <span className="badge-success">Synced</span>
+              ) : (
+                <span className="badge-warning">Local only</span>
+              )}
             </div>
 
             {user ? (
@@ -176,7 +191,8 @@ export default function FavoritesPage() {
               </>
             ) : (
               <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted">
-                Sign in to sync saved searches across devices. Local moments still work in this browser.
+                Sign in to sync saved searches across devices. Local moments still work in this
+                browser.
               </div>
             )}
           </div>

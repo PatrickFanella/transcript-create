@@ -104,6 +104,11 @@ resource "random_password" "session_secret" {
   special = false
 }
 
+resource "random_password" "analytics_hmac_secret" {
+  length  = 64
+  special = false
+}
+
 module "secrets" {
   source = "../modules/aws-secrets"
 
@@ -111,9 +116,10 @@ module "secrets" {
   environment  = var.environment
   
   secrets = {
-    database_url   = "postgresql+psycopg://${var.db_username}:${module.database.db_password}@${module.database.db_endpoint}/${var.db_name}"
-    session_secret = random_password.session_secret.result
-    redis_url      = "redis://${module.redis.redis_endpoint}:6379/0"
+    analytics_hmac_secret = random_password.analytics_hmac_secret.result
+    database_url          = "postgresql+psycopg://${var.db_username}:${module.database.db_password}@${module.database.db_endpoint}/${var.db_name}"
+    session_secret        = random_password.session_secret.result
+    redis_url             = "redis://${module.redis.redis_endpoint}:6379/0"
   }
 }
 
@@ -160,9 +166,10 @@ module "ecs_api" {
   }
   
   secrets = {
-    DATABASE_URL   = module.secrets.secret_arns["database_url"]
-    SESSION_SECRET = module.secrets.secret_arns["session_secret"]
-    REDIS_URL      = module.secrets.secret_arns["redis_url"]
+    ANALYTICS_HMAC_SECRET = module.secrets.secret_arns["analytics_hmac_secret"]
+    DATABASE_URL          = module.secrets.secret_arns["database_url"]
+    SESSION_SECRET        = module.secrets.secret_arns["session_secret"]
+    REDIS_URL             = module.secrets.secret_arns["redis_url"]
   }
   
   depends_on = [module.alb]

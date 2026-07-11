@@ -144,7 +144,7 @@ class TestArchiveRoutes:
             text(
                 """
                 INSERT INTO archive_labels (id, slug, label, kind, status, source, publish_tier, confidence_score)
-                VALUES (:id, 'okbuddy', 'Okbuddy', 'series', 'published', 'automatic', 'gold', 0.91)
+                VALUES (:id, 'okbuddy', 'Okbuddy', 'series', 'published', 'hybrid', 'gold', 0.91)
                 """
             ),
             {"id": str(label_id)},
@@ -206,13 +206,27 @@ class TestArchiveRoutes:
         assert data["periods"][0]["evidence"]
         assert data["periods"][0]["evidence"][0]["video"]["youtube_id"] == "explore1"
         assert data["periods"][0]["evidence"][0]["video"]["people"] == [
-            {"slug": "guest-one", "display_name": "Guest One", "aliases": [], "description": None, "role": "guest"}
+            {
+                "slug": "guest-one",
+                "display_name": "Guest One",
+                "aliases": [],
+                "description": None,
+                "default_role": None,
+                "role": "guest",
+            }
         ]
         assert data["periods"][0]["evidence"][0]["video"]["tags"] == [
             {"slug": "chadvice", "label": "Chadvice", "kind": "category", "description": None}
         ]
         assert data["people"] == [
-            {"slug": "guest-one", "display_name": "Guest One", "aliases": [], "description": None, "role": "guest"}
+            {
+                "slug": "guest-one",
+                "display_name": "Guest One",
+                "aliases": [],
+                "description": None,
+                "default_role": None,
+                "role": "guest",
+            }
         ]
         assert data["tags"] == [{"slug": "chadvice", "label": "Chadvice", "kind": "category", "description": None}]
         assert {person["slug"] for person in data["people"]} == {"guest-one"}
@@ -408,7 +422,14 @@ class TestArchiveRoutes:
         assert response.status_code == 200
         data = response.json()
         assert data["people"] == [
-            {"slug": "guest-one", "display_name": "Guest One", "aliases": [], "description": None, "role": "guest"}
+            {
+                "slug": "guest-one",
+                "display_name": "Guest One",
+                "aliases": [],
+                "description": None,
+                "default_role": None,
+                "role": "guest",
+            }
         ]
         assert data["tags"] == [{"slug": "chadvice", "label": "Chadvice", "kind": "category", "description": None}]
 

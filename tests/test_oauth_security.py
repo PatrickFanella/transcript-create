@@ -1,8 +1,10 @@
 """Tests for enhanced OAuth security features."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from app.security import generate_nonce, generate_oauth_state
 
@@ -47,7 +49,9 @@ class TestOAuthSecurity:
             # Configure mock
             mock_client = MagicMock()
             mock_oauth_instance.google = mock_client
-            mock_client.authorize_redirect = MagicMock(return_value=MagicMock(status_code=302))
+            mock_client.authorize_redirect = AsyncMock(
+                return_value=RedirectResponse("https://accounts.example.invalid/authorize")
+            )
 
             # Make request
             client.get("/auth/login/google")
@@ -92,6 +96,13 @@ class TestAuditLoggingInOAuth:
         from app.audit import ACTION_LOGIN_SUCCESS, log_audit_event
 
         user_id = uuid.uuid4()
+        db_session.execute(
+            text(
+                "INSERT INTO users (id, email, oauth_provider, oauth_subject) "
+                "VALUES (:id, :email, 'google', :subject)"
+            ),
+            {"id": user_id, "email": f"audit-{user_id}@example.com", "subject": f"audit-{user_id}"},
+        )
         log_audit_event(
             db_session,
             action=ACTION_LOGIN_SUCCESS,
@@ -101,8 +112,6 @@ class TestAuditLoggingInOAuth:
         )
 
         # Verify log
-        from sqlalchemy import text
-
         log = (
             db_session.execute(
                 text("SELECT * FROM audit_logs WHERE action = :action AND user_id = :uid"),

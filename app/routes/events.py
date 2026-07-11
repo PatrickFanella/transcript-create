@@ -1,11 +1,13 @@
 import json
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text as _text
 
+from ..analytics_identity import get_analytics_subject_id
 from ..common.session import get_session_token as _get_session_token
 from ..common.session import get_user_from_session as _get_user_from_session
 from ..db import get_db
+from ..event_taxonomy import InvalidAnalyticsEventError, sanitize_client_event
 
 router = APIRouter(prefix="", tags=["Events"])
 
@@ -36,11 +38,21 @@ def ingest_event(payload: dict, request: Request, db=Depends(get_db)):
     """Ingest a client-side event."""
     tok = _get_session_token(request)
     user = _get_user_from_session(db, tok)
-    etype = payload.get("type") or "unknown"
-    data = payload.get("payload") or {}
+    try:
+        etype, data = sanitize_client_event(payload.get("type"), payload.get("payload"))
+    except InvalidAnalyticsEventError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.execute(
-        _text("INSERT INTO events (user_id, session_token, type, payload) VALUES (:u,:t,:ty,CAST(:p AS JSONB))"),
-        {"u": str(user["id"]) if user else None, "t": tok, "ty": etype, "p": _json_payload(data)},
+        _text(
+            "INSERT INTO events (user_id, analytics_subject_id, type, payload) "
+            "VALUES (:u,:analytics_subject_id,:ty,CAST(:p AS JSONB))"
+        ),
+        {
+            "u": str(user["id"]) if user else None,
+            "analytics_subject_id": get_analytics_subject_id(request),
+            "ty": etype,
+            "p": _json_payload(data),
+        },
     )
     db.commit()
     return {"ok": True}
@@ -73,13 +85,24 @@ def ingest_events_batch(payload: dict, request: Request, db=Depends(get_db)):
     """Ingest multiple client-side events in batch."""
     tok = _get_session_token(request)
     user = _get_user_from_session(db, tok)
-    events = payload.get("events") or []
-    for e in events:
-        etype = e.get("type") or "unknown"
-        data = e.get("payload") or {}
+    analytics_subject_id = get_analytics_subject_id(request)
+    raw_events = payload.get("events") or []
+    try:
+        sanitized_events = [sanitize_client_event(e.get("type"), e.get("payload")) for e in raw_events]
+    except (AttributeError, InvalidAnalyticsEventError) as exc:
+        raise HTTPException(status_code=422, detail="invalid analytics event batch") from exc
+    for etype, data in sanitized_events:
         db.execute(
-            _text("INSERT INTO events (user_id, session_token, type, payload) VALUES (:u,:t,:ty,CAST(:p AS JSONB))"),
-            {"u": str(user["id"]) if user else None, "t": tok, "ty": etype, "p": _json_payload(data)},
+            _text(
+                "INSERT INTO events (user_id, analytics_subject_id, type, payload) "
+                "VALUES (:u,:analytics_subject_id,:ty,CAST(:p AS JSONB))"
+            ),
+            {
+                "u": str(user["id"]) if user else None,
+                "analytics_subject_id": analytics_subject_id,
+                "ty": etype,
+                "p": _json_payload(data),
+            },
         )
     db.commit()
-    return {"ok": True, "count": len(events)}
+    return {"ok": True, "count": len(sanitized_events)}

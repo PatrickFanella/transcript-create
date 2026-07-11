@@ -2,20 +2,19 @@ from worker.loop import pending_video_claim_sql
 from worker.state_model import OPEN_CAPTION_INGEST_STATES, TERMINAL_CAPTION_INGEST_STATES
 
 
-def test_pending_video_claim_sql_blocks_until_expected_jobs_expanded():
+def test_pending_video_claim_sql_gates_staged_work_by_the_video_caption_state():
     sql = pending_video_claim_sql()
 
-    assert "j2.state <> 'pending'" in sql
-    assert "EXISTS (SELECT 1 FROM videos v3 WHERE v3.job_id = j2.id)" in sql
-    assert "batch_expected_jobs" in sql
+    assert "j.meta->>'staged' IS DISTINCT FROM 'true'" in sql
+    assert "v.caption_ingest_state IN" in sql
+    assert "batch_expected_jobs" not in sql
 
 
-def test_pending_video_claim_sql_waits_for_open_caption_work_to_finish():
+def test_pending_video_claim_sql_does_not_claim_open_caption_work():
     sql = pending_video_claim_sql()
 
     for state in OPEN_CAPTION_INGEST_STATES:
-        assert f"'{state}'" in sql
-    assert "NOT EXISTS" in sql
+        assert f"'{state}'" not in sql
 
 
 def test_pending_video_claim_sql_treats_caption_failures_as_terminal_for_whisper_fallback():

@@ -93,7 +93,7 @@ export default function TopicPage() {
         });
       }
       setSavedKeys((current) => new Set([...current, key]));
-      track({ type: 'favorite_add', payload: { videoId, start_ms: moment.start_ms, topic } });
+      track({ type: 'favorite_add', payload: { videoId, start_ms: moment.start_ms } });
     } catch (err) {
       console.error('Failed to save topic moment', err);
       setError('Could not save that moment.');

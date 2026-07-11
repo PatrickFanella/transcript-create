@@ -162,7 +162,7 @@ export default function SearchPage() {
 
     setLoading(true);
     setError(null);
-    track({ type: 'search', payload: { q: query, ...activeFilters } });
+    track({ type: 'search', payload: { ...activeFilters } });
 
     api
       .searchGrouped(query, activeFilters)
@@ -221,7 +221,7 @@ export default function SearchPage() {
   const fallbackGroups = useMemo(() => groupHitsByVideo(flatHits), [flatHits]);
   const totalVideos = grouped?.total_videos ?? fallbackGroups.length;
 
-  async function saveMoment(videoId: string, moment: SearchHit, title: string) {
+  async function saveMoment(videoId: string, moment: SearchHit) {
     const key = `${videoId}:${moment.start_ms}:${moment.end_ms}`;
     const text = plainTextFromSnippet(moment.snippet, moment.highlights);
     try {
@@ -241,7 +241,7 @@ export default function SearchPage() {
           text,
         });
       setSavedKeys((current) => new Set([...current, key]));
-      track({ type: 'favorite_add', payload: { videoId, start_ms: moment.start_ms, title } });
+      track({ type: 'favorite_add', payload: { videoId, start_ms: moment.start_ms } });
     } catch (err) {
       console.error('Failed to save moment', err);
       setError('Could not save this moment. Sign in again or try later.');

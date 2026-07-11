@@ -8,14 +8,14 @@
 #   ./build-rocm.sh [rocm_version] [--no-cache] [--push]
 #
 # Arguments:
-#   rocm_version - ROCm version (6.0, 6.1, 6.2), default: 6.0
+#   rocm_version - audited ROCm version (7.1 only), default: 7.1
 #   --no-cache   - Build without using cache
 #   --push       - Push to registry after build
 #
 # Examples:
-#   ./build-rocm.sh                    # Build with ROCm 6.0 and cache
-#   ./build-rocm.sh 6.1 --no-cache     # Build ROCm 6.1 without cache
-#   ./build-rocm.sh 6.0 --push         # Build and push to registry
+#   ./build-rocm.sh                    # Build with ROCm 7.1 and cache
+#   ./build-rocm.sh 7.1 --no-cache     # Build ROCm 7.1 without cache
+#   ./build-rocm.sh 7.1 --push         # Scan, then push to registry
 # =============================================================================
 
 set -euo pipefail
@@ -27,7 +27,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Default values
-ROCM_VERSION="${1:-6.0}"
+ROCM_VERSION="${1:-7.1}"
 NO_CACHE=""
 PUSH_IMAGE=false
 IMAGE_NAME="${IMAGE_NAME:-hasanara}"
@@ -35,6 +35,10 @@ IMAGE_TAG="${IMAGE_TAG:-rocm${ROCM_VERSION}}"
 
 # Parse arguments
 shift || true
+if [[ "${ROCM_VERSION}" != "7.1" ]]; then
+    echo -e "${RED}Unsupported ROCm version: ${ROCM_VERSION}; audited version is 7.1${NC}"
+    exit 1
+fi
 while [[ $# -gt 0 ]]; do
     case $1 in
         --no-cache)
@@ -82,6 +86,7 @@ echo "  Image size: ${IMAGE_SIZE}"
 echo ""
 echo -e "${YELLOW}Verifying build...${NC}"
 docker run --rm "${IMAGE_NAME}:${IMAGE_TAG}" python3 -c "import torch; print('✓ Torch version:', torch.__version__)"
+"$(dirname "$0")/scan-container-image.sh" "${IMAGE_NAME}:${IMAGE_TAG}"
 
 # Push if requested
 if [ "${PUSH_IMAGE}" = true ]; then

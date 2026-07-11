@@ -199,7 +199,7 @@ class TestQueryPerformance:
             {"email": test_email},
         ).scalar()
 
-        assert result == str(user_id)
+        assert result == user_id
 
     def test_quota_check_query_performance(self, db_session):
         """Test that quota check queries are efficient."""

@@ -48,25 +48,34 @@ RUN curl -fsSL https://deno.land/install.sh | sh && \
 FROM base AS python-deps
 
 # Copy only requirements files to leverage layer caching
-COPY requirements.txt constraints.txt* ./
+COPY requirements.txt requirements-ml-runtime.txt constraints.txt ./
+COPY scripts/verify_ml_runtime.py /tmp/verify_ml_runtime.py
 
 # Install Python dependencies with pip cache mount for faster rebuilds
 # Use CPU-only PyTorch (smaller, no CUDA/ROCm)
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install --no-cache-dir -r requirements.txt && \
-    # Remove any torch variants pulled in by other dependencies
-    (pip3 uninstall -y torch torchvision torchaudio || true) && \
-    # Install CPU-only PyTorch (much smaller)
+    pip3 install --no-cache-dir --upgrade setuptools==81.0.0 wheel==0.47.0 && \
+    TORCH_VERSION="$(sed -n 's/^torch==//p' requirements-ml-runtime.txt)" && \
+    TORCHAUDIO_VERSION="$(sed -n 's/^torchaudio==//p' requirements-ml-runtime.txt)" && \
+    TORCHCODEC_VERSION="$(sed -n 's/^torchcodec==//p' requirements-ml-runtime.txt)" && \
     pip3 install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
-        torch==2.4.1+cpu torchaudio==2.4.1+cpu
+        "torch==${TORCH_VERSION}" "torchaudio==${TORCHAUDIO_VERSION}" \
+        "torchcodec==${TORCHCODEC_VERSION}" && \
+    pip3 install --no-cache-dir -c constraints.txt -r requirements.txt && \
+    pip3 check && \
+    python3 /tmp/verify_ml_runtime.py
 
 # Verify PyTorch installation
-RUN python3 -c "import torch; print('Torch version:', torch.__version__); print('CPU-only build')"
+RUN python3 -c "import torch; assert '+cpu' in torch.__version__; print('Torch version:', torch.__version__); print('CPU-only build')"
 
 # =============================================================================
 # Stage 3: Final application stage
 # =============================================================================
 FROM base AS app
+
+# Avoid merging the base image's older vendored packaging libraries into the
+# audited dependency tree copied from the builder stage.
+RUN rm -rf /usr/local/lib/python3.11/site-packages/*
 
 # Copy Python packages from deps stage
 COPY --from=python-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages

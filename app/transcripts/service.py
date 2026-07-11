@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from worker.formatter import TranscriptFormatter
-
 from app.schemas import (
     CleanedSegment,
     CleanedTranscriptResponse,
@@ -13,6 +11,7 @@ from app.schemas import (
     Segment,
     TranscriptResponse,
 )
+from worker.formatter import TranscriptFormatter
 
 from .types import TranscriptSegment
 
@@ -118,9 +117,7 @@ class TranscriptPresentationService:
         )
         orig_token_count = sum(1 for s in segments if any(t in s.text for t in ["[MUSIC]", "[APPLAUSE]", "[LAUGHTER]"]))
         cleaned_token_count = sum(
-            1
-            for s in formatted_segments
-            if any(t in s["text"] for t in ["[MUSIC]", "[APPLAUSE]", "[LAUGHTER]"])
+            1 for s in formatted_segments if any(t in s["text"] for t in ["[MUSIC]", "[APPLAUSE]", "[LAUGHTER]"])
         )
         stats = CleanupStats(
             fillers_removed=max(0, orig_filler_count - cleaned_filler_count),

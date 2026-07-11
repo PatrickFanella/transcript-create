@@ -1,3 +1,4 @@
+import hmac
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
@@ -5,6 +6,12 @@ from urllib.parse import urlparse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[1]  # repo root (parent of 'app')
+
+_ANALYTICS_HMAC_SECRET_PLACEHOLDERS = {
+    "change-me-generate-a-different-secure-random-value",
+    "your_analytics_hmac_secret_here",
+    "your-independent-random-secret",
+}
 
 
 class Settings(BaseSettings):
@@ -92,6 +99,7 @@ class Settings(BaseSettings):
     OPENSEARCH_INDEX_YOUTUBE: str = "youtube_segments"
     OPENSEARCH_USER: str = ""
     OPENSEARCH_PASSWORD: str = ""
+    OPENSEARCH_VERIFY_SSL: bool = True
 
     # Redis caching configuration
     REDIS_URL: str = ""  # e.g., "redis://localhost:6379/0" or empty to disable caching
@@ -105,6 +113,9 @@ class Settings(BaseSettings):
     FRONTEND_ORIGIN: str = "http://localhost:5173"
     # Session and OAuth
     SESSION_SECRET: str = "change-me"
+    # Dedicated key for deriving pseudonymous analytics subjects. Production
+    # must set this independently from the login-session secret.
+    ANALYTICS_HMAC_SECRET: str = ""
     OAUTH_GOOGLE_CLIENT_ID: str = ""
     OAUTH_GOOGLE_CLIENT_SECRET: str = ""
     # OAuth redirect URI - must match what's configured in Google Cloud Console
@@ -267,11 +278,7 @@ def _is_valid_origin(origin: str) -> bool:
 
 def _is_valid_production_redirect_uri(uri: str) -> bool:
     parsed = urlparse(uri)
-    return bool(
-        parsed.scheme == "https"
-        and parsed.hostname
-        and not _is_local_origin(uri)
-    )
+    return bool(parsed.scheme == "https" and parsed.hostname and not _is_local_origin(uri))
 
 
 def validate_production_settings(config: Settings | None = None) -> None:
@@ -285,6 +292,22 @@ def validate_production_settings(config: Settings | None = None) -> None:
 
     if not _has_value(cfg.SESSION_SECRET) or cfg.SESSION_SECRET.strip() == "change-me":
         errors.append("SESSION_SECRET must be a generated secret in production (not 'change-me').")
+
+    analytics_hmac_secret = cfg.ANALYTICS_HMAC_SECRET.strip()
+    if not _has_value(analytics_hmac_secret):
+        errors.append("ANALYTICS_HMAC_SECRET must be a dedicated generated secret in production.")
+    elif analytics_hmac_secret.casefold() in _ANALYTICS_HMAC_SECRET_PLACEHOLDERS:
+        errors.append("ANALYTICS_HMAC_SECRET must not use a documented placeholder in production.")
+    elif len(analytics_hmac_secret.encode("utf-8")) < 32:
+        errors.append("ANALYTICS_HMAC_SECRET must contain at least 32 bytes in production.")
+    elif hmac.compare_digest(
+        analytics_hmac_secret.encode("utf-8"),
+        cfg.SESSION_SECRET.strip().encode("utf-8"),
+    ):
+        errors.append("ANALYTICS_HMAC_SECRET must differ from SESSION_SECRET in production.")
+
+    if urlparse(cfg.OPENSEARCH_URL).scheme == "https" and not cfg.OPENSEARCH_VERIFY_SSL:
+        errors.append("OPENSEARCH_VERIFY_SSL must remain enabled for production HTTPS endpoints.")
 
     db_password = _parse_db_password(cfg.DATABASE_URL)
     if not db_password or db_password in {"postgres", "change-me", "change-me-in-production"}:
@@ -322,10 +345,7 @@ def validate_production_settings(config: Settings | None = None) -> None:
                 errors.append(f"OAUTH_{provider.upper()}_CLIENT_ID must be set when {provider} OAuth is enabled.")
             if not _has_value(client_secret):
                 errors.append(f"OAUTH_{provider.upper()}_CLIENT_SECRET must be set when {provider} OAuth is enabled.")
-            if (
-                not _has_value(redirect_uri)
-                or not _is_valid_production_redirect_uri(redirect_uri.strip())
-            ):
+            if not _has_value(redirect_uri) or not _is_valid_production_redirect_uri(redirect_uri.strip()):
                 errors.append(
                     f"OAUTH_{provider.upper()}_REDIRECT_URI must be an https production callback URI when "
                     f"{provider} OAuth is enabled."

@@ -1,5 +1,6 @@
 """Audit logging for security events and user actions."""
 
+import json
 from typing import Optional
 from uuid import UUID
 
@@ -52,23 +53,21 @@ def log_audit_event(
     """
     try:
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO audit_logs
                 (user_id, action, resource_type, resource_id, success, details, ip_address, user_agent)
                 VALUES (
                     :user_id, :action, :resource_type, :resource_id,
                     :success, CAST(:details AS JSONB), :ip_address, :user_agent
                 )
-            """
-            ),
+            """),
             {
                 "user_id": str(user_id) if user_id else None,
                 "action": action,
                 "resource_type": resource_type,
                 "resource_id": resource_id,
                 "success": success,
-                "details": details or {},
+                "details": json.dumps(details or {}),
                 "ip_address": ip_address,
                 "user_agent": user_agent,
             },
@@ -85,6 +84,7 @@ def log_audit_event(
             },
         )
     except Exception as e:
+        db.rollback()
         logger.error(
             "Failed to log audit event",
             extra={
@@ -202,13 +202,11 @@ def cleanup_old_audit_logs(db, days_to_keep: int = 90):
     """
     try:
         result = db.execute(
-            text(
-                """
+            text("""
                 DELETE FROM audit_logs
                 WHERE created_at < now() - make_interval(days => :days)
                 RETURNING id
-            """
-            ),
+            """),
             {"days": days_to_keep},
         )
         deleted_count = result.rowcount

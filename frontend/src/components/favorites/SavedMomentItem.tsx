@@ -36,7 +36,10 @@ export default function SavedMomentItem(props: SavedMomentItemProps) {
       <li className="surface-card-compact flex items-start justify-between gap-4">
         <div>
           <div className="mb-2 line-clamp-2">{item.text}</div>
-          <Link className="action-link" to={`/v/${item.video_id}?t=${Math.floor(item.start_ms / 1000)}`}>
+          <Link
+            className="action-link"
+            to={`/v/${item.video_id}?t=${Math.floor(item.start_ms / 1000)}`}
+          >
             Open moment
           </Link>
         </div>
@@ -54,7 +57,10 @@ export default function SavedMomentItem(props: SavedMomentItemProps) {
       <div>
         <div className="text-xs text-subtle">Segment {item.segIndex}</div>
         <div className="mb-2 line-clamp-2">{item.text}</div>
-        <Link className="action-link" to={`/v/${item.videoId}?t=${Math.floor(item.startMs / 1000)}#seg-${item.segIndex}`}>
+        <Link
+          className="action-link"
+          to={`/v/${item.videoId}?t=${Math.floor(item.startMs / 1000)}#seg-${item.segIndex}`}
+        >
           Open moment
         </Link>
       </div>

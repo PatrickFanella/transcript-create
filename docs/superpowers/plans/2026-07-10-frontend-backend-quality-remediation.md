@@ -72,24 +72,26 @@ Compose.
 **Primary files:** `app/routes/events.py`, `app/search/analytics.py`,
 `app/routes/admin.py`, plus schema and Alembic migration.
 
-- [ ] Expand schema with nullable `analytics_subject_id CHAR(64)` plus indexed
+- [x] Expand schema with nullable `analytics_subject_id CHAR(64)` plus indexed
   daily UTC aggregate `(day, type, count)` records; keep `session_token`
   nullable during the compatibility release.
-- [ ] Introduce `ha_analytics`: 32 random bytes encoded base64url, HttpOnly,
+- [x] Introduce `ha_analytics`: 32 random bytes encoded base64url, HttpOnly,
   `Secure` in production, `SameSite=Lax`, `Path=/`, one-year TTL. Persist only
   HMAC-SHA256 under a dedicated production-required
   `ANALYTICS_HMAC_SECRET`.
-- [ ] Keep nullable `user_id` only for authenticated product-operation events;
+- [x] Keep nullable `user_id` only for authenticated product-operation events;
   daily aggregates contain no user or analytics subject.
 - [ ] Deploy code that never writes, reads, or returns event session tokens,
   drain old pods, then transactionally scrub the column and delete all login
   sessions. Install a temporary database trigger/guard that nulls any legacy
   write before the next-release contract migration drops the column.
-- [ ] Treat the post-scrub release as roll-forward-only; a downgrade may
+  Implementation and guarded rollout tooling are complete; production deploy,
+  drain, scrub, and session rotation remain intentionally unexecuted.
+- [x] Treat the post-scrub release as roll-forward-only; a downgrade may
   re-create only an empty nullable compatibility column and never credentials.
-- [ ] Generate CSV through the standard library and neutralize formula-leading
+- [x] Generate CSV through the standard library and neutralize formula-leading
   cells.
-- [ ] Upsert daily counts before deleting raw events older than 90 days through
+- [x] Upsert daily counts before deleting raw events older than 90 days through
   a scheduled Compose/Kubernetes maintenance command; retain only
   non-identifying aggregates longer.
 
@@ -98,21 +100,22 @@ Compose.
 **Primary files:** `app/middleware.py`, `app/routes/api_keys.py`, and route
 contract tests.
 
-- [ ] Apply precedence after route handling: errors, non-GET, session/OAuth
+- [x] Apply precedence after route handling: errors, non-GET, session/OAuth
   cookies, `Authorization`, `X-API-Key`, `Set-Cookie`, or downstream
   `no-store` always force exact `private, no-store`.
-- [ ] Allow public caching only for explicitly named safe anonymous GET
+- [x] Allow public caching only for explicitly named safe anonymous GET
   operations; all other GETs default to `private, no-store`.
-- [ ] Merge `Vary: Cookie, Authorization, X-API-Key` on cacheable responses.
-- [ ] Add a cache-header matrix that fails when a new private route is unsafe.
+- [x] Merge `Vary: Cookie, Authorization, X-API-Key` on cacheable responses.
+- [x] Add a cache-header matrix that fails when a new private route is unsafe.
 
 ### Slice 1.4: Dependency security
 
 - [x] Upgrade vulnerable frontend runtime and build dependencies in bounded
   lockfile changes.
-- [x] Clear reachable high/critical npm advisories; Python audit remediation is
-  deferred to the pinned Python 3.11 verification slice.
-- [ ] Make npm audit, pip-audit, and Bandit blocking; document expiring,
+- [x] Clear reachable high/critical npm and Python advisories across the direct,
+  constrained, and image-specific dependency manifests.
+- [x] Make npm audit, pip-audit, Bandit, and container application-library
+  scanning blocking; document expiring,
   evidence-backed exceptions only.
 
 **Phase 1 exit:** hostile content cannot execute, analytics stores no login
@@ -121,28 +124,28 @@ high/critical advisories are cleared.
 
 ## Phase 2 — Establish a Trustworthy Verification Gate
 
-- [ ] Standardize on Python 3.11 and Node >=20.19 <21 with pinned development
+- [x] Standardize on Python 3.11 and Node >=20.19 <21 with pinned development
   dependencies, and align the frontend Docker image instead of using Node 24.
-- [ ] Repair pytest collection, focused failures, logger errors, and the skipped
+- [x] Repair pytest collection, focused failures, logger errors, and the skipped
   auth network-error test.
-- [ ] Converge Ruff, Black, isort, ESLint, and Prettier.
-- [ ] Make a mypy baseline blocking immediately and reduce it to zero by the
+- [x] Converge Ruff, Black, isort, ESLint, and Prettier.
+- [x] Make a mypy baseline blocking immediately and reduce it to zero by the
   end of Phase 4.
-- [ ] Add `make verify` covering backend tests/coverage/static/security checks,
+- [x] Add `make verify` covering backend tests/coverage/static/security checks,
   frontend tests/type/lint/format/build/budgets/audit, and seeded Chromium smoke.
-- [ ] Add isolated test Compose services with deterministic cleanup.
-- [ ] Expand CI triggers to tests, scripts, migrations, Compose/configuration,
+- [x] Add isolated test Compose services with deterministic cleanup.
+- [x] Expand CI triggers to tests, scripts, migrations, Compose/configuration,
   locks, and generated contracts; remove nonblocking required checks.
-- [ ] Replace stale billing/job browser specs with current archive workflows.
+- [x] Replace stale billing/job browser specs with current archive workflows.
 
 ## Phase 3 — Repair Backend Authorization and Lifecycle Correctness
 
 ### Slice 3.1: Authorization and vocabularies
 
-- [ ] Centralize roles, capabilities, entitlements, and API-key scopes.
-- [ ] Authenticate vocabulary mutations, enforce owners, reserve global
+- [x] Centralize roles, capabilities, entitlements, and API-key scopes.
+- [x] Authenticate vocabulary mutations, enforce owners, reserve global
   vocabularies for admins, validate IDs, and load exactly selected IDs.
-- [ ] Add role/capabilities to the existing `/auth/me` envelope.
+- [x] Add role/capabilities to the existing `/auth/me` envelope.
 
 ### Slice 3.2: Durable jobs and atomic submission
 
@@ -279,11 +282,11 @@ high/critical advisories are cleared.
 | Review area | Implemented by | Status |
 | --- | --- | --- |
 | Stored HTML injection and highlight mismatch | Slice 1.1 | Complete |
-| Session credential persistence/export and CSV injection | Slice 1.2 | Pending |
-| Public caching of private/secret responses | Slice 1.3 | Pending |
-| Dependency advisories | Slice 1.4 | In progress: frontend audit clean |
-| Broken repository/frontend verification gates | Phase 2 | Pending |
-| Vocabulary authorization/data flow | Slice 3.1 | Pending |
+| Session credential persistence/export and CSV injection | Slice 1.2 | Implementation complete; production scrub/session rotation pending |
+| Public caching of private/secret responses | Slice 1.3 | Complete |
+| Dependency advisories | Slice 1.4 | Complete; independently re-reviewed READY |
+| Broken repository/frontend verification gates | Phase 2 | Complete; clean-state `make verify` passes |
+| Vocabulary authorization/data flow | Slice 3.1 | Complete |
 | Worker leases, retries, progress, recovery | Slice 3.2 | Pending |
 | Quota/idempotency races | Slice 3.2 | Pending |
 | Redis serialization/invalidation | Slice 3.3 | Pending |

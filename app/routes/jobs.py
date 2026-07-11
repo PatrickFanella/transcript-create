@@ -84,7 +84,11 @@ def _enforce_job_quota(db, *, user: dict, kind: str) -> None:
                 "quota": "jobs",
             },
         )
-    if kind == "channel" and channel_limit >= 0 and _count_recent_user_jobs(db, user_id=user_id, kind="channel") >= channel_limit:
+    if (
+        kind == "channel"
+        and channel_limit >= 0
+        and _count_recent_user_jobs(db, user_id=user_id, kind="channel") >= channel_limit
+    ):
         raise RateLimitError(
             "Channel job creation quota exceeded. Please try again later.",
             details={
@@ -92,6 +96,30 @@ def _enforce_job_quota(db, *, user: dict, kind: str) -> None:
                 "window_hours": window_hours,
                 "quota": "channel_jobs",
             },
+        )
+
+
+def _validate_vocabulary_ids(db, *, user_id: str, vocabulary_ids: list[uuid.UUID] | None) -> None:
+    if not vocabulary_ids:
+        return
+    selected = list(dict.fromkeys(str(vocabulary_id) for vocabulary_id in vocabulary_ids))
+    rows = (
+        db.execute(
+            text(
+                "SELECT id FROM user_vocabularies "
+                "WHERE id = ANY(CAST(:vocabulary_ids AS uuid[])) "
+                "AND (is_global=true OR user_id=:user_id)"
+            ),
+            {"vocabulary_ids": selected, "user_id": user_id},
+        )
+        .scalars()
+        .all()
+    )
+    visible = {str(row) for row in rows}
+    if len(selected) != len(vocabulary_ids) or visible != set(selected):
+        raise ValidationError(
+            "Every vocabulary_id must reference a visible global or owner vocabulary",
+            field="vocabulary_ids",
         )
 
 
@@ -104,8 +132,7 @@ def _find_duplicate_job(db, *, user_id: str, kind: str, normalized_url: str, you
     }
     return (
         db.execute(
-            text(
-                """
+            text("""
                 SELECT j.id
                 FROM jobs j
                 LEFT JOIN videos v ON v.job_id = j.id
@@ -114,12 +141,14 @@ def _find_duplicate_job(db, *, user_id: str, kind: str, normalized_url: str, you
                   AND j.state <> 'failed'
                   AND (
                     j.meta->>'normalized_url' = :normalized_url
-                    OR (:youtube_id IS NOT NULL AND (j.meta->>'youtube_id' = :youtube_id OR v.youtube_id = :youtube_id))
+                    OR (
+                      CAST(:youtube_id AS TEXT) IS NOT NULL
+                      AND (j.meta->>'youtube_id' = :youtube_id OR v.youtube_id = :youtube_id)
+                    )
                   )
                 ORDER BY j.created_at DESC
                 LIMIT 1
-                """
-            ),
+                """),
             params,
         )
         .mappings()
@@ -223,9 +252,10 @@ def _row_to_status(row):
 def create_job(payload: JobCreate, db=Depends(get_db), user=Depends(get_user_required)):
     """Create a new transcription job."""
     _enforce_job_shape_limits(payload)
+    owner_user_id = str(user["id"])
+    _validate_vocabulary_ids(db, user_id=owner_user_id, vocabulary_ids=payload.vocabulary_ids)
     _enforce_job_quota(db, user=user, kind=payload.kind)
 
-    owner_user_id = str(user["id"])
     source_url = str(payload.url)
     normalized_url = _normalize_job_url(source_url, payload.kind)
     youtube_id = _extract_youtube_video_id(source_url) if payload.kind == "single" else None

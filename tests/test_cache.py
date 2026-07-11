@@ -1,6 +1,8 @@
 """Tests for caching functionality."""
 
 import json
+import uuid
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -68,7 +70,7 @@ class TestCacheDecorator:
         """Test cache decorator on cache hit."""
         # Mock Redis client
         mock_redis = MagicMock()
-        mock_redis.get.return_value = json.dumps("cached_result")
+        mock_redis.get.return_value = json.dumps({"version": 1, "value": "cached_result"})
         mock_get_redis.return_value = mock_redis
 
         call_count = 0
@@ -85,6 +87,50 @@ class TestCacheDecorator:
         assert call_count == 0  # Function should not be called
         mock_redis.get.assert_called_once()
         mock_redis.setex.assert_not_called()
+
+    @patch("app.cache.get_redis_client")
+    def test_cache_uses_versioned_json_and_cold_warm_results_match(self, mock_get_redis):
+        stored = {}
+        mock_redis = MagicMock()
+        mock_redis.get.side_effect = lambda key: stored.get(key)
+        mock_redis.setex.side_effect = lambda key, _ttl, value: stored.__setitem__(key, value)
+        mock_get_redis.return_value = mock_redis
+        value_id = uuid.uuid4()
+        created_at = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+
+        @cache(prefix="parity", ttl=300)
+        def test_function():
+            return {"id": value_id, "created_at": created_at, "items": [(1, "two")]}
+
+        cold = test_function()
+        warm = test_function()
+
+        assert (
+            cold
+            == warm
+            == {
+                "id": str(value_id),
+                "created_at": created_at.isoformat(),
+                "items": [[1, "two"]],
+            }
+        )
+        cache_key = next(iter(stored))
+        assert ":v1:" in cache_key
+        assert json.loads(stored[cache_key]) == {"version": 1, "value": cold}
+
+    @patch("app.cache.get_redis_client")
+    def test_cache_discards_unversioned_legacy_values(self, mock_get_redis):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps({"legacy": True})
+        mock_get_redis.return_value = mock_redis
+
+        @cache(prefix="legacy", ttl=300)
+        def test_function():
+            return {"current": True}
+
+        assert test_function() == {"current": True}
+        mock_redis.delete.assert_called_once()
+        mock_redis.setex.assert_called_once()
 
     @patch("app.cache.get_redis_client")
     def test_cache_decorator_no_redis(self, mock_get_redis):

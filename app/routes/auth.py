@@ -10,12 +10,14 @@ from ..audit import ACTION_LOGIN_FAILED, ACTION_LOGIN_SUCCESS, ACTION_LOGOUT, lo
 from ..common.session import clear_session_cookie as _clear_session_cookie
 from ..common.session import get_session_token as _get_session_token
 from ..common.session import get_user_from_session as _get_user_from_session
-from ..common.session import refresh_session, should_refresh_session
+from ..common.session import refresh_session as _refresh_session
 from ..common.session import set_session_cookie as _set_session_cookie
+from ..common.session import should_refresh_session as _should_refresh_session
 from ..db import get_db
 from ..exceptions import ExternalServiceError, ValidationError
 from ..logging_config import get_logger
-from ..security import generate_nonce, generate_oauth_state
+from ..policy import capabilities_for_role
+from ..security import generate_nonce, generate_oauth_state, get_user_role
 from ..settings import settings
 
 logger = get_logger(__name__)
@@ -68,7 +70,7 @@ def _new_oauth():
                                     "email": "user@example.com",
                                     "name": "John Doe",
                                     "avatar_url": "https://example.com/avatar.jpg",
-                                    "plan": "free"
+                                    "plan": "free",
                                 }
                             }
                         },
@@ -85,12 +87,13 @@ def auth_me(request: Request, db=Depends(get_db)):
     user = _get_user_from_session(db, token)
 
     # Check if session should be refreshed
-    if user and token and should_refresh_session(db, token):
-        refresh_session(db, token)
+    if user and token and _should_refresh_session(db, token):
+        _refresh_session(db, token)
 
     if not user:
-        return {"user": None}
+        return {"user": None, "role": None, "capabilities": []}
     plan = user.get("plan") or "free"
+    role = get_user_role(user)
     return {
         "user": {
             "id": user["id"],
@@ -98,7 +101,9 @@ def auth_me(request: Request, db=Depends(get_db)):
             "name": user.get("name"),
             "avatar_url": user.get("avatar_url"),
             "plan": plan,
-        }
+        },
+        "role": role,
+        "capabilities": list(capabilities_for_role(role)),
     }
 
 

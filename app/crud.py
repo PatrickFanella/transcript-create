@@ -97,7 +97,11 @@ def fetch_job(db, job_id: uuid.UUID):
 
 
 @_retry_on_transient_error
-@cache(prefix="segments", ttl=settings.CACHE_TRANSCRIPT_TTL if settings.ENABLE_CACHING else 0)
+@cache(
+    prefix="segments",
+    ttl=settings.CACHE_TRANSCRIPT_TTL if settings.ENABLE_CACHING else 0,
+    should_cache=bool,
+)
 def list_segments(db, video_id):
     # Keep the common direct-video lookup indexable. Combining this with the
     # legacy transcript relationship via OR forced PostgreSQL to scan the full
@@ -130,7 +134,11 @@ def list_segments(db, video_id):
 
 
 @_retry_on_transient_error
-@cache(prefix="video", ttl=settings.CACHE_VIDEO_TTL if settings.ENABLE_CACHING else 0)
+@cache(
+    prefix="video",
+    ttl=settings.CACHE_VIDEO_TTL if settings.ENABLE_CACHING else 0,
+    should_cache=lambda value: isinstance(value, dict) and value.get("state") == "completed",
+)
 def get_video(db, video_id: uuid.UUID):
     row = (
         db.execute(

@@ -160,13 +160,13 @@ high/critical advisories are cleared.
 
 ### Slice 3.3: Redis and analytics ingestion
 
-- [ ] Cache versioned JSON DTOs only; remove `default=str`.
-- [ ] Avoid caching pending/errors and invalidate every derived key after
+- [x] Cache versioned JSON DTOs only; remove `default=str`.
+- [x] Avoid caching pending/errors and invalidate every derived key after
   writes, reprocessing, metadata changes, or deletion.
-- [ ] Define an allowlisted event taxonomy and enforce: 50 events/batch,
+- [x] Define an allowlisted event taxonomy and enforce: 50 events/batch,
   32 properties/event, 8 KiB/event, 256 KiB/request, depth 2, and 120
   events/minute/subject or IP fallback.
-- [ ] Bulk-insert events and automatically delete raw data after 90 days.
+- [x] Bulk-insert events and automatically delete raw data after 90 days.
 
 ### Slice 3.4: Operational correctness and maintainability
 
@@ -289,8 +289,8 @@ high/critical advisories are cleared.
 | Vocabulary authorization/data flow | Slice 3.1 | Complete |
 | Worker leases, retries, progress, recovery | Slice 3.2 | Complete |
 | Quota/idempotency races | Slice 3.2 | Complete |
-| Redis serialization/invalidation | Slice 3.3 | Pending |
-| Event write amplification/taxonomy/retention | Slice 3.3 | Pending |
+| Redis serialization/invalidation | Slice 3.3 | Complete |
+| Event write amplification/taxonomy/retention | Slice 3.3 | Complete |
 | Metrics/compression/transactions/retries/error masking | Slice 3.4 | Pending |
 | Authorization model, repository size, runtime dependencies | Slices 3.1/3.4 | Pending |
 | API-key scopes and source deletion | Slice 3.5 | Pending |

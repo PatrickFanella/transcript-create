@@ -6,6 +6,7 @@ from typing import Any, Callable
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.cache import invalidate_video_data
 from app.logging_config import get_logger
 from app.settings import settings
 from worker.repositories import VideoRepository
@@ -122,6 +123,7 @@ def _ingest_available_captions_impl(
                 )
             logger.info("Persisted %d YouTube caption segments for %s", len(segs), yid)
             video_repo.mark_caption_completed(str(vid))
+            invalidate_video_data(vid)
             completed += 1
         except (YouTubeCaptionRateLimitError, YouTubeRateLimitError) as e:
             logger.warning("YouTube rate limit hit during caption ingest; leaving video pending and pausing batch")

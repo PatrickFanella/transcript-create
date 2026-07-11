@@ -32,7 +32,7 @@ from ..archive.video_metadata_repository import (
     update_person,
     update_tag,
 )
-from ..cache import invalidate_cache, invalidate_cache_pattern
+from ..cache import invalidate_cache_pattern, invalidate_video_data
 from ..db import get_db
 from ..exceptions import NotFoundError, ValidationError
 from ..schemas import (
@@ -698,7 +698,7 @@ def admin_set_archive_video_metadata(
         tags=[item.model_dump(exclude_none=True) for item in payload.tags],
     )
     db.commit()
-    invalidate_cache("video", video_id)
+    invalidate_video_data(video_id)
     video = _admin_video_metadata_response(db, video_id)
     if video is None:
         raise NotFoundError(f"Video {video_id} not found", resource_type="video")

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
+from app.cache import invalidate_video_data
 from app.logging_config import configure_logging, get_logger
 from app.settings import settings
 from worker.diarize import run_diarization
@@ -154,6 +155,7 @@ def process_one(engine) -> bool:
             "Diarization job completed",
             extra={"video_id": str(video_id), "speakers_assigned": assigned},
         )
+        invalidate_video_data(video_id)
         return True
     except Exception as e:
         logger.exception("Diarization job failed", extra={"video_id": str(video_id), "error": str(e)})

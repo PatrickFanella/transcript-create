@@ -118,6 +118,19 @@ class JobAttempt(BaseModel):
     error: Optional[str] = None
 
 
+class AnalyticsEventInput(BaseModel):
+    """Strict client analytics event envelope."""
+
+    type: str = Field(min_length=1, max_length=64)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalyticsEventBatchInput(BaseModel):
+    """Bounded analytics batch envelope."""
+
+    events: List[AnalyticsEventInput] = Field(min_length=1, max_length=50)
+
+
 class Segment(BaseModel):
     """A single segment of transcribed text with timing information."""
 

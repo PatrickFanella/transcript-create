@@ -9,6 +9,7 @@ from typing import Any, Callable
 from sqlalchemy import text
 
 from app import crud
+from app.cache import invalidate_video_data
 from app.logging_config import get_logger
 from app.settings import settings
 from app.transcripts.blocks import build_transcript_blocks
@@ -430,6 +431,7 @@ def _persist_transcript(ctx: VideoPipelineContext, deps: NativePipelineDependenc
             {"i": ctx.video_id, "ds": ctx.diarization_state},
         )
         refresh_job_state(conn, ctx.job_id)
+    invalidate_video_data(ctx.video_id)
 
 
 def _cleanup(ctx: VideoPipelineContext, deps: NativePipelineDependencies) -> None:

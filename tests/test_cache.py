@@ -14,6 +14,7 @@ from app.cache import (
     get_cache_stats,
     invalidate_cache,
     invalidate_cache_pattern,
+    invalidate_video_data,
 )
 
 
@@ -201,6 +202,21 @@ class TestCacheInvalidation:
         invalidate_cache_pattern("video:*")
 
         assert mock_redis.delete.call_count == 3
+
+    @patch("app.cache.invalidate_cache_pattern")
+    @patch("app.cache.invalidate_cache")
+    def test_video_invalidation_covers_all_derived_dtos(self, mock_invalidate, mock_pattern):
+        invalidate_video_data("video-123")
+
+        assert mock_invalidate.call_args_list == [
+            (("video", "video-123"),),
+            (("segments", "video-123"),),
+        ]
+        assert [call.args[0] for call in mock_pattern.call_args_list] == [
+            "search:*",
+            "archive:*",
+            "aggregate:*",
+        ]
 
     @patch("app.cache.get_redis_client")
     def test_clear_all_cache(self, mock_get_redis):

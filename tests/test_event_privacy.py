@@ -125,6 +125,94 @@ def test_batch_rejects_unknown_type_before_any_event_write(monkeypatch) -> None:
     assert db.calls == []
 
 
+def test_batch_rejects_more_than_fifty_events_before_writing(monkeypatch) -> None:
+    db = FakeDB()
+    monkeypatch.setattr(events, "_get_session_token", lambda _request: None)
+    monkeypatch.setattr(events, "_get_user_from_session", lambda _db, _token: None)
+
+    with pytest.raises(HTTPException) as error:
+        events.ingest_events_batch(
+            {"events": [{"type": "search", "payload": {}} for _ in range(51)]},
+            _request(),
+            db,
+        )
+
+    assert error.value.status_code == 422
+    assert db.calls == []
+
+
+def test_batch_uses_one_bulk_insert(monkeypatch) -> None:
+    db = FakeDB()
+    monkeypatch.setattr(events, "_get_session_token", lambda _request: None)
+    monkeypatch.setattr(events, "_get_user_from_session", lambda _db, _token: None)
+
+    result = events.ingest_events_batch(
+        {"events": [{"type": "search", "payload": {}}, {"type": "video_open", "payload": {}}]},
+        _request(),
+        db,
+    )
+
+    assert result == {"ok": True, "count": 2}
+    writes = [call for call in db.calls if call[0] != "commit"]
+    assert len(writes) == 1
+
+
+def test_event_rejects_property_count_depth_and_size_before_writing(monkeypatch) -> None:
+    db = FakeDB()
+    monkeypatch.setattr(events, "_get_session_token", lambda _request: None)
+    monkeypatch.setattr(events, "_get_user_from_session", lambda _db, _token: None)
+    monkeypatch.setattr(events, "get_redis_client", lambda: None)
+
+    invalid_payloads = [
+        {f"key-{index}": index for index in range(33)},
+        {"nested": {"second": {"third": "too deep"}}},
+        {"ignored": "x" * (8 * 1024)},
+    ]
+    for payload in invalid_payloads:
+        with pytest.raises(HTTPException) as error:
+            events.ingest_event({"type": "search", "payload": payload}, _request(), db)
+        assert error.value.status_code == 422
+    assert db.calls == []
+
+
+def test_batch_rejects_request_over_256_kib(monkeypatch) -> None:
+    db = FakeDB()
+    monkeypatch.setattr(events, "get_redis_client", lambda: None)
+    payload = {"events": [{"type": "search", "payload": {"ignored": f"{index}-" + "x" * 7000}} for index in range(40)]}
+    with pytest.raises(HTTPException) as error:
+        events.ingest_events_batch(payload, _request(), db)
+    assert error.value.status_code == 413
+    assert db.calls == []
+
+
+def test_event_rate_limit_counts_events_not_requests(monkeypatch) -> None:
+    db = FakeDB()
+    monkeypatch.setattr(events, "_get_session_token", lambda _request: None)
+    monkeypatch.setattr(events, "_get_user_from_session", lambda _db, _token: None)
+    monkeypatch.setattr(events, "get_redis_client", lambda: None)
+    events._event_rate_counts.clear()
+    subject = "r" * 64
+
+    for _ in range(2):
+        events.ingest_events_batch(
+            {"events": [{"type": "search", "payload": {}} for _ in range(50)]},
+            _request(subject),
+            db,
+        )
+    events.ingest_events_batch(
+        {"events": [{"type": "search", "payload": {}} for _ in range(20)]},
+        _request(subject),
+        db,
+    )
+    with pytest.raises(HTTPException) as error:
+        events.ingest_event(
+            {"type": "search", "payload": {}},
+            _request(subject),
+            db,
+        )
+    assert error.value.status_code == 429
+
+
 def test_export_event_uses_analytics_subject(monkeypatch) -> None:
     db = FakeDB()
     metric = MagicMock()

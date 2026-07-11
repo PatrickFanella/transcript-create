@@ -107,6 +107,7 @@ def cache(
     ttl: int = 300,
     key_func: Optional[Callable] = None,
     skip_none: bool = True,
+    should_cache: Optional[Callable[[object], bool]] = None,
 ):
     """Decorator to cache function results in Redis.
 
@@ -171,7 +172,8 @@ def cache(
             result = _to_json_dto(func(*args, **kwargs))
 
             # Cache the result
-            if ttl > 0 and (result is not None or not skip_none):
+            cacheable = should_cache(result) if should_cache is not None else True
+            if ttl > 0 and cacheable and (result is not None or not skip_none):
                 try:
                     envelope = {"version": CACHE_DTO_VERSION, "value": result}
                     redis_client.setex(cache_key, ttl, json.dumps(envelope, separators=(",", ":")))
@@ -227,6 +229,14 @@ def invalidate_cache_pattern(pattern: str):
         logger.info("Cache pattern invalidated", extra={"pattern": pattern, "count": count})
     except Exception as e:
         logger.warning("Cache pattern invalidation error", extra={"pattern": pattern, "error": str(e)})
+
+
+def invalidate_video_data(video_id) -> None:
+    """Invalidate every DTO derived from a video or its transcripts."""
+    invalidate_cache("video", video_id)
+    invalidate_cache("segments", video_id)
+    for pattern in ("search:*", "archive:*", "aggregate:*"):
+        invalidate_cache_pattern(pattern)
 
 
 def clear_all_cache():

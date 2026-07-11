@@ -232,7 +232,7 @@ class TestArchiveRoutes:
         assert {person["slug"] for person in data["people"]} == {"guest-one"}
         assert {tag["slug"] for tag in data["tags"]} == {"chadvice"}
 
-    @patch("app.routes.archive.invalidate_cache")
+    @patch("app.routes.archive.invalidate_video_data")
     def test_admin_set_archive_video_metadata_invalidates_video_cache(self, mock_invalidate_cache, db_session):
         video_id = _create_completed_video(
             db_session,
@@ -255,7 +255,7 @@ class TestArchiveRoutes:
         )
 
         assert response.model_dump()["people"][0]["slug"] == "guest-one"
-        mock_invalidate_cache.assert_called_once_with("video", video_id)
+        mock_invalidate_cache.assert_called_once_with(video_id)
 
     @patch("app.routes.archive.invalidate_cache_pattern")
     def test_admin_person_and_tag_updates_invalidate_video_cache_pattern(self, mock_invalidate_cache_pattern, db_session):

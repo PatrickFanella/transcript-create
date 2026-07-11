@@ -1,6 +1,7 @@
 import os
 import socket
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Thread
 
 from prometheus_client import start_http_server
@@ -10,6 +11,7 @@ from app.logging_config import configure_logging, get_logger, video_id_ctx
 from app.settings import settings, validate_production_settings
 from app.ytdlp_validation import validate_js_runtime_or_exit
 from worker.caption_ingest import ingest_available_captions
+from worker.job_lifecycle import claim_job_attempt, finish_job_attempt, maintain_job_lease
 from worker.metrics import setup_worker_info, try_collect_gpu_metrics
 from worker.pipeline import expand_channel_if_needed
 from worker.state_model import (
@@ -132,7 +134,7 @@ def pending_video_claim_sql() -> str:
     rest of the batch continues caption ingestion.
     """
     return f"""
-                SELECT v.id
+                SELECT v.id, j.id AS job_id
                 FROM videos v
                 JOIN jobs j ON j.id = v.job_id
                 WHERE v.state = :pending_state
@@ -140,6 +142,10 @@ def pending_video_claim_sql() -> str:
                     j.meta->>'staged' IS DISTINCT FROM 'true'
                     OR v.caption_ingest_state IN ({TERMINAL_CAPTION_INGEST_STATES_SQL})
                   )
+                  AND j.cancellation_requested_at IS NULL
+                  AND j.quarantined_at IS NULL
+                  AND j.state <> 'needs_attention'
+                  AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= now())
                 ORDER BY
                   CASE
                     WHEN EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id) THEN 1
@@ -150,6 +156,52 @@ def pending_video_claim_sql() -> str:
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             """
+
+
+def process_claimed_video(video_id, lease) -> None:
+    """Process one claimed video outside the queue-claim transaction."""
+    video_id_ctx.set(str(video_id))
+    try:
+        logger.info("Starting video processing")
+        with maintain_job_lease(engine, lease, lease_seconds=settings.JOB_LEASE_SECONDS):
+            video_processing_pipeline.process_video(ProcessVideoCommand(video_id=video_id))
+        with engine.begin() as conn:
+            finish_job_attempt(conn, lease, outcome="completed", max_attempts=settings.MAX_JOB_ATTEMPTS)
+        logger.info("Video processing completed successfully")
+        from worker.metrics import videos_processed_total
+
+        videos_processed_total.labels(result="completed").inc()
+    except Exception as e:
+        logger.exception("Video processing failed", extra={"error": str(e)})
+        from worker.metrics import videos_processed_total
+
+        videos_processed_total.labels(result="failed").inc()
+        with engine.begin() as conn:
+            if lease.attempt_number < settings.MAX_JOB_ATTEMPTS:
+                conn.execute(
+                    text("UPDATE videos SET state='pending', error=:e, updated_at=now() WHERE id=:i"),
+                    {"i": video_id, "e": str(e)[:5000]},
+                )
+            else:
+                row = conn.execute(
+                    text(
+                        "UPDATE videos SET state='failed', error=:e, updated_at=now() " "WHERE id=:i RETURNING job_id"
+                    ),
+                    {"i": video_id, "e": str(e)[:5000]},
+                ).first()
+                if row:
+                    from worker.pipeline import refresh_job_state
+
+                    refresh_job_state(conn, row[0], error=str(e))
+            finish_job_attempt(
+                conn,
+                lease,
+                outcome="failed",
+                error=str(e),
+                max_attempts=settings.MAX_JOB_ATTEMPTS,
+            )
+    finally:
+        video_id_ctx.set(None)
 
 
 def run():
@@ -196,7 +248,15 @@ def run():
     # Initial heartbeat
     update_heartbeat()
 
+    max_parallel = max(1, settings.MAX_PARALLEL_JOBS)
+    executor = ThreadPoolExecutor(max_workers=max_parallel, thread_name_prefix="video-job")
+    active: set[Future] = set()
+
     while True:
+        active = {future for future in active if not future.done()}
+        if len(active) >= max_parallel:
+            time.sleep(POLL_INTERVAL)
+            continue
         logger.debug("Polling for work: expand jobs and pick a video")
         with engine.begin() as conn:
             # Expand pending jobs into videos
@@ -323,42 +383,19 @@ def run():
                 logger.debug("No pending videos found. Sleeping", extra={"sleep_seconds": POLL_INTERVAL})
                 time.sleep(POLL_INTERVAL)
                 continue
-            video_id = row[0]
-
-            # Set video context for logging
-            video_id_ctx.set(str(video_id))
+            video_id, job_id = row
+            lease = claim_job_attempt(
+                conn,
+                job_id=job_id,
+                worker_id=WORKER_ID,
+                lease_seconds=settings.JOB_LEASE_SECONDS,
+            )
+            if not lease:
+                continue
 
             logger.info("Picked video for processing")
             conn.execute(text("UPDATE videos SET state='downloading', updated_at=now() WHERE id=:i"), {"i": video_id})
-        try:
-            logger.info("Starting video processing")
-            video_processing_pipeline.process_video(ProcessVideoCommand(video_id=video_id))
-            logger.info("Video processing completed successfully")
-
-            # Track successful video processing
-            from worker.metrics import videos_processed_total
-
-            videos_processed_total.labels(result="completed").inc()
-        except Exception as e:
-            logger.exception("Video processing failed", extra={"error": str(e)})
-
-            # Track failed video processing
-            from worker.metrics import videos_processed_total
-
-            videos_processed_total.labels(result="failed").inc()
-
-            with engine.begin() as conn:
-                row = conn.execute(
-                    text("UPDATE videos SET state='failed', error=:e, updated_at=now() WHERE id=:i RETURNING job_id"),
-                    {"i": video_id, "e": str(e)[:5000]},
-                ).first()
-                if row:
-                    from worker.pipeline import refresh_job_state
-
-                    refresh_job_state(conn, row[0], error=str(e))
-        finally:
-            # Clear video context
-            video_id_ctx.set(None)
+        active.add(executor.submit(process_claimed_video, video_id, lease))
 
 
 def main():

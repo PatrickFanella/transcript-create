@@ -101,13 +101,13 @@ class TestJobsRoutes:
         assert "created_at" in data
         assert "updated_at" in data
 
-    def test_get_job_not_found(self, client: TestClient):
+    def test_get_job_not_found(self, client: TestClient, authenticated_user):
         """Test getting a non-existent job."""
         non_existent_id = uuid.uuid4()
         response = client.get(f"/jobs/{non_existent_id}")
         assert response.status_code == 404
 
-    def test_get_job_invalid_uuid(self, client: TestClient):
+    def test_get_job_invalid_uuid(self, client: TestClient, authenticated_user):
         """Test getting a job with an invalid UUID."""
         response = client.get("/jobs/not-a-uuid")
         assert response.status_code == 422  # Validation error
@@ -154,8 +154,8 @@ class TestJobsRoutes:
         # All job IDs should be unique
         assert len(job_ids) == len(set(job_ids))
 
-    def test_duplicate_single_video_job_rejected(self, client: TestClient, authenticated_user):
-        """Test duplicate active single-video jobs are rejected by canonical YouTube ID."""
+    def test_duplicate_single_video_job_returns_existing(self, client: TestClient, authenticated_user):
+        """Safe duplicate submissions return the existing active job."""
         first = client.post(
             "/jobs",
             json={"url": "https://youtube.com/watch?v=dupe123", "kind": "single"},
@@ -166,8 +166,38 @@ class TestJobsRoutes:
             "/jobs",
             json={"url": "https://youtu.be/dupe123", "kind": "single"},
         )
-        assert duplicate.status_code == 409
-        assert duplicate.json()["error"] == "duplicate_job"
+        assert duplicate.status_code == 200
+        assert duplicate.json()["id"] == first.json()["id"]
+
+    def test_idempotency_key_returns_original_job(self, client: TestClient, authenticated_user):
+        first = client.post(
+            "/jobs",
+            json={"url": "https://youtube.com/watch?v=idem-one", "idempotency_key": "upload-42"},
+        )
+        repeated = client.post(
+            "/jobs",
+            json={"url": "https://youtube.com/watch?v=idem-two", "idempotency_key": "upload-42"},
+        )
+        assert first.status_code == 200
+        assert repeated.status_code == 200
+        assert repeated.json()["id"] == first.json()["id"]
+
+    def test_list_and_cancel_are_owner_scoped(self, client: TestClient, authenticated_user):
+        created = client.post("/jobs", json={"url": "https://youtube.com/watch?v=owned-job"})
+        assert created.status_code == 200
+
+        listed = client.get("/jobs")
+        assert [job["id"] for job in listed.json()] == [created.json()["id"]]
+
+        cancelled = client.post(f"/jobs/{created.json()['id']}/cancel")
+        assert cancelled.status_code == 200
+        assert cancelled.json()["stage"] == "cancelled"
+        assert cancelled.json()["cancelled_at"] is not None
+
+        other = dict(authenticated_user, id=str(uuid.uuid4()))
+        app.dependency_overrides[get_user_required] = lambda: other
+        assert client.get(f"/jobs/{created.json()['id']}").status_code == 404
+        assert client.post(f"/jobs/{created.json()['id']}/cancel").status_code == 404
 
     def test_job_daily_quota_rejected(self, client: TestClient, authenticated_user, monkeypatch):
         """Test per-user job quotas reject excess job creation."""

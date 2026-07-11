@@ -45,6 +45,13 @@ class JobCreate(BaseModel):
         None, ge=1, description="Number of jobs expected in this batch before staged promotion is allowed"
     )
     staged: bool = Field(False, description="If true, ingest YouTube captions first, then queue native transcription")
+    idempotency_key: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+        description="Caller-generated key that makes job submission safely repeatable",
+    )
 
     @field_validator("url")
     @classmethod
@@ -72,6 +79,14 @@ class JobStatus(BaseModel):
         description="Current state: 'pending', 'expanded', 'completed', 'failed'",
     )
     error: Optional[str] = Field(None, description="Error message if job failed")
+    stage: str = Field("queued", description="Current processing stage")
+    completed_units: int = Field(0, ge=0, description="Completed work units")
+    total_units: Optional[int] = Field(None, ge=0, description="Total work units when known")
+    heartbeat_at: Optional[datetime] = Field(None, description="Most recent worker lease heartbeat")
+    cancellation_requested_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    attempt_count: int = Field(0, ge=0)
+    last_failure_summary: Optional[str] = None
     created_at: datetime = Field(..., description="Timestamp when job was created")
     updated_at: datetime = Field(..., description="Timestamp when job was last updated")
 
@@ -87,6 +102,20 @@ class JobStatus(BaseModel):
             }
         }
     }
+
+
+class JobAttempt(BaseModel):
+    """One durable worker attempt for a job."""
+
+    id: uuid.UUID
+    job_id: uuid.UUID
+    attempt_number: int
+    worker_id: str
+    lease_expires_at: datetime
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    outcome: Optional[str] = None
+    error: Optional[str] = None
 
 
 class Segment(BaseModel):

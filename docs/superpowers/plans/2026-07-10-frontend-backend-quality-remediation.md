@@ -149,13 +149,13 @@ high/critical advisories are cleared.
 
 ### Slice 3.2: Durable jobs and atomic submission
 
-- [ ] Add owner, canonical source, idempotency, stage/progress, heartbeat,
+- [x] Add owner, canonical source, idempotency, stage/progress, heartbeat,
   cancellation, attempts, lease, and failure-summary data.
-- [ ] Renew leases, compare-and-set completion, move remote work outside
+- [x] Renew leases, compare-and-set completion, move remote work outside
   transactions, cap/back off retries, and expose `needs_attention`.
-- [ ] Wire `MAX_PARALLEL_JOBS` to worker concurrency.
-- [ ] Add history, cancel/retry, admin requeue/quarantine, and attempt timeline.
-- [ ] Enforce quota, duplicate detection, and insert atomically with advisory
+- [x] Wire `MAX_PARALLEL_JOBS` to worker concurrency.
+- [x] Add history, cancel/retry, admin requeue/quarantine, and attempt timeline.
+- [x] Enforce quota, duplicate detection, and insert atomically with advisory
   locking and indexed uniqueness; return the existing active duplicate.
 
 ### Slice 3.3: Redis and analytics ingestion
@@ -287,8 +287,8 @@ high/critical advisories are cleared.
 | Dependency advisories | Slice 1.4 | Complete; independently re-reviewed READY |
 | Broken repository/frontend verification gates | Phase 2 | Complete; clean-state `make verify` passes |
 | Vocabulary authorization/data flow | Slice 3.1 | Complete |
-| Worker leases, retries, progress, recovery | Slice 3.2 | Pending |
-| Quota/idempotency races | Slice 3.2 | Pending |
+| Worker leases, retries, progress, recovery | Slice 3.2 | Complete |
+| Quota/idempotency races | Slice 3.2 | Complete |
 | Redis serialization/invalidation | Slice 3.3 | Pending |
 | Event write amplification/taxonomy/retention | Slice 3.3 | Pending |
 | Metrics/compression/transactions/retries/error masking | Slice 3.4 | Pending |

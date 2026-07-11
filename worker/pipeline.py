@@ -111,9 +111,20 @@ def refresh_job_state(conn, job_id, *, error: str | None = None) -> None:
     failed = int(counts["failed"] or 0)
     active = int(counts["active"] or 0)
 
+    conn.execute(
+        text("""
+            UPDATE jobs SET total_units=:total, completed_units=:completed,
+                heartbeat_at=now(), updated_at=now() WHERE id=:job_id
+        """),
+        {"job_id": job_id, "total": total, "completed": completed},
+    )
+
     if total == completed:
         logger.info("Marking job completed", extra={"job_id": str(job_id), "videos_completed": completed})
-        conn.execute(text("UPDATE jobs SET state='completed', error=NULL, updated_at=now() WHERE id=:j"), {"j": job_id})
+        conn.execute(
+            text("UPDATE jobs SET state='completed', stage='completed', error=NULL, updated_at=now() WHERE id=:j"),
+            {"j": job_id},
+        )
     elif active == 0 and failed > 0:
         msg = error or f"{failed} of {total} videos failed"
         logger.warning(
@@ -121,7 +132,7 @@ def refresh_job_state(conn, job_id, *, error: str | None = None) -> None:
             extra={"job_id": str(job_id), "videos_completed": completed, "videos_failed": failed},
         )
         conn.execute(
-            text("UPDATE jobs SET state='failed', error=:e, updated_at=now() WHERE id=:j"),
+            text("UPDATE jobs SET state='failed', stage='failed', error=:e, updated_at=now() WHERE id=:j"),
             {"j": job_id, "e": msg[:5000]},
         )
 

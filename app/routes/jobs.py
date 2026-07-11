@@ -1,3 +1,4 @@
+import json
 import uuid
 from urllib.parse import parse_qs, urlparse
 
@@ -6,9 +7,9 @@ from sqlalchemy import text
 
 from .. import crud
 from ..db import get_db
-from ..exceptions import DuplicateJobError, JobNotFoundError, RateLimitError, ValidationError
-from ..schemas import ErrorResponse, JobCreate, JobStatus
-from ..security import ROLE_ADMIN, ROLE_PRO, get_user_required, get_user_role
+from ..exceptions import JobNotFoundError, RateLimitError, ValidationError
+from ..schemas import ErrorResponse, JobAttempt, JobCreate, JobStatus
+from ..security import ROLE_ADMIN, ROLE_PRO, get_user_required, get_user_role, require_role
 from ..settings import settings
 
 router = APIRouter(prefix="", tags=["Jobs"])
@@ -176,6 +177,14 @@ def _row_to_status(row):
         kind=row["kind"],
         state=row["state"],
         error=row["error"],
+        stage=row.get("stage") or "queued",
+        completed_units=row.get("completed_units") or 0,
+        total_units=row.get("total_units"),
+        heartbeat_at=row.get("heartbeat_at"),
+        cancellation_requested_at=row.get("cancellation_requested_at"),
+        cancelled_at=row.get("cancelled_at"),
+        attempt_count=row.get("attempt_count") or 0,
+        last_failure_summary=row.get("last_failure_summary"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -253,12 +262,27 @@ def create_job(payload: JobCreate, db=Depends(get_db), user=Depends(get_user_req
     """Create a new transcription job."""
     _enforce_job_shape_limits(payload)
     owner_user_id = str(user["id"])
-    _validate_vocabulary_ids(db, user_id=owner_user_id, vocabulary_ids=payload.vocabulary_ids)
-    _enforce_job_quota(db, user=user, kind=payload.kind)
-
     source_url = str(payload.url)
     normalized_url = _normalize_job_url(source_url, payload.kind)
     youtube_id = _extract_youtube_video_id(source_url) if payload.kind == "single" else None
+
+    # Serialize a user's quota check, duplicate lookup, and insertion in one
+    # transaction. This prevents concurrent requests from both passing quota.
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:owner, 0))"), {"owner": owner_user_id})
+    _validate_vocabulary_ids(db, user_id=owner_user_id, vocabulary_ids=payload.vocabulary_ids)
+    _enforce_job_quota(db, user=user, kind=payload.kind)
+
+    if payload.idempotency_key:
+        idempotent = (
+            db.execute(
+                text("SELECT * FROM jobs WHERE owner_user_id=:owner AND idempotency_key=:key LIMIT 1"),
+                {"owner": owner_user_id, "key": payload.idempotency_key},
+            )
+            .mappings()
+            .first()
+        )
+        if idempotent:
+            return _row_to_status(idempotent)
 
     duplicate = _find_duplicate_job(
         db,
@@ -268,16 +292,7 @@ def create_job(payload: JobCreate, db=Depends(get_db), user=Depends(get_user_req
         youtube_id=youtube_id,
     )
     if duplicate:
-        raise DuplicateJobError(
-            source_url,
-            existing_job_id=str(duplicate["id"]),
-            details={
-                "url": source_url,
-                "normalized_url": normalized_url,
-                "youtube_id": youtube_id,
-                "existing_job_id": str(duplicate["id"]),
-            },
-        )
+        return _row_to_status(crud.fetch_job(db, duplicate["id"]))
 
     # Build job metadata with quality settings and vocabulary
     meta: dict[str, object] = {
@@ -301,10 +316,44 @@ def create_job(payload: JobCreate, db=Depends(get_db), user=Depends(get_user_req
         meta["batch_expected_jobs"] = payload.batch_expected_jobs
     if payload.staged:
         meta["staged"] = True
+    if payload.idempotency_key:
+        meta["idempotency_key"] = payload.idempotency_key
 
-    job_id = crud.create_job(db, payload.kind, str(payload.url), meta=meta)
+    job_id = uuid.uuid4()
+    db.execute(
+        text("""
+            INSERT INTO jobs (
+                id, kind, input_url, meta, owner_user_id, canonical_source, idempotency_key
+            ) VALUES (
+                :id, :kind, :url, CAST(:meta AS jsonb), :owner, :canonical, :idempotency_key
+            )
+        """),
+        {
+            "id": job_id,
+            "kind": payload.kind,
+            "url": source_url,
+            "meta": json.dumps(meta),
+            "owner": owner_user_id,
+            "canonical": normalized_url,
+            "idempotency_key": payload.idempotency_key,
+        },
+    )
+    db.commit()
     job = crud.fetch_job(db, job_id)
     return _row_to_status(job)
+
+
+@router.get("/jobs", response_model=list[JobStatus], summary="List the current user's jobs")
+def list_jobs(db=Depends(get_db), user=Depends(get_user_required)):
+    rows = (
+        db.execute(
+            text("SELECT * FROM jobs WHERE owner_user_id=:owner ORDER BY created_at DESC"),
+            {"owner": str(user["id"])},
+        )
+        .mappings()
+        .all()
+    )
+    return [_row_to_status(row) for row in rows]
 
 
 @router.get(
@@ -336,9 +385,112 @@ def create_job(payload: JobCreate, db=Depends(get_db), user=Depends(get_user_req
         },
     },
 )
-def get_job(job_id: uuid.UUID, db=Depends(get_db)):
+def get_job(job_id: uuid.UUID, db=Depends(get_db), user=Depends(get_user_required)):
     """Get the status of a specific job."""
-    job = crud.fetch_job(db, job_id)
+    job = (
+        db.execute(
+            text("SELECT * FROM jobs WHERE id=:id AND owner_user_id=:owner"),
+            {"id": job_id, "owner": str(user["id"])},
+        )
+        .mappings()
+        .first()
+    )
     if not job:
         raise JobNotFoundError(str(job_id))
     return _row_to_status(job)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobStatus)
+def cancel_job(job_id: uuid.UUID, db=Depends(get_db), user=Depends(get_user_required)):
+    row = (
+        db.execute(
+            text("""
+                UPDATE jobs
+                SET cancellation_requested_at=COALESCE(cancellation_requested_at, now()),
+                    cancelled_at=CASE WHEN state='pending' THEN now() ELSE cancelled_at END,
+                    stage=CASE WHEN state='pending' THEN 'cancelled' ELSE 'cancellation_requested' END,
+                    updated_at=now()
+                WHERE id=:id AND owner_user_id=:owner
+                  AND state NOT IN ('completed', 'failed', 'needs_attention')
+                RETURNING *
+            """),
+            {"id": job_id, "owner": str(user["id"])},
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        raise JobNotFoundError(str(job_id))
+    db.commit()
+    return _row_to_status(row)
+
+
+@router.post("/jobs/{job_id}/retry", response_model=JobStatus)
+def retry_job(job_id: uuid.UUID, db=Depends(get_db), user=Depends(get_user_required)):
+    row = (
+        db.execute(
+            text("""
+                UPDATE jobs SET state='pending', stage='queued', error=NULL,
+                    last_failure_summary=NULL, cancellation_requested_at=NULL,
+                    cancelled_at=NULL, quarantined_at=NULL, updated_at=now()
+                WHERE id=:id AND owner_user_id=:owner
+                  AND state IN ('failed', 'needs_attention')
+                RETURNING *
+            """),
+            {"id": job_id, "owner": str(user["id"])},
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        raise JobNotFoundError(str(job_id))
+    db.commit()
+    return _row_to_status(row)
+
+
+@router.get("/admin/jobs/{job_id}/attempts", response_model=list[JobAttempt])
+def list_job_attempts(job_id: uuid.UUID, db=Depends(get_db), user=Depends(require_role(ROLE_ADMIN))):
+    del user
+    return (
+        db.execute(text("SELECT * FROM job_attempts WHERE job_id=:id ORDER BY attempt_number"), {"id": job_id})
+        .mappings()
+        .all()
+    )
+
+
+def _admin_reset_job(job_id: uuid.UUID, db, *, quarantine: bool):
+    row = (
+        db.execute(
+            text("""
+                UPDATE jobs SET state=:state, stage=:stage, error=NULL,
+                    cancellation_requested_at=NULL, cancelled_at=NULL,
+                    quarantined_at=CASE WHEN :quarantine THEN now() ELSE NULL END,
+                    updated_at=now()
+                WHERE id=:id RETURNING *
+            """),
+            {
+                "id": job_id,
+                "state": "needs_attention" if quarantine else "pending",
+                "stage": "quarantined" if quarantine else "queued",
+                "quarantine": quarantine,
+            },
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        raise JobNotFoundError(str(job_id))
+    db.commit()
+    return _row_to_status(row)
+
+
+@router.post("/admin/jobs/{job_id}/requeue", response_model=JobStatus)
+def admin_requeue_job(job_id: uuid.UUID, db=Depends(get_db), user=Depends(require_role(ROLE_ADMIN))):
+    del user
+    return _admin_reset_job(job_id, db, quarantine=False)
+
+
+@router.post("/admin/jobs/{job_id}/quarantine", response_model=JobStatus)
+def admin_quarantine_job(job_id: uuid.UUID, db=Depends(get_db), user=Depends(require_role(ROLE_ADMIN))):
+    del user
+    return _admin_reset_job(job_id, db, quarantine=True)

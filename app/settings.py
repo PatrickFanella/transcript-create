@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     WHISPER_BACKEND: str = "faster-whisper"
     CHUNK_SECONDS: int = 900
     MAX_PARALLEL_JOBS: int = 1
+    JOB_LEASE_SECONDS: int = 300
+    MAX_JOB_ATTEMPTS: int = 3
     ROCM: bool = True
     # Force GPU usage for faster-whisper; if true, we will try GPU backends only and fail otherwise
     FORCE_GPU: bool = False

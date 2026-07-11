@@ -58,10 +58,10 @@ class TestJobProcessingFlow:
         assert "updated_at" in data
 
     @pytest.mark.timeout(60)
-    def test_get_nonexistent_job(self, integration_client: TestClient, clean_test_data):
+    def test_get_nonexistent_job(self, authenticated_client: TestClient, clean_test_data):
         """Test retrieving a job that doesn't exist."""
         fake_id = str(uuid.uuid4())
-        response = integration_client.get(f"/jobs/{fake_id}")
+        response = authenticated_client.get(f"/jobs/{fake_id}")
         assert response.status_code == 404
 
     @pytest.mark.timeout(60)

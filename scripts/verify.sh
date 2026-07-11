@@ -66,6 +66,7 @@ read -r -a pip_audit_ignores <<< "$("${PYTHON_BIN}" scripts/check_security_excep
 "${PYTHON_BIN}" -m pip_audit --local --desc --skip-editable "${pip_audit_ignores[@]}"
 
 echo 'Running frontend verification...'
+npm --prefix frontend run api:check
 npm --prefix frontend run lint
 npm --prefix frontend run format:check
 npm --prefix frontend run type-check

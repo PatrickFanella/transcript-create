@@ -193,7 +193,7 @@ high/critical advisories are cleared.
 - [x] Fall back to PostgreSQL only for classified OpenSearch outages/timeouts.
 - [x] Add `backend`, `degraded`, `indexed_at`, and `index_lag_seconds` to search
   responses and health/admin surfaces.
-- [ ] Generate frontend types from FastAPI OpenAPI and fail CI on drift.
+- [x] Generate frontend types from FastAPI OpenAPI and fail CI on drift.
 - [ ] Round-trip every search filter through UI, URL, saved storage, and API;
   reject unsupported values explicitly.
 - [ ] Adopt TanStack Query and propagate AbortSignals into Ky.

@@ -119,20 +119,20 @@ export default function SearchPage() {
   }, [filters.q, filters.date_from, filters.date_to]);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     api
-      .getExploreIntelligence()
+      .getSearchSuggestions('a', 10, controller.signal)
       .then((response) => {
-        if (!cancelled) setSuggestedSearches(response.suggested_searches ?? []);
+        setSuggestedSearches(response.suggestions ?? []);
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           console.error('Failed to load suggested searches', err);
           setSuggestedSearches([]);
         }
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, []);
 
@@ -147,14 +147,15 @@ export default function SearchPage() {
       return;
     }
 
+    const controller = new AbortController();
     const activeFilters: ArchiveSearchFilters = {
-      source: undefined,
-      category: undefined,
+      source: filters.source,
+      category: filters.category,
       date_from: filters.date_from,
       date_to: filters.date_to,
-      min_duration: undefined,
-      max_duration: undefined,
-      sort_by: undefined,
+      min_duration: filters.min_duration,
+      max_duration: filters.max_duration,
+      sort_by: filters.sort_by,
       video_id: filters.video_id,
       limit: filters.limit,
       offset: filters.offset,
@@ -165,7 +166,7 @@ export default function SearchPage() {
     track({ type: 'search', payload: { ...activeFilters } });
 
     api
-      .searchGrouped(query, activeFilters)
+      .searchGrouped(query, activeFilters, controller.signal)
       .then((response) => {
         setGrouped(response);
         setFlatHits([]);
@@ -173,24 +174,34 @@ export default function SearchPage() {
       })
       .catch(() =>
         api
-          .search(query, activeFilters)
+          .search(query, activeFilters, controller.signal)
           .then((response) => {
             setGrouped(null);
             setFlatHits(response.hits ?? []);
             setMode('flat');
           })
           .catch((flatError: unknown) => {
-            console.error(flatError);
-            setError('Search failed. Try the query again or broaden the date range.');
+            if (!controller.signal.aborted) {
+              console.error(flatError);
+              setError('Search failed. Try the query again or broaden the date range.');
+            }
           })
       )
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [
+    filters.category,
     filters.date_from,
     filters.date_to,
     filters.limit,
+    filters.max_duration,
+    filters.min_duration,
     filters.offset,
     filters.q,
+    filters.sort_by,
+    filters.source,
     filters.video_id,
     shouldFetch,
   ]);

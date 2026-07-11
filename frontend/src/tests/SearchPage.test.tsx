@@ -39,14 +39,19 @@ describe('SearchPage', () => {
   it('forwards URL filters to grouped search and shows grouped actions', async () => {
     currentSearchParams = new URLSearchParams({
       q: 'rent',
+      source: 'youtube',
+      category: 'news',
+      min_duration: '120',
+      max_duration: '3600',
+      sort_by: 'date_desc',
       video_id: 'video-1',
       limit: '25',
       offset: '50',
     });
 
-    vi.spyOn(api, 'getExploreIntelligence').mockResolvedValue({
-      suggested_searches: [{ term: 'gaza', frequency: 5, trend_score: 5, source: 'search' }],
-    } as never);
+    vi.spyOn(api, 'getSearchSuggestions').mockResolvedValue({
+      suggestions: [{ term: 'gaza', frequency: 5 }],
+    });
     const searchGroupedMock = vi.spyOn(api, 'searchGrouped').mockResolvedValue({
       total_moments: 1,
       total_videos: 1,
@@ -80,12 +85,16 @@ describe('SearchPage', () => {
       expect(searchGroupedMock).toHaveBeenCalledWith(
         'rent',
         expect.objectContaining({
-          source: undefined,
-          category: undefined,
+          source: 'youtube',
+          category: 'news',
+          min_duration: 120,
+          max_duration: 3600,
+          sort_by: 'date_desc',
           video_id: 'video-1',
           limit: 25,
           offset: 50,
-        })
+        }),
+        expect.any(AbortSignal)
       );
     });
 
@@ -103,7 +112,7 @@ describe('SearchPage', () => {
   it('keeps search usable when suggested searches fail', async () => {
     currentSearchParams = new URLSearchParams({ q: 'rent' });
 
-    vi.spyOn(api, 'getExploreIntelligence').mockRejectedValue(new Error('unavailable'));
+    vi.spyOn(api, 'getSearchSuggestions').mockRejectedValue(new Error('unavailable'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const searchGroupedMock = vi.spyOn(api, 'searchGrouped').mockResolvedValue({
       total_moments: 0,
@@ -122,7 +131,8 @@ describe('SearchPage', () => {
           video_id: undefined,
           limit: undefined,
           offset: undefined,
-        })
+        }),
+        expect.any(AbortSignal)
       );
     });
 

@@ -197,7 +197,7 @@ high/critical advisories are cleared.
 - [ ] Round-trip every search filter through UI, URL, saved storage, and API;
   reject unsupported values explicitly.
 - [ ] Adopt TanStack Query and propagate AbortSignals into Ky.
-- [ ] Add a lightweight suggestions endpoint.
+- [x] Add a lightweight suggestions endpoint.
 - [ ] Declare current `/api` additive v1 stability with two-release
   deprecations and future breaking changes under `/api/v2`.
 

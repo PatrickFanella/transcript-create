@@ -449,5 +449,9 @@ export interface ArchiveSearchFilters {
   date_to?: string;
   min_duration?: number;
   max_duration?: number;
-  sort_by?: string;
+  sort_by?: 'relevance' | 'date_asc' | 'date_desc' | 'duration_asc' | 'duration_desc';
+}
+
+export interface SearchSuggestionsResponse {
+  suggestions: Array<{ term: string; frequency: number }>;
 }

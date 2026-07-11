@@ -11,6 +11,7 @@ import type {
   SavedSearch,
   SavedSearchFilters,
   SearchResponse,
+  SearchSuggestionsResponse,
   StreamLibraryFilters,
   TimelineBucket,
   TimelineResponse,
@@ -99,20 +100,28 @@ function normalizeTimelineResponse(
 }
 
 export const api = {
-  async search(q: string, opts?: ArchiveSearchFilters) {
+  async search(q: string, opts?: ArchiveSearchFilters, signal?: AbortSignal) {
     const params = new URLSearchParams({ q });
     appendSearchFilters(params, opts);
-    return http.get('search', { searchParams: params }).json<SearchResponse>();
+    return http.get('search', { searchParams: params, signal }).json<SearchResponse>();
   },
-  async searchGrouped(q: string, opts?: ArchiveSearchFilters) {
+  async searchGrouped(q: string, opts?: ArchiveSearchFilters, signal?: AbortSignal) {
     const params = new URLSearchParams({ q });
     appendSearchFilters(params, opts);
-    return http.get('search/grouped', { searchParams: params }).json<GroupedSearchResponse>();
+    return http
+      .get('search/grouped', { searchParams: params, signal })
+      .json<GroupedSearchResponse>();
   },
   async getMentionMap(q: string, opts?: ArchiveSearchFilters) {
     const params = new URLSearchParams({ q });
     appendSearchFilters(params, opts);
     return http.get('search/mention-map', { searchParams: params }).json<MentionMapResponse>();
+  },
+  async getSearchSuggestions(q: string, limit = 10, signal?: AbortSignal) {
+    const searchParams = new URLSearchParams({ q, limit: String(limit) });
+    return http
+      .get('search/suggestions', { searchParams, signal })
+      .json<SearchSuggestionsResponse>();
   },
   async getArchiveSummary() {
     return http.get('archive/summary').json<ArchiveSummary>();

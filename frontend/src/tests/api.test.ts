@@ -215,6 +215,21 @@ describe('api service', () => {
     });
   });
 
+  describe('getSearchSuggestions', () => {
+    it('uses the lightweight suggestions endpoint and forwards cancellation', async () => {
+      const response = { suggestions: [{ term: 'rent', frequency: 3 }] };
+      const getMock = vi.fn().mockReturnValue({ json: vi.fn().mockResolvedValue(response) });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
+      const controller = new AbortController();
+
+      await expect(api.getSearchSuggestions('re', 8, controller.signal)).resolves.toEqual(response);
+      expect(getMock).toHaveBeenCalledWith('search/suggestions', {
+        searchParams: expect.any(URLSearchParams),
+        signal: controller.signal,
+      });
+    });
+  });
+
   describe('getExplorePeriods', () => {
     it('calls the predefined periods endpoint', async () => {
       const mockResponse = { items: [] };

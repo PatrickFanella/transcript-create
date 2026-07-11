@@ -187,11 +187,11 @@ high/critical advisories are cleared.
 
 ## Phase 4 — Make Search and API Contracts Reliable
 
-- [ ] Add a transactional search-index outbox with versions, tombstones,
+- [x] Add a transactional search-index outbox with versions, tombstones,
   retries/dead letters, checkpoints, and lag metrics.
-- [ ] Repair indexer reprocessing/deletion reconciliation.
-- [ ] Fall back to PostgreSQL only for classified OpenSearch outages/timeouts.
-- [ ] Add `backend`, `degraded`, `indexed_at`, and `index_lag_seconds` to search
+- [x] Repair indexer reprocessing/deletion reconciliation.
+- [x] Fall back to PostgreSQL only for classified OpenSearch outages/timeouts.
+- [x] Add `backend`, `degraded`, `indexed_at`, and `index_lag_seconds` to search
   responses and health/admin surfaces.
 - [ ] Generate frontend types from FastAPI OpenAPI and fail CI on drift.
 - [ ] Round-trip every search filter through UI, URL, saved storage, and API;

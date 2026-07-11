@@ -259,6 +259,10 @@ class SearchResponse(BaseModel):
     total: Optional[int] = Field(None, description="Total number of matching results (only with OpenSearch backend)")
     hits: List[SearchHit] = Field(..., description="List of search results")
     query_time_ms: Optional[int] = Field(None, description="Time taken to execute the query in milliseconds")
+    backend: Literal["postgres", "opensearch"] = Field(default="postgres")
+    degraded: bool = Field(default=False)
+    indexed_at: Optional[datetime] = Field(default=None)
+    index_lag_seconds: Optional[int] = Field(default=None, ge=0)
 
 
 class ArchivePopularSearch(BaseModel):
@@ -297,6 +301,10 @@ class GroupedSearchResponse(BaseModel):
     total_videos: int = Field(..., description="Number of videos with at least one moment")
     groups: List[EpisodeSearchGroup] = Field(default_factory=list, description="Search groups by video")
     query_time_ms: Optional[int] = Field(None, description="Time taken to execute the query in milliseconds")
+    backend: Literal["postgres", "opensearch"] = Field(default="postgres")
+    degraded: bool = Field(default=False)
+    indexed_at: Optional[datetime] = Field(default=None)
+    index_lag_seconds: Optional[int] = Field(default=None, ge=0)
 
 
 class MentionMap(BaseModel):
@@ -317,6 +325,10 @@ class MentionMap(BaseModel):
     latest_mention: Optional[SearchMoment] = Field(None, description="Latest matching mention")
     top_episodes: List[EpisodeSearchGroup] = Field(default_factory=list, description="Top matching episodes")
     query_time_ms: Optional[int] = Field(None, description="Time taken to execute the query in milliseconds")
+    backend: Literal["postgres", "opensearch"] = Field(default="postgres")
+    degraded: bool = Field(default=False)
+    indexed_at: Optional[datetime] = Field(default=None)
+    index_lag_seconds: Optional[int] = Field(default=None, ge=0)
 
 
 class TimelineBucket(BaseModel):

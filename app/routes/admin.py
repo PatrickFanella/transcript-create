@@ -15,6 +15,14 @@ from ..security import ROLE_ADMIN, require_role
 router = APIRouter(prefix="", tags=["Admin"])
 
 
+@router.get("/admin/search/status", summary="Get search indexing freshness (Admin)")
+def admin_search_status(db=Depends(get_db), user=Depends(require_role(ROLE_ADMIN))):
+    del user
+    from app.search.outbox import search_freshness
+
+    return search_freshness(db)
+
+
 @router.get(
     "/admin/users",
     summary="List users (Admin)",

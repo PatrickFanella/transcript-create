@@ -10,7 +10,13 @@ from sqlalchemy import text as _text
 
 from app import crud
 from app.exceptions import ExternalServiceError, ValidationError
-from app.schemas import GroupedSearchResponse, MentionMap, SearchHit, SearchResponse
+from app.schemas import (
+    GroupedSearchResponse,
+    HighlightRange,
+    MentionMap,
+    SearchHit,
+    SearchResponse,
+)
 from app.search import analytics as search_analytics
 from app.search.highlights import (
     HIGHLIGHT_END,
@@ -19,10 +25,15 @@ from app.search.highlights import (
     normalize_search_rows,
     parse_highlighted_snippet,
 )
+from app.search.outbox import search_freshness
 from app.search.repositories import PostgresSearchBackend
 from app.search.service import SearchService
 from app.search.types import SearchRequest
 from app.settings import settings
+
+
+def _schema_highlights(values) -> list[HighlightRange]:
+    return [HighlightRange(start=value.start, end=value.end) for value in values]
 
 
 class SearchOrchestrator:
@@ -131,8 +142,19 @@ class SearchOrchestrator:
                 r = requests.post(f"{settings.OPENSEARCH_URL}/{index}/_search", json=query, timeout=10)
                 r.raise_for_status()
                 data = r.json()
-            except requests.exceptions.Timeout:
-                raise ExternalServiceError("OpenSearch", "Request timeout")
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                return self._postgres_fallback(
+                    db,
+                    context=context,
+                    q=q,
+                    source=source,
+                    video_id=video_id,
+                    limit=limit,
+                    offset=offset,
+                    sort_by=sort_by,
+                    filters=filters,
+                    start_time=start_time,
+                )
             except requests.exceptions.HTTPError as e:
                 status_code = e.response.status_code if e.response is not None else "Unknown"
                 content = e.response.text if e.response is not None else ""
@@ -174,7 +196,16 @@ class SearchOrchestrator:
                     total or len(hits),
                     query_time_ms,
                 )
-            return SearchResponse(total=total, hits=hits, query_time_ms=query_time_ms)
+            freshness = search_freshness(db)
+            return SearchResponse(
+                total=total,
+                hits=hits,
+                query_time_ms=query_time_ms,
+                backend="opensearch",
+                degraded=False,
+                indexed_at=freshness["indexed_at"],
+                index_lag_seconds=freshness["index_lag_seconds"],
+            )
 
         if source == "best":
             rows = crud.search_best_segments_advanced(
@@ -264,7 +295,134 @@ class SearchOrchestrator:
                 len(hits),
                 query_time_ms,
             )
-        return SearchResponse(hits=hits, query_time_ms=query_time_ms)
+        freshness = search_freshness(db)
+        return SearchResponse(
+            hits=hits,
+            query_time_ms=query_time_ms,
+            backend="postgres",
+            degraded=False,
+            indexed_at=freshness["indexed_at"],
+            index_lag_seconds=freshness["index_lag_seconds"],
+        )
+
+    def _postgres_fallback(
+        self,
+        db,
+        *,
+        context,
+        q: str,
+        source: str,
+        video_id: uuid.UUID | None,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        filters: dict,
+        start_time: float,
+    ) -> SearchResponse:
+        if source == "best":
+            rows = crud.search_best_segments_advanced(
+                db,
+                q=q,
+                video_id=str(video_id) if video_id else None,
+                limit=limit,
+                offset=offset,
+                sort_by=sort_by,
+                filters=filters,
+            )
+            hits = [
+                SearchHit(
+                    id=row["id"],
+                    video_id=row["video_id"],
+                    start_ms=row["start_ms"],
+                    end_ms=row["end_ms"],
+                    snippet=row["snippet"] or "",
+                    highlights=_schema_highlights(
+                        normalize_highlight_ranges(str(row["snippet"] or ""), row.get("highlights") or [])
+                    ),
+                    source="whisper" if row["source"] == "whisper" else "youtube",
+                    video_title=None,
+                    channel_name=None,
+                    uploaded_at=None,
+                    duration_seconds=None,
+                )
+                for row in rows
+            ]
+        elif source == "native":
+            results = SearchService(backend=PostgresSearchBackend(db)).search(
+                SearchRequest(
+                    q=q,
+                    source=source,
+                    video_id=str(video_id) if video_id else None,
+                    limit=limit,
+                    offset=offset,
+                    sort_by=sort_by,
+                    filters=filters,
+                )
+            )
+            hits = [
+                SearchHit(
+                    id=row.id,
+                    video_id=uuid.UUID(row.video_id),
+                    start_ms=row.start_ms,
+                    end_ms=row.end_ms,
+                    snippet=row.snippet,
+                    highlights=_schema_highlights(row.highlights),
+                    source="whisper",
+                    video_title=None,
+                    channel_name=None,
+                    uploaded_at=None,
+                    duration_seconds=None,
+                )
+                for row in results
+            ]
+        else:
+            rows = crud.search_youtube_segments_advanced(
+                db,
+                q=q,
+                video_id=str(video_id) if video_id else None,
+                limit=limit,
+                offset=offset,
+                sort_by=sort_by,
+                filters=filters,
+            )
+            hits = [
+                SearchHit(
+                    id=row["id"],
+                    video_id=row["video_id"],
+                    start_ms=row["start_ms"],
+                    end_ms=row["end_ms"],
+                    snippet=row["snippet"] or "",
+                    highlights=_schema_highlights(
+                        normalize_highlight_ranges(str(row["snippet"] or ""), row.get("highlights") or [])
+                    ),
+                    source="youtube",
+                    video_title=None,
+                    channel_name=None,
+                    uploaded_at=None,
+                    duration_seconds=None,
+                )
+                for row in rows
+            ]
+        query_time_ms = int((time.time() - start_time) * 1000)
+        if context.user_id:
+            search_analytics.save_search_history(
+                db,
+                context.user_id,
+                q,
+                {"source": source, "video_id": str(video_id) if video_id else None, **filters, "sort_by": sort_by},
+                len(hits),
+                query_time_ms,
+            )
+        freshness = search_freshness(db)
+        return SearchResponse(
+            total=None,
+            hits=hits,
+            query_time_ms=query_time_ms,
+            backend="postgres",
+            degraded=True,
+            indexed_at=freshness["indexed_at"],
+            index_lag_seconds=freshness["index_lag_seconds"],
+        )
 
     def grouped_search(
         self,

@@ -111,8 +111,12 @@ async def check_opensearch() -> Dict[str, Any]:
     Returns:
         Dict with status, latency_ms, and optional error
     """
+    from app.search.outbox import search_freshness
+
+    with engine.connect() as conn:
+        freshness = search_freshness(conn)
     if settings.SEARCH_BACKEND != "opensearch":
-        return {"status": "disabled"}
+        return {"status": "disabled", **freshness}
 
     start_time = time.time()
     try:
@@ -150,6 +154,7 @@ async def check_opensearch() -> Dict[str, Any]:
             "latency_ms": round(latency_ms, 2),
             "cluster_status": cluster_status,
             "number_of_nodes": health_data.get("number_of_nodes"),
+            **freshness,
         }
     except Exception as e:
         latency_ms = (time.time() - start_time) * 1000
@@ -163,6 +168,7 @@ async def check_opensearch() -> Dict[str, Any]:
             "status": "unhealthy",
             "latency_ms": round(latency_ms, 2),
             "error": str(e),
+            **freshness,
         }
 
 

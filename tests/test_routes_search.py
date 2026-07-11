@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -199,6 +200,17 @@ class TestSearchRoutes:
         response = client.get("/search?q=test")
         assert response.status_code == 503
         assert response.json()["error"] == "external_service_error"
+
+    @patch("app.settings.settings.SEARCH_BACKEND", "opensearch")
+    @patch("requests.post")
+    def test_search_opensearch_timeout_falls_back_to_postgres(self, mock_post, client: TestClient):
+        mock_post.side_effect = requests.Timeout("timed out")
+
+        response = client.get("/search?q=test&source=native")
+
+        assert response.status_code == 200
+        assert response.json()["backend"] == "postgres"
+        assert response.json()["degraded"] is True
 
     def test_search_unauthenticated_allowed(self, client: TestClient):
         """Test that unauthenticated users can search (within limits)."""

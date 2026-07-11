@@ -2,6 +2,8 @@ import { render, type RenderOptions } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '../services/auth';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createQueryClient } from '../services/query';
 
 /**
  * Custom render function that wraps components with necessary providers
@@ -17,10 +19,13 @@ export function renderWithRouter(ui: ReactElement, options?: Omit<RenderOptions,
  * Render with both Router and Auth providers
  */
 export function renderWithProviders(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
+  const client = createQueryClient();
   return render(ui, {
     wrapper: ({ children }) => (
       <BrowserRouter>
-        <AuthProvider>{children}</AuthProvider>
+        <QueryClientProvider client={client}>
+          <AuthProvider>{children}</AuthProvider>
+        </QueryClientProvider>
       </BrowserRouter>
     ),
     ...options,

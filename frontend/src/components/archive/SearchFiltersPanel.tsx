@@ -1,13 +1,24 @@
 import type { FormEvent } from 'react';
+import type { ArchiveSearchFilters } from '../../types/api';
 type SearchFiltersPanelProps = {
   q: string;
   dateFrom: string;
   dateTo: string;
+  source: ArchiveSearchFilters['source'];
+  category: string;
+  minDuration: string;
+  maxDuration: string;
+  sortBy: NonNullable<ArchiveSearchFilters['sort_by']>;
   loading: boolean;
   canSubmitSearch: boolean;
   onQChange: (value: string) => void;
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
+  onSourceChange: (value: ArchiveSearchFilters['source']) => void;
+  onCategoryChange: (value: string) => void;
+  onMinDurationChange: (value: string) => void;
+  onMaxDurationChange: (value: string) => void;
+  onSortByChange: (value: NonNullable<ArchiveSearchFilters['sort_by']>) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onReset: () => void;
 };
@@ -16,11 +27,21 @@ export default function SearchFiltersPanel({
   q,
   dateFrom,
   dateTo,
+  source,
+  category,
+  minDuration,
+  maxDuration,
+  sortBy,
   loading,
   canSubmitSearch,
   onQChange,
   onDateFromChange,
   onDateToChange,
+  onSourceChange,
+  onCategoryChange,
+  onMinDurationChange,
+  onMaxDurationChange,
+  onSortByChange,
   onSubmit,
   onReset,
 }: SearchFiltersPanelProps) {
@@ -84,7 +105,14 @@ export default function SearchFiltersPanel({
             />
           </label>
         </div>
-        {(q || dateFrom || dateTo) && (
+        {(q ||
+          dateFrom ||
+          dateTo ||
+          source !== 'best' ||
+          category ||
+          minDuration ||
+          maxDuration ||
+          sortBy !== 'relevance') && (
           <button
             type="button"
             className="btn-ghost self-start text-sm sm:self-auto"
@@ -93,6 +121,71 @@ export default function SearchFiltersPanel({
             Clear query and dates
           </button>
         )}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Transcript</span>
+          <select
+            name="source"
+            className="form-control min-h-11 w-full"
+            value={source ?? 'best'}
+            onChange={(event) =>
+              onSourceChange(event.target.value as ArchiveSearchFilters['source'])
+            }
+          >
+            <option value="best">Best available</option>
+            <option value="native">Whisper</option>
+            <option value="youtube">YouTube</option>
+          </select>
+        </label>
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Category</span>
+          <input
+            name="category"
+            className="form-control min-h-11 w-full"
+            value={category}
+            onChange={(event) => onCategoryChange(event.target.value)}
+          />
+        </label>
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Minimum seconds</span>
+          <input
+            name="min_duration"
+            type="number"
+            min="0"
+            className="form-control min-h-11 w-full"
+            value={minDuration}
+            onChange={(event) => onMinDurationChange(event.target.value)}
+          />
+        </label>
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Maximum seconds</span>
+          <input
+            name="max_duration"
+            type="number"
+            min="0"
+            className="form-control min-h-11 w-full"
+            value={maxDuration}
+            onChange={(event) => onMaxDurationChange(event.target.value)}
+          />
+        </label>
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Sort</span>
+          <select
+            name="sort_by"
+            className="form-control min-h-11 w-full"
+            value={sortBy}
+            onChange={(event) =>
+              onSortByChange(event.target.value as NonNullable<ArchiveSearchFilters['sort_by']>)
+            }
+          >
+            <option value="relevance">Relevance</option>
+            <option value="date_desc">Newest</option>
+            <option value="date_asc">Oldest</option>
+            <option value="duration_desc">Longest</option>
+            <option value="duration_asc">Shortest</option>
+          </select>
+        </label>
       </div>
     </form>
   );

@@ -29,6 +29,7 @@ class TestSecurityHeaders:
 
         # Check Permissions-Policy
         assert "Permissions-Policy" in response.headers
+        assert response.headers["API-Version"] == "1"
 
     def test_server_header_removed(self, client: TestClient):
         """Test that server identification is removed."""

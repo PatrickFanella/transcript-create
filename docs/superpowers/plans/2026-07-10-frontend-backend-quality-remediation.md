@@ -194,11 +194,11 @@ high/critical advisories are cleared.
 - [x] Add `backend`, `degraded`, `indexed_at`, and `index_lag_seconds` to search
   responses and health/admin surfaces.
 - [x] Generate frontend types from FastAPI OpenAPI and fail CI on drift.
-- [ ] Round-trip every search filter through UI, URL, saved storage, and API;
+- [x] Round-trip every search filter through UI, URL, saved storage, and API;
   reject unsupported values explicitly.
-- [ ] Adopt TanStack Query and propagate AbortSignals into Ky.
+- [x] Adopt TanStack Query and propagate AbortSignals into Ky.
 - [x] Add a lightweight suggestions endpoint.
-- [ ] Declare current `/api` additive v1 stability with two-release
+- [x] Declare current `/api` additive v1 stability with two-release
   deprecations and future breaking changes under `/api/v2`.
 
 ## Phase 5 — Repair Frontend Behavior, Accessibility, and Performance

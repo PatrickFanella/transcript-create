@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
 import AppLayout from './routes/AppLayout';
 import HomePage from './routes/HomePage';
 import SearchPage from './routes/SearchPage';
@@ -17,7 +18,7 @@ import AdminArchivePeriods from './routes/admin/AdminArchivePeriods';
 import AdminUsers from './routes/admin/AdminUsers';
 import AdminVideoMetadata from './routes/admin/AdminVideoMetadata';
 import AdminLabelIntelligence from './routes/admin/AdminLabelIntelligence';
-import { AuthProvider, ThemeProvider } from './services';
+import { AuthProvider, queryClient, ThemeProvider } from './services';
 import TopicPage from './routes/TopicPage';
 import TimelinePage from './routes/TimelinePage';
 import ExplorePage from './routes/ExplorePage';
@@ -83,9 +84,11 @@ if ('serviceWorker' in navigator) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   </StrictMode>
 );

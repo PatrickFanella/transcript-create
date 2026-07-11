@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { api, apiAddFavorite, favorites, track, useAuth } from '../services';
 import type {
   ArchiveSearchFilters,
@@ -24,6 +25,10 @@ import { groupHitsByVideo } from '../features/searchTranscript/matches';
 import { SearchFiltersPanel, SearchMomentsList } from '../components/archive';
 
 type SearchMode = 'grouped' | 'flat' | null;
+type SearchResult =
+  | { mode: 'grouped'; grouped: GroupedSearchResponse; flatHits: SearchHit[] }
+  | { mode: 'flat'; grouped: null; flatHits: SearchHit[] };
+const EMPTY_HITS: SearchHit[] = [];
 
 function copyText(text: string) {
   void navigator.clipboard?.writeText(text);
@@ -101,12 +106,14 @@ export default function SearchPage() {
   const [q, setQ] = useState(filters.q);
   const [dateFrom, setDateFrom] = useState(filters.date_from ?? '');
   const [dateTo, setDateTo] = useState(filters.date_to ?? '');
-  const [suggestedSearches, setSuggestedSearches] = useState<Array<{ term: string }>>([]);
-  const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<SearchMode>(null);
-  const [grouped, setGrouped] = useState<GroupedSearchResponse | null>(null);
-  const [flatHits, setFlatHits] = useState<SearchHit[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [source, setSource] = useState<ArchiveSearchFilters['source']>(filters.source ?? 'best');
+  const [category, setCategory] = useState(filters.category ?? '');
+  const [minDuration, setMinDuration] = useState(String(filters.min_duration ?? ''));
+  const [maxDuration, setMaxDuration] = useState(String(filters.max_duration ?? ''));
+  const [sortBy, setSortBy] = useState<NonNullable<ArchiveSearchFilters['sort_by']>>(
+    filters.sort_by ?? 'relevance'
+  );
+  const [actionError, setActionError] = useState<string | null>(null);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const { user } = useAuth();
   const shouldFetch = Boolean(filters.q.trim());
@@ -116,39 +123,15 @@ export default function SearchPage() {
     setQ(filters.q);
     setDateFrom(filters.date_from ?? '');
     setDateTo(filters.date_to ?? '');
-  }, [filters.q, filters.date_from, filters.date_to]);
+    setSource(filters.source ?? 'best');
+    setCategory(filters.category ?? '');
+    setMinDuration(String(filters.min_duration ?? ''));
+    setMaxDuration(String(filters.max_duration ?? ''));
+    setSortBy(filters.sort_by ?? 'relevance');
+  }, [filters]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    api
-      .getSearchSuggestions('a', 10, controller.signal)
-      .then((response) => {
-        setSuggestedSearches(response.suggestions ?? []);
-      })
-      .catch((err: unknown) => {
-        if (!controller.signal.aborted) {
-          console.error('Failed to load suggested searches', err);
-          setSuggestedSearches([]);
-        }
-      });
-    return () => {
-      controller.abort();
-    };
-  }, []);
-
-  useEffect(() => {
-    const query = filters.q.trim();
-    if (!shouldFetch) {
-      setGrouped(null);
-      setFlatHits([]);
-      setMode(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    const activeFilters: ArchiveSearchFilters = {
+  const activeFilters: ArchiveSearchFilters = useMemo(
+    () => ({
       source: filters.source,
       category: filters.category,
       date_from: filters.date_from,
@@ -159,60 +142,51 @@ export default function SearchPage() {
       video_id: filters.video_id,
       limit: filters.limit,
       offset: filters.offset,
-    };
+    }),
+    [filters]
+  );
+  const suggestionsQuery = useQuery({
+    queryKey: ['search-suggestions', 'a', 10],
+    queryFn: ({ signal }) => api.getSearchSuggestions('a', 10, signal),
+  });
+  const searchQuery = useQuery<SearchResult>({
+    queryKey: ['search', filters.q.trim(), activeFilters],
+    enabled: shouldFetch,
+    queryFn: async ({ signal }) => {
+      try {
+        const grouped = await api.searchGrouped(filters.q.trim(), activeFilters, signal);
+        return { mode: 'grouped', grouped, flatHits: [] };
+      } catch (groupedError) {
+        if (signal.aborted) throw groupedError;
+        const response = await api.search(filters.q.trim(), activeFilters, signal);
+        return { mode: 'flat', grouped: null, flatHits: response.hits ?? [] };
+      }
+    },
+  });
 
-    setLoading(true);
-    setError(null);
-    track({ type: 'search', payload: { ...activeFilters } });
+  useEffect(() => {
+    if (shouldFetch) track({ type: 'search', payload: { ...activeFilters } });
+  }, [activeFilters, shouldFetch]);
 
-    api
-      .searchGrouped(query, activeFilters, controller.signal)
-      .then((response) => {
-        setGrouped(response);
-        setFlatHits([]);
-        setMode('grouped');
-      })
-      .catch(() =>
-        api
-          .search(query, activeFilters, controller.signal)
-          .then((response) => {
-            setGrouped(null);
-            setFlatHits(response.hits ?? []);
-            setMode('flat');
-          })
-          .catch((flatError: unknown) => {
-            if (!controller.signal.aborted) {
-              console.error(flatError);
-              setError('Search failed. Try the query again or broaden the date range.');
-            }
-          })
-      )
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [
-    filters.category,
-    filters.date_from,
-    filters.date_to,
-    filters.limit,
-    filters.max_duration,
-    filters.min_duration,
-    filters.offset,
-    filters.q,
-    filters.sort_by,
-    filters.source,
-    filters.video_id,
-    shouldFetch,
-  ]);
+  const suggestedSearches = suggestionsQuery.data?.suggestions ?? [];
+  const grouped = searchQuery.data?.grouped ?? null;
+  const flatHits = searchQuery.data?.flatHits ?? EMPTY_HITS;
+  const mode: SearchMode = searchQuery.data?.mode ?? null;
+  const loading = searchQuery.isFetching;
+  const error = actionError ?? (searchQuery.isError ? 'Search failed. Try again.' : null);
 
   function submitFilters(event: FormEvent) {
     event.preventDefault();
     setParams(
       serializeFilters({
         q,
+        source,
+        category: category || undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
+        min_duration: minDuration ? Number(minDuration) : undefined,
+        max_duration: maxDuration ? Number(maxDuration) : undefined,
+        sort_by: sortBy,
         video_id: filters.video_id,
         limit: filters.limit,
         offset: filters.offset,
@@ -224,6 +198,11 @@ export default function SearchPage() {
     setQ('');
     setDateFrom('');
     setDateTo('');
+    setSource('best');
+    setCategory('');
+    setMinDuration('');
+    setMaxDuration('');
+    setSortBy('relevance');
     setParams(new URLSearchParams());
   }
 
@@ -255,7 +234,7 @@ export default function SearchPage() {
       track({ type: 'favorite_add', payload: { videoId, start_ms: moment.start_ms } });
     } catch (err) {
       console.error('Failed to save moment', err);
-      setError('Could not save this moment. Sign in again or try later.');
+      setActionError('Could not save this moment. Sign in again or try later.');
     }
   }
 
@@ -285,11 +264,21 @@ export default function SearchPage() {
             q={q}
             dateFrom={dateFrom}
             dateTo={dateTo}
+            source={source}
+            category={category}
+            minDuration={minDuration}
+            maxDuration={maxDuration}
+            sortBy={sortBy}
             loading={loading}
             canSubmitSearch={canSubmitSearch}
             onQChange={setQ}
             onDateFromChange={setDateFrom}
             onDateToChange={setDateTo}
+            onSourceChange={setSource}
+            onCategoryChange={setCategory}
+            onMinDurationChange={setMinDuration}
+            onMaxDurationChange={setMaxDuration}
+            onSortByChange={setSortBy}
             onSubmit={submitFilters}
             onReset={resetFilters}
           />
@@ -430,7 +419,7 @@ export default function SearchPage() {
                 </span>
               </Link>
               <Link
-                to={`/saved?${buildCurrentFilters(q, undefined, dateFrom, dateTo, '', '', '', 'relevance', filters).toString()}`}
+                to={`/saved?${buildCurrentFilters(q, source, dateFrom, dateTo, category, minDuration, maxDuration, sortBy, filters).toString()}`}
                 className="block rounded-lg border border-border bg-surface-muted p-3 text-sm text-ink transition-colors hover:border-accent/50"
               >
                 <strong className="block">Save this query</strong>

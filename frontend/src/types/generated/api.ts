@@ -807,6 +807,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/archive/topics/{slug}/timeline': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get a citation-backed topic timeline */
+    get: operations['archive_topic_timeline_archive_topics__slug__timeline_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/callback/google': {
     parameters: {
       query?: never;
@@ -4268,6 +4285,35 @@ export interface components {
        */
       videos?: components['schemas']['VideoInfo'][];
     };
+    /** TopicTimelineBucket */
+    TopicTimelineBucket: {
+      /** Episode Count */
+      episode_count: number;
+      /** Evidence */
+      evidence?: components['schemas']['ArchiveEvidenceMoment'][];
+      /** Label */
+      label: string;
+      /** Mention Count */
+      mention_count: number;
+      /** Period */
+      period: string;
+    };
+    /** TopicTimelineResponse */
+    TopicTimelineResponse: {
+      /** Buckets */
+      buckets?: components['schemas']['TopicTimelineBucket'][];
+      /** Date From */
+      date_from?: string | null;
+      /** Date To */
+      date_to?: string | null;
+      /**
+       * Granularity
+       * @enum {string}
+       */
+      granularity: 'week' | 'month';
+      /** Topic */
+      topic: string;
+    };
     /**
      * TranscriptBlockResponse
      * @description A persisted or derived formatted transcript block.
@@ -6377,6 +6423,41 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ArchiveTimelineResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  archive_topic_timeline_archive_topics__slug__timeline_get: {
+    parameters: {
+      query?: {
+        granularity?: 'week' | 'month';
+        date_from?: string | null;
+        date_to?: string | null;
+      };
+      header?: never;
+      path: {
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TopicTimelineResponse'];
         };
       };
       /** @description Validation Error */

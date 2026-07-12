@@ -352,6 +352,22 @@ class ArchiveEvidenceMoment(BaseModel):
     topic: Optional[str] = Field(None, description="Topic or query this evidence supports")
 
 
+class TopicTimelineBucket(BaseModel):
+    period: str
+    label: str
+    mention_count: int = Field(ge=0)
+    episode_count: int = Field(ge=0)
+    evidence: List[ArchiveEvidenceMoment] = Field(default_factory=list)
+
+
+class TopicTimelineResponse(BaseModel):
+    topic: str
+    granularity: Literal["week", "month"]
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    buckets: List[TopicTimelineBucket] = Field(default_factory=list)
+
+
 class ArchiveTopicCard(BaseModel):
     slug: str = Field(..., description="Stable topic slug")
     label: str = Field(..., description="Public topic label")

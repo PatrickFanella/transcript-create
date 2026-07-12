@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { api, apiAddFavorite, favorites, track, useAuth } from '../services';
 import type { GroupedSearchResponse, MentionMapResponse, SearchHit } from '../types/api';
 import {
@@ -10,7 +11,7 @@ import {
   formatTimestamp,
   sourceLabel,
 } from '../features/archive/format';
-import { TopicMentionCard, TopicStatsGrid } from '../components/archive';
+import { TopicMentionCard, TopicStatsGrid, TopicTimeline } from '../components/archive';
 import HighlightedSnippet from '../components/HighlightedSnippet';
 import { plainTextFromSnippet } from '../features/search/moments';
 
@@ -40,6 +41,10 @@ function buildPlayMatchesLink(videoId: string, moment: SearchHit, query: string)
 export default function TopicPage() {
   const { query } = useParams();
   const topic = query ?? '';
+  const [timelineParams, setTimelineParams] = useSearchParams();
+  const granularity = timelineParams.get('granularity') === 'week' ? 'week' : 'month';
+  const dateFrom = timelineParams.get('date_from') ?? '';
+  const dateTo = timelineParams.get('date_to') ?? '';
   const [mentionMap, setMentionMap] = useState<MentionMapResponse | null>(null);
   const [grouped, setGrouped] = useState<GroupedSearchResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +52,28 @@ export default function TopicPage() {
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<string | null>(null);
   const { user } = useAuth();
+  const timeline = useQuery({
+    queryKey: ['topic-timeline', topic, granularity, dateFrom, dateTo],
+    enabled: Boolean(topic),
+    queryFn: ({ signal }) =>
+      api.getTopicTimeline(
+        topic,
+        {
+          granularity,
+          ...(dateFrom ? { date_from: dateFrom } : {}),
+          ...(dateTo ? { date_to: dateTo } : {}),
+        },
+        signal
+      ),
+  });
+  const timelineBuckets = timeline.data?.buckets ?? [];
+
+  function setTimelineParam(key: string, value: string) {
+    const next = new URLSearchParams(timelineParams);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setTimelineParams(next);
+  }
 
   useEffect(() => {
     if (!topic) return;
@@ -131,6 +158,57 @@ export default function TopicPage() {
         <div className="text-sm text-success" role="status">
           {feedback}
         </div>
+      )}
+
+      <section className="surface-card grid gap-3 sm:grid-cols-3" aria-label="Timeline range">
+        <label className="text-sm text-muted">
+          Granularity
+          <select
+            className="form-control mt-1"
+            name="granularity"
+            value={granularity}
+            onChange={(event) => setTimelineParam('granularity', event.target.value)}
+          >
+            <option value="month">Month</option>
+            <option value="week">Week</option>
+          </select>
+        </label>
+        <label className="text-sm text-muted">
+          From
+          <input
+            className="form-control mt-1"
+            name="date_from"
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setTimelineParam('date_from', event.target.value)}
+          />
+        </label>
+        <label className="text-sm text-muted">
+          To
+          <input
+            className="form-control mt-1"
+            name="date_to"
+            type="date"
+            value={dateTo}
+            onChange={(event) => setTimelineParam('date_to', event.target.value)}
+          />
+        </label>
+      </section>
+      {timeline.isLoading && (
+        <div className="surface-card text-muted" role="status">
+          Loading topic timeline…
+        </div>
+      )}
+      {timeline.isError && (
+        <div className="alert-warning" role="alert">
+          Topic timeline is temporarily unavailable.
+        </div>
+      )}
+      {timeline.data && timelineBuckets.length > 0 && (
+        <TopicTimeline data={{ ...timeline.data, buckets: timelineBuckets }} />
+      )}
+      {timeline.data && timelineBuckets.length === 0 && (
+        <div className="surface-card text-muted">No mentions were found in this range.</div>
       )}
 
       <section className="grid gap-6 lg:grid-cols-2">

@@ -313,6 +313,22 @@ export interface TimelineResponse {
   query_time_ms?: number | null;
 }
 
+export interface TopicTimelineBucket {
+  period: string;
+  label: string;
+  mention_count: number;
+  episode_count: number;
+  evidence: ArchiveEvidenceMoment[];
+}
+
+export interface TopicTimelineResponse {
+  topic: string;
+  granularity: 'week' | 'month';
+  date_from?: string | null;
+  date_to?: string | null;
+  buckets: TopicTimelineBucket[];
+}
+
 export interface SavedSearchFilters {
   source?: 'best' | 'native' | 'youtube';
   category?: string;

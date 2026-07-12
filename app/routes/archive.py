@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
@@ -19,6 +19,7 @@ from ..archive.intelligence_repository import (
 )
 from ..archive.labeling.normalization import slugify_label
 from ..archive.labeling.pipeline import extract_labels_for_video
+from ..archive.product_intelligence import build_topic_timeline
 from ..archive.repository import archive_repository
 from ..archive.video_metadata_repository import (
     create_person,
@@ -61,10 +62,34 @@ from ..schemas import (
     ArchiveVideoTagAdminListResponse,
     ArchiveVideoTagCreate,
     ArchiveVideoTagUpdate,
+    TopicTimelineResponse,
 )
 from ..security import ROLE_ADMIN, require_role
 
 router = APIRouter(prefix="", tags=["Archive"])
+
+
+@router.get(
+    "/archive/topics/{slug}/timeline",
+    response_model=TopicTimelineResponse,
+    summary="Get a citation-backed topic timeline",
+)
+def archive_topic_timeline(
+    slug: str,
+    granularity: Literal["week", "month"] = Query("month"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    db=Depends(get_db),
+):
+    if date_from and date_to and date_from > date_to:
+        raise ValidationError("date_from must not be after date_to", field="date_from")
+    return build_topic_timeline(
+        db,
+        slug=slug,
+        granularity=granularity,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
 
 def _admin_video_metadata_response(db, video_id: uuid.UUID) -> ArchiveVideoMetadataAdminVideo | None:

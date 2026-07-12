@@ -223,7 +223,7 @@ high/critical advisories are cleared.
 
 ## Phase 6 — Complete Product Recommendations
 
-- [ ] Add accessible topic-over-time data, visualization, table, shareable
+- [x] Add accessible topic-over-time data, visualization, table, shareable
   range, counts, and timestamped evidence.
 - [ ] Add automatic opinion history with subject/claim/stance/summary,
   confidence >= 0.90, model/prompt version, time bucket, direct evidence,

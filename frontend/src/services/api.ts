@@ -15,6 +15,7 @@ import type {
   StreamLibraryFilters,
   TimelineBucket,
   TimelineResponse,
+  TopicTimelineResponse,
   TranscriptResponse,
   VideoInfo,
   VideoChaptersResponse,
@@ -129,6 +130,15 @@ export const api = {
   async getTimeline() {
     const response = await http.get('archive/timeline').json<TimelineResponse | TimelineBucket[]>();
     return normalizeTimelineResponse(response);
+  },
+  async getTopicTimeline(
+    slug: string,
+    opts?: { granularity?: 'week' | 'month'; date_from?: string; date_to?: string },
+    signal?: AbortSignal
+  ) {
+    return http
+      .get(`archive/topics/${encodeURIComponent(slug)}/timeline`, { searchParams: opts, signal })
+      .json<TopicTimelineResponse>();
   },
   async getExploreIntelligence(opts?: ExploreIntelligenceQuery) {
     const params = new URLSearchParams();

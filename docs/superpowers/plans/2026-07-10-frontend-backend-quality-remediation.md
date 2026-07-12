@@ -210,7 +210,7 @@ high/critical advisories are cleared.
 - [x] Capability-gate admin routes and add tested 403 behavior.
 - [ ] Add wildcard 404, route error boundaries, missing-video state, and
   accurate login content.
-- [ ] Centralize YouTube loading and safely reset player state per video/start.
+- [x] Centralize YouTube loading and safely reset player state per video/start.
 - [ ] Add Timeline navigation, URL-backed Explore state, and operation feedback.
 - [ ] Fix mobile focus/Escape, landmarks, tabs, pressed states, 44 px targets,
   transitions, image dimensions, form metadata, reduced motion, and axe tests.

@@ -165,6 +165,18 @@ describe('YouTubePlayer', () => {
     rerender(<YouTubePlayer videoId="test-video-id" start={90} />);
 
     expect(window.YT!.Player).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockPlayer.seekTo).toHaveBeenCalledWith(90, true));
+  });
+
+  it('resets readiness and pending seek for a new video', async () => {
+    const { rerender } = render(<YouTubePlayer videoId="video-one" start={30} />);
+    await waitFor(() => expect(window.YT!.Player).toHaveBeenCalledTimes(1));
+
+    rerender(<YouTubePlayer videoId="video-two" start={75} />);
+    await waitFor(() => expect(window.YT!.Player).toHaveBeenCalledTimes(2));
+    const secondConfig = (window.YT!.Player as ReturnType<typeof vi.fn>).mock.calls[1][1];
+    expect(secondConfig.videoId).toBe('video-two');
+    expect(secondConfig.playerVars.start).toBe(75);
   });
 
   it('handles seekTo errors gracefully', async () => {

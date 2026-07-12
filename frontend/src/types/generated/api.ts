@@ -708,7 +708,7 @@ export interface paths {
     put?: never;
     /**
      * Set user plan (Admin)
-     * @description Change a user's subscription plan.
+     * @description Change a user's administratively assigned access plan. Billing is disabled.
      *
      *         **Admin Only:** Requires admin privileges
      *

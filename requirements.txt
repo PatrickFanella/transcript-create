@@ -30,9 +30,6 @@ requests==2.33.0
 Authlib==1.7.2
 itsdangerous==2.2.0  # Required for session middleware
 
-# Billing
-stripe==13.0.1
-
 # PDF export
 reportlab==4.4.4
 

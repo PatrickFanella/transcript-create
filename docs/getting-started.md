@@ -202,7 +202,7 @@ Both interfaces provide:
 - Read the [API Reference](api-reference.md) for detailed endpoint documentation
 - Learn about [Authentication](authentication.md) and OAuth flows
 - Explore [Common Examples](examples.md) for typical use cases
-- Set up [Stripe Webhooks](webhooks.md) if integrating billing
+- Review the [webhook status](webhooks.md); no webhook contract is currently active
 
 ## Support
 

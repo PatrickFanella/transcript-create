@@ -7762,7 +7762,7 @@
     },
     "/admin/users/{user_id}/plan": {
       "post": {
-        "description": "Change a user's subscription plan.\n\n    **Admin Only:** Requires admin privileges\n\n    Request body:\n    ```json\n    {\n        \"plan\": \"free\"  // or \"pro\"\n    }\n    ```",
+        "description": "Change a user's administratively assigned access plan. Billing is disabled.\n\n    **Admin Only:** Requires admin privileges\n\n    Request body:\n    ```json\n    {\n        \"plan\": \"free\"  // or \"pro\"\n    }\n    ```",
         "operationId": "admin_set_user_plan_admin_users__user_id__plan_post",
         "parameters": [
           {

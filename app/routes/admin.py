@@ -223,7 +223,7 @@ def admin_events_summary(request: Request, db=Depends(get_db), start: str | None
     "/admin/users/{user_id}/plan",
     summary="Set user plan (Admin)",
     description="""
-    Change a user's subscription plan.
+    Change a user's administratively assigned access plan. Billing is disabled.
 
     **Admin Only:** Requires admin privileges
 

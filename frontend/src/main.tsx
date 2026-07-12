@@ -181,18 +181,6 @@ const router = createBrowserRouter([
   },
 ]);
 
-// Clear older PWA caches/service workers so stale pre-HasAnAra shells cannot reappear.
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      registrations.forEach((registration) => void registration.unregister());
-    });
-    if ('caches' in window) {
-      caches.keys().then((keys) => keys.forEach((key) => void caches.delete(key)));
-    }
-  });
-}
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>

@@ -138,7 +138,7 @@ Users have one of two plans:
 - Unlimited searches
 - Unlimited exports
 - Priority processing
-- Managed via Stripe subscription
+- Assigned administratively; no payment workflow is active
 
 Check plan details:
 
@@ -316,5 +316,5 @@ Admin status is set via the `is_admin` flag in the users table.
 ## Related Documentation
 
 - [Getting Started](getting-started.md) - Basic API usage
-- [Webhooks](webhooks.md) - Stripe webhook authentication
+- [Webhooks](webhooks.md) - disabled webhook status
 - [Examples](examples.md) - Code examples with authentication

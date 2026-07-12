@@ -123,7 +123,6 @@ The dashboard consumes these API endpoints (all require admin authentication):
 Potential additions (not currently implemented):
 - WebSocket/SSE for real-time updates
 - Alerts for critical thresholds
-- Billing and revenue analytics
 - Error tracking integration
 - User activity drill-down
 - Bulk job management actions

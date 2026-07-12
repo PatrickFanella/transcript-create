@@ -124,9 +124,6 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 TWITCH_CLIENT_ID=your_twitch_client_id
 TWITCH_CLIENT_SECRET=your_twitch_client_secret
 
-# Stripe (for billing features)
-STRIPE_API_KEY=sk_test_your_key
-STRIPE_WEBHOOK_SECRET=whsec_your_secret
 ```
 
 ## Installation Methods

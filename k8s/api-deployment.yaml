@@ -117,18 +117,6 @@ spec:
               name: transcript-secrets
               key: oauth-twitch-client-secret
               optional: true
-        - name: STRIPE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: transcript-secrets
-              key: stripe-api-key
-              optional: true
-        - name: STRIPE_WEBHOOK_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: transcript-secrets
-              key: stripe-webhook-secret
-              optional: true
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:

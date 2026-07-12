@@ -40,6 +40,9 @@ trap cleanup EXIT INT TERM
 check_dependencies
 cd "${REPO_ROOT}"
 
+echo 'Validating documentation and retired product contracts...'
+"${PYTHON_BIN}" scripts/check_documentation.py
+
 echo 'Starting isolated PostgreSQL, Redis, and OpenSearch services...'
 "${COMPOSE[@]}" up -d --wait
 

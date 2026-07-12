@@ -236,28 +236,28 @@ high/critical advisories are cleared.
 
 ## Phase 7 — Documentation, Retirement, and Release Hardening
 
-- [ ] Remove stale Stripe dependencies/tests/pricing claims and retain billing
+- [x] Remove stale Stripe dependencies/tests/pricing claims and retain billing
   only as a clearly planned possibility.
-- [ ] Remove service-worker/cache-clearing runtime, obsolete PWA assets, and
+- [x] Remove service-worker/cache-clearing runtime, obsolete PWA assets, and
   offline/install/background-sync claims.
-- [ ] Align README, architecture, testing, design, accessibility, API, schema,
+- [x] Align README, architecture, testing, design, accessibility, API, schema,
   migration, and deployment docs with shipped behavior.
-- [ ] Publish route/capability/access, generated OpenAPI, deployment, lease,
+- [x] Publish route/capability/access, generated OpenAPI, deployment, lease,
   cache, search freshness, privacy/retention/deletion, restore, and incident
   documentation.
-- [ ] Validate links, commands, route inventory, generated types, and OpenAPI
+- [x] Validate links, commands, route inventory, generated types, and OpenAPI
   drift in CI.
 
 ## Public Interface Checklist
 
-- [ ] `SearchHit.snippet` is plain text; `highlights` contains Unicode offsets.
-- [ ] Search responses expose backend/degradation/freshness metadata.
-- [ ] `/auth/me` preserves `{user: ...}` and adds role/capabilities.
-- [ ] Jobs add list, cancel, retry, admin attempts/requeue/quarantine endpoints
+- [x] `SearchHit.snippet` is plain text; `highlights` contains Unicode offsets.
+- [x] Search responses expose backend/degradation/freshness metadata.
+- [x] `/auth/me` preserves `{user: ...}` and adds role/capabilities.
+- [x] Jobs add list, cancel, retry, admin attempts/requeue/quarantine endpoints
   and progress/lease/failure fields.
-- [ ] Events use strict request schemas; API keys use scopes.
+- [x] Events use strict request schemas; API keys use scopes.
 - [x] Add topic timeline/opinion, related/quoted video, and mention export APIs.
-- [ ] Use additive migrations first; scrub credentials immediately and defer
+- [x] Use additive migrations first; scrub credentials immediately and defer
   destructive compatibility cleanup until dependents are deployed.
 
 ## Verification and Rollout
@@ -300,12 +300,12 @@ high/critical advisories are cleared.
 | Accessibility and UI consistency findings | Phase 5 | Complete |
 | Bundles, transcript rendering, data fetching, route hotspots | Phase 5 | Complete |
 | Topic/opinion/related/quoted/mention-export features | Phase 6 | Complete |
-| Billing/PWA retirement and documentation drift | Phase 7 | Pending |
+| Billing/PWA retirement and documentation drift | Phase 7 | Complete |
 
 ## Final Acceptance
 
-- [ ] Phases 1–5 meet the production-readiness milestone.
+- [x] Phases 1–5 meet the production-readiness milestone.
 - [x] Phase 6 product recommendations are shipped and browser-tested.
-- [ ] Phase 7 documentation and release validation pass.
-- [ ] `make verify` passes from a clean checkout.
+- [x] Phase 7 documentation and release validation pass.
+- [x] `make verify` passes from a clean checkout.
 - [ ] Both review traceability lists contain no unresolved finding.

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { HTTPError } from 'ky';
 import { api, apiAddFavorite, apiListFavorites, favorites, useAuth, track } from '../services';
 import type { Segment, TranscriptResponse, VideoInfo, SearchHit, VideoChapter } from '../types/api';
 // favorites, useAuth imported from services barrel
@@ -33,6 +34,9 @@ export default function VideoPage() {
   const { videoId } = useParams();
   const [params, setParams] = useSearchParams();
   const [video, setVideo] = useState<VideoInfo | null>(null);
+  const [videoStatus, setVideoStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>(
+    'loading'
+  );
   const [transcript, setTranscript] = useState<TranscriptResponse | null>(null);
   const [transcriptStatus, setTranscriptStatus] = useState<'loading' | 'ready' | 'error'>(
     'loading'
@@ -102,15 +106,22 @@ export default function VideoPage() {
   useEffect(() => {
     if (!videoId) return;
     setVideo(null);
+    setVideoStatus('loading');
     setChapters([]);
     api
       .getVideo(videoId)
       .then((response) => {
         setVideo(response);
+        setVideoStatus('ready');
         void loadTranscript(videoId, response.has_whisper_transcript ? 'whisper' : 'best');
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         setVideo(null);
+        const status =
+          error instanceof HTTPError
+            ? error.response.status
+            : (error as { response?: { status?: number } })?.response?.status;
+        setVideoStatus(status === 404 ? 'missing' : 'error');
         setTranscriptStatus('error');
       });
     api
@@ -469,6 +480,29 @@ export default function VideoPage() {
     const evidence = chapter.evidence[0];
     const target = evidence ? document.getElementById(`block-${evidence.block_index}`) : null;
     scrollElementIntoView(target, { behavior: 'smooth', block: 'start' });
+  }
+  if (videoStatus === 'missing') {
+    return (
+      <section className="mx-auto max-w-2xl p-8 text-center" role="alert">
+        <div className="archive-eyebrow">Missing episode</div>
+        <h1 className="mt-3 text-3xl font-semibold text-ink">This video is not in the archive</h1>
+        <p className="mt-3 text-muted">It may have been removed or the link may be incorrect.</p>
+        <Link className="btn mt-6 inline-flex" to="/episodes">
+          Browse episodes
+        </Link>
+      </section>
+    );
+  }
+  if (videoStatus === 'error' && !video) {
+    return (
+      <section className="mx-auto max-w-2xl p-8 text-center" role="alert">
+        <h1 className="text-3xl font-semibold text-ink">Episode unavailable</h1>
+        <p className="mt-3 text-muted">The archive could not load this episode right now.</p>
+        <button className="btn mt-6" type="button" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+      </section>
+    );
   }
   return (
     <div className="episode-page space-y-7">

@@ -208,7 +208,7 @@ high/critical advisories are cleared.
 - [x] Model auth as loading/authenticated/anonymous/error and surface logout
   failures without clearing valid local state.
 - [x] Capability-gate admin routes and add tested 403 behavior.
-- [ ] Add wildcard 404, route error boundaries, missing-video state, and
+- [x] Add wildcard 404, route error boundaries, missing-video state, and
   accurate login content.
 - [x] Centralize YouTube loading and safely reset player state per video/start.
 - [ ] Add Timeline navigation, URL-backed Explore state, and operation feedback.

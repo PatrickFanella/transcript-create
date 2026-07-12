@@ -95,4 +95,31 @@ describe('VideoPage', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(api.getTranscript).toHaveBeenCalledWith('video-1', 'whisper');
   });
+
+  it('distinguishes a missing video from a temporary transcript failure', async () => {
+    vi.spyOn(http, 'get').mockImplementation(((path: string) => {
+      if (path === 'auth/me') return { json: vi.fn().mockResolvedValue({ user: null }) } as never;
+      return { json: vi.fn().mockResolvedValue({}) } as never;
+    }) as never);
+    vi.spyOn(api, 'getVideo').mockRejectedValue({ response: { status: 404 } });
+    vi.spyOn(api, 'getVideoChapters').mockResolvedValue({ chapters: [] } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/v/missing']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/v/:videoId" element={<VideoPage />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'This video is not in the archive' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Browse episodes' })).toHaveAttribute(
+      'href',
+      '/episodes'
+    );
+  });
 });

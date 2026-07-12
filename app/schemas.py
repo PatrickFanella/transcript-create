@@ -368,6 +368,58 @@ class TopicTimelineResponse(BaseModel):
     buckets: List[TopicTimelineBucket] = Field(default_factory=list)
 
 
+class OpinionEvidence(BaseModel):
+    video_id: uuid.UUID
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+    excerpt: str = Field(min_length=1, max_length=4000)
+
+
+class OpinionCandidateCreate(BaseModel):
+    normalized_claim: str = Field(min_length=1, max_length=1000)
+    stance: str = Field(min_length=1, max_length=100)
+    summary: str = Field(min_length=1, max_length=4000)
+    confidence: float = Field(ge=0, le=1)
+    model_version: str = Field(min_length=1, max_length=200)
+    prompt_version: str = Field(min_length=1, max_length=200)
+    time_bucket: str = Field(min_length=1, max_length=100)
+    evidence: List[OpinionEvidence] = Field(default_factory=list)
+
+
+class OpinionCorrection(BaseModel):
+    stance: Optional[str] = Field(None, min_length=1, max_length=100)
+    summary: Optional[str] = Field(None, min_length=1, max_length=4000)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class OpinionRevisionResponse(BaseModel):
+    revision: int
+    stance: str
+    summary: str
+    confidence: float
+    model_version: str
+    prompt_version: str
+    time_bucket: str
+    evidence: List[OpinionEvidence]
+    model_generated: bool
+    status: Literal["candidate", "published", "corrected", "retracted"]
+    correction_reason: Optional[str] = None
+    created_at: datetime
+
+
+class OpinionHistoryItem(BaseModel):
+    id: uuid.UUID
+    subject_slug: str
+    normalized_claim: str
+    status: Literal["candidate", "published", "corrected", "retracted"]
+    current_revision: int
+    revisions: List[OpinionRevisionResponse]
+
+
+class OpinionHistoryResponse(BaseModel):
+    items: List[OpinionHistoryItem] = Field(default_factory=list)
+
+
 class ArchiveTopicCard(BaseModel):
     slug: str = Field(..., description="Stable topic slug")
     label: str = Field(..., description="Public topic label")

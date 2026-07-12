@@ -3369,6 +3369,289 @@
         "title": "MentionMap",
         "type": "object"
       },
+      "OpinionCandidateCreate": {
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/OpinionEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "model_version": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model Version",
+            "type": "string"
+          },
+          "normalized_claim": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Normalized Claim",
+            "type": "string"
+          },
+          "prompt_version": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "stance": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Stance",
+            "type": "string"
+          },
+          "summary": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "time_bucket": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Time Bucket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "normalized_claim",
+          "stance",
+          "summary",
+          "confidence",
+          "model_version",
+          "prompt_version",
+          "time_bucket"
+        ],
+        "title": "OpinionCandidateCreate",
+        "type": "object"
+      },
+      "OpinionCorrection": {
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "stance": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stance"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "OpinionCorrection",
+        "type": "object"
+      },
+      "OpinionEvidence": {
+        "properties": {
+          "end_ms": {
+            "minimum": 0.0,
+            "title": "End Ms",
+            "type": "integer"
+          },
+          "excerpt": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "start_ms": {
+            "minimum": 0.0,
+            "title": "Start Ms",
+            "type": "integer"
+          },
+          "video_id": {
+            "format": "uuid",
+            "title": "Video Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id",
+          "start_ms",
+          "end_ms",
+          "excerpt"
+        ],
+        "title": "OpinionEvidence",
+        "type": "object"
+      },
+      "OpinionHistoryItem": {
+        "properties": {
+          "current_revision": {
+            "title": "Current Revision",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "normalized_claim": {
+            "title": "Normalized Claim",
+            "type": "string"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/OpinionRevisionResponse"
+            },
+            "title": "Revisions",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "candidate",
+              "published",
+              "corrected",
+              "retracted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_slug": {
+            "title": "Subject Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject_slug",
+          "normalized_claim",
+          "status",
+          "current_revision",
+          "revisions"
+        ],
+        "title": "OpinionHistoryItem",
+        "type": "object"
+      },
+      "OpinionHistoryResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OpinionHistoryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "title": "OpinionHistoryResponse",
+        "type": "object"
+      },
+      "OpinionRevisionResponse": {
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "correction_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Reason"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/OpinionEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "model_generated": {
+            "title": "Model Generated",
+            "type": "boolean"
+          },
+          "model_version": {
+            "title": "Model Version",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "stance": {
+            "title": "Stance",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "candidate",
+              "published",
+              "corrected",
+              "retracted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "time_bucket": {
+            "title": "Time Bucket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "stance",
+          "summary",
+          "confidence",
+          "model_version",
+          "prompt_version",
+          "time_bucket",
+          "evidence",
+          "model_generated",
+          "status",
+          "created_at"
+        ],
+        "title": "OpinionRevisionResponse",
+        "type": "object"
+      },
       "PageInfo": {
         "description": "Pagination information for cursor-based pagination.",
         "properties": {
@@ -6011,6 +6294,112 @@
         ]
       }
     },
+    "/admin/archive/opinions/{opinion_id}/correct": {
+      "post": {
+        "operationId": "admin_correct_opinion_admin_archive_opinions__opinion_id__correct_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "opinion_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Opinion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpinionCorrection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpinionHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Correct Opinion",
+        "tags": [
+          "Archive"
+        ]
+      }
+    },
+    "/admin/archive/opinions/{opinion_id}/retract": {
+      "post": {
+        "operationId": "admin_retract_opinion_admin_archive_opinions__opinion_id__retract_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "opinion_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Opinion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpinionCorrection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpinionHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Retract Opinion",
+        "tags": [
+          "Archive"
+        ]
+      }
+    },
     "/admin/archive/periods": {
       "get": {
         "description": "List all predefined archive intelligence periods, including hidden drafts.",
@@ -6277,6 +6666,58 @@
           }
         },
         "summary": "Refresh archive period stats (Admin)",
+        "tags": [
+          "Archive"
+        ]
+      }
+    },
+    "/admin/archive/topics/{slug}/opinions/candidates": {
+      "post": {
+        "operationId": "admin_record_opinion_candidate_admin_archive_topics__slug__opinions_candidates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpinionCandidateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpinionHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Record Opinion Candidate",
         "tags": [
           "Archive"
         ]
@@ -7719,6 +8160,48 @@
           }
         },
         "summary": "Get archive timeline",
+        "tags": [
+          "Archive"
+        ]
+      }
+    },
+    "/archive/topics/{slug}/opinions": {
+      "get": {
+        "operationId": "archive_topic_opinions_archive_topics__slug__opinions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpinionHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Topic Opinions",
         "tags": [
           "Archive"
         ]

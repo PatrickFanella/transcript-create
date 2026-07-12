@@ -226,6 +226,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/archive/opinions/{opinion_id}/correct': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Admin Correct Opinion */
+    post: operations['admin_correct_opinion_admin_archive_opinions__opinion_id__correct_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/archive/opinions/{opinion_id}/retract': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Admin Retract Opinion */
+    post: operations['admin_retract_opinion_admin_archive_opinions__opinion_id__retract_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/admin/archive/periods': {
     parameters: {
       query?: never;
@@ -304,6 +338,23 @@ export interface paths {
      * @description Recalculate cached stats for a predefined archive intelligence period.
      */
     post: operations['admin_refresh_archive_period_admin_archive_periods__slug__refresh_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/archive/topics/{slug}/opinions/candidates': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Admin Record Opinion Candidate */
+    post: operations['admin_record_opinion_candidate_admin_archive_topics__slug__opinions_candidates_post'];
     delete?: never;
     options?: never;
     head?: never;
@@ -799,6 +850,23 @@ export interface paths {
      * @description Chronological archive timeline grouped by month or year from real uploaded videos.
      */
     get: operations['archive_timeline_archive_timeline_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/archive/topics/{slug}/opinions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Archive Topic Opinions */
+    get: operations['archive_topic_opinions_archive_topics__slug__opinions_get'];
     put?: never;
     post?: never;
     delete?: never;
@@ -3777,6 +3845,107 @@ export interface components {
        */
       total_videos: number;
     };
+    /** OpinionCandidateCreate */
+    OpinionCandidateCreate: {
+      /** Confidence */
+      confidence: number;
+      /** Evidence */
+      evidence?: components['schemas']['OpinionEvidence'][];
+      /** Model Version */
+      model_version: string;
+      /** Normalized Claim */
+      normalized_claim: string;
+      /** Prompt Version */
+      prompt_version: string;
+      /** Stance */
+      stance: string;
+      /** Summary */
+      summary: string;
+      /** Time Bucket */
+      time_bucket: string;
+    };
+    /** OpinionCorrection */
+    OpinionCorrection: {
+      /** Reason */
+      reason: string;
+      /** Stance */
+      stance?: string | null;
+      /** Summary */
+      summary?: string | null;
+    };
+    /** OpinionEvidence */
+    OpinionEvidence: {
+      /** End Ms */
+      end_ms: number;
+      /** Excerpt */
+      excerpt: string;
+      /** Start Ms */
+      start_ms: number;
+      /**
+       * Video Id
+       * Format: uuid
+       */
+      video_id: string;
+    };
+    /** OpinionHistoryItem */
+    OpinionHistoryItem: {
+      /** Current Revision */
+      current_revision: number;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Normalized Claim */
+      normalized_claim: string;
+      /** Revisions */
+      revisions: components['schemas']['OpinionRevisionResponse'][];
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'candidate' | 'published' | 'corrected' | 'retracted';
+      /** Subject Slug */
+      subject_slug: string;
+    };
+    /** OpinionHistoryResponse */
+    OpinionHistoryResponse: {
+      /** Items */
+      items?: components['schemas']['OpinionHistoryItem'][];
+    };
+    /** OpinionRevisionResponse */
+    OpinionRevisionResponse: {
+      /** Confidence */
+      confidence: number;
+      /** Correction Reason */
+      correction_reason?: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /** Evidence */
+      evidence: components['schemas']['OpinionEvidence'][];
+      /** Model Generated */
+      model_generated: boolean;
+      /** Model Version */
+      model_version: string;
+      /** Prompt Version */
+      prompt_version: string;
+      /** Revision */
+      revision: number;
+      /** Stance */
+      stance: string;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'candidate' | 'published' | 'corrected' | 'retracted';
+      /** Summary */
+      summary: string;
+      /** Time Bucket */
+      time_bucket: string;
+    };
     /**
      * PageInfo
      * @description Pagination information for cursor-based pagination.
@@ -5273,6 +5442,76 @@ export interface operations {
       };
     };
   };
+  admin_correct_opinion_admin_archive_opinions__opinion_id__correct_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        opinion_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OpinionCorrection'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OpinionHistoryResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  admin_retract_opinion_admin_archive_opinions__opinion_id__retract_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        opinion_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OpinionCorrection'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OpinionHistoryResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
   admin_archive_periods_admin_archive_periods_get: {
     parameters: {
       query?: {
@@ -5419,6 +5658,41 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ArchiveNamedPeriodAdminResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  admin_record_opinion_candidate_admin_archive_topics__slug__opinions_candidates_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OpinionCandidateCreate'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OpinionHistoryResponse'];
         };
       };
       /** @description Validation Error */
@@ -6423,6 +6697,37 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ArchiveTimelineResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  archive_topic_opinions_archive_topics__slug__opinions_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['OpinionHistoryResponse'];
         };
       };
       /** @description Validation Error */

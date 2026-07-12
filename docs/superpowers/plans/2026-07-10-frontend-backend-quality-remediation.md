@@ -225,7 +225,7 @@ high/critical advisories are cleared.
 
 - [x] Add accessible topic-over-time data, visualization, table, shareable
   range, counts, and timestamped evidence.
-- [ ] Add automatic opinion history with subject/claim/stance/summary,
+- [x] Add automatic opinion history with subject/claim/stance/summary,
   confidence >= 0.90, model/prompt version, time bucket, direct evidence,
   revision history, model-generated labels, and admin correction/retraction.
 - [ ] Add explainable related episodes and most-quoted moments.

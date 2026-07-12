@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiAddFavorite, favorites, track, useAuth } from '../services';
 import type { GroupedSearchResponse, MentionMapResponse, SearchHit } from '../types/api';
 import {
@@ -11,7 +11,13 @@ import {
   formatTimestamp,
   sourceLabel,
 } from '../features/archive/format';
-import { TopicMentionCard, TopicStatsGrid, TopicTimeline } from '../components/archive';
+import {
+  OpinionHistory,
+  TopicMentionCard,
+  TopicStatsGrid,
+  TopicTimeline,
+} from '../components/archive';
+import type { OpinionHistoryItem } from '../types/api';
 import HighlightedSnippet from '../components/HighlightedSnippet';
 import { plainTextFromSnippet } from '../features/search/moments';
 
@@ -51,7 +57,8 @@ export default function TopicPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<string | null>(null);
-  const { user } = useAuth();
+  const { user, capabilities } = useAuth();
+  const queryClient = useQueryClient();
   const timeline = useQuery({
     queryKey: ['topic-timeline', topic, granularity, dateFrom, dateTo],
     enabled: Boolean(topic),
@@ -67,6 +74,27 @@ export default function TopicPage() {
       ),
   });
   const timelineBuckets = timeline.data?.buckets ?? [];
+  const opinions = useQuery({
+    queryKey: ['topic-opinions', topic],
+    enabled: Boolean(topic),
+    queryFn: ({ signal }) => api.getTopicOpinions(topic, signal),
+  });
+
+  async function correctOpinion(item: OpinionHistoryItem) {
+    const reason = window.prompt('Correction reason');
+    if (!reason) return;
+    await api.correctOpinion(item.id, { reason });
+    setFeedback('Opinion correction recorded as a new revision.');
+    await queryClient.invalidateQueries({ queryKey: ['topic-opinions', topic] });
+  }
+
+  async function retractOpinion(item: OpinionHistoryItem) {
+    const reason = window.prompt('Retraction reason');
+    if (!reason) return;
+    await api.retractOpinion(item.id, reason);
+    setFeedback('Opinion retracted with revision history preserved.');
+    await queryClient.invalidateQueries({ queryKey: ['topic-opinions', topic] });
+  }
 
   function setTimelineParam(key: string, value: string) {
     const next = new URLSearchParams(timelineParams);
@@ -209,6 +237,19 @@ export default function TopicPage() {
       )}
       {timeline.data && timelineBuckets.length === 0 && (
         <div className="surface-card text-muted">No mentions were found in this range.</div>
+      )}
+      {opinions.isError && (
+        <div className="alert-warning" role="alert">
+          Opinion history is temporarily unavailable.
+        </div>
+      )}
+      {opinions.data && (
+        <OpinionHistory
+          items={opinions.data.items ?? []}
+          canCorrect={capabilities.includes('admin:access')}
+          onCorrect={(item) => void correctOpinion(item)}
+          onRetract={(item) => void retractOpinion(item)}
+        />
       )}
 
       <section className="grid gap-6 lg:grid-cols-2">

@@ -329,6 +329,38 @@ export interface TopicTimelineResponse {
   buckets: TopicTimelineBucket[];
 }
 
+export interface OpinionEvidence {
+  video_id: UUID;
+  start_ms: number;
+  end_ms: number;
+  excerpt: string;
+}
+export interface OpinionRevision {
+  revision: number;
+  stance: string;
+  summary: string;
+  confidence: number;
+  model_version: string;
+  prompt_version: string;
+  time_bucket: string;
+  evidence: OpinionEvidence[];
+  model_generated: boolean;
+  status: 'candidate' | 'published' | 'corrected' | 'retracted';
+  correction_reason?: string | null;
+  created_at: string;
+}
+export interface OpinionHistoryItem {
+  id: UUID;
+  subject_slug: string;
+  normalized_claim: string;
+  status: 'candidate' | 'published' | 'corrected' | 'retracted';
+  current_revision: number;
+  revisions: OpinionRevision[];
+}
+export interface OpinionHistoryResponse {
+  items: OpinionHistoryItem[];
+}
+
 export interface SavedSearchFilters {
   source?: 'best' | 'native' | 'youtube';
   category?: string;

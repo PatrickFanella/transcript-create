@@ -19,6 +19,7 @@ from ..archive.intelligence_repository import (
 )
 from ..archive.labeling.normalization import slugify_label
 from ..archive.labeling.pipeline import extract_labels_for_video
+from ..archive.opinion_history import list_opinion_history, record_opinion_candidate, revise_opinion
 from ..archive.product_intelligence import build_topic_timeline
 from ..archive.repository import archive_repository
 from ..archive.video_metadata_repository import (
@@ -62,6 +63,9 @@ from ..schemas import (
     ArchiveVideoTagAdminListResponse,
     ArchiveVideoTagCreate,
     ArchiveVideoTagUpdate,
+    OpinionCandidateCreate,
+    OpinionCorrection,
+    OpinionHistoryResponse,
     TopicTimelineResponse,
 )
 from ..security import ROLE_ADMIN, require_role
@@ -90,6 +94,67 @@ def archive_topic_timeline(
         date_from=date_from,
         date_to=date_to,
     )
+
+
+@router.get("/archive/topics/{slug}/opinions", response_model=OpinionHistoryResponse)
+def archive_topic_opinions(slug: str, db=Depends(get_db)):
+    return OpinionHistoryResponse(items=list_opinion_history(db, subject_slug=slug))
+
+
+@router.post("/admin/archive/topics/{slug}/opinions/candidates", response_model=OpinionHistoryResponse)
+def admin_record_opinion_candidate(
+    slug: str,
+    payload: OpinionCandidateCreate,
+    db=Depends(get_db),
+    _user=Depends(require_role(ROLE_ADMIN)),
+):
+    record_opinion_candidate(db, subject_slug=slug, candidate=payload)
+    db.commit()
+    return OpinionHistoryResponse(items=list_opinion_history(db, subject_slug=slug, include_unpublished=True))
+
+
+@router.post("/admin/archive/opinions/{opinion_id}/correct", response_model=OpinionHistoryResponse)
+def admin_correct_opinion(
+    opinion_id: uuid.UUID,
+    payload: OpinionCorrection,
+    db=Depends(get_db),
+    user=Depends(require_role(ROLE_ADMIN)),
+):
+    revise_opinion(
+        db,
+        opinion_id=opinion_id,
+        status="corrected",
+        reason=payload.reason,
+        corrected_by=uuid.UUID(str(user["id"])),
+        stance=payload.stance,
+        summary=payload.summary,
+    )
+    db.commit()
+    subject = db.execute(
+        text("SELECT subject_slug FROM archive_opinions WHERE id=:id"), {"id": opinion_id}
+    ).scalar_one()
+    return OpinionHistoryResponse(items=list_opinion_history(db, subject_slug=subject, include_unpublished=True))
+
+
+@router.post("/admin/archive/opinions/{opinion_id}/retract", response_model=OpinionHistoryResponse)
+def admin_retract_opinion(
+    opinion_id: uuid.UUID,
+    payload: OpinionCorrection,
+    db=Depends(get_db),
+    user=Depends(require_role(ROLE_ADMIN)),
+):
+    revise_opinion(
+        db,
+        opinion_id=opinion_id,
+        status="retracted",
+        reason=payload.reason,
+        corrected_by=uuid.UUID(str(user["id"])),
+    )
+    db.commit()
+    subject = db.execute(
+        text("SELECT subject_slug FROM archive_opinions WHERE id=:id"), {"id": opinion_id}
+    ).scalar_one()
+    return OpinionHistoryResponse(items=list_opinion_history(db, subject_slug=subject, include_unpublished=True))
 
 
 def _admin_video_metadata_response(db, video_id: uuid.UUID) -> ArchiveVideoMetadataAdminVideo | None:

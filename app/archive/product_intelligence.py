@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime
+from typing import Literal
 
 from .. import crud
 from ..schemas import ArchiveEvidenceMoment, TopicTimelineBucket, TopicTimelineResponse
 
 
-def _bucket_key(value: datetime, granularity: str) -> tuple[str, str]:
+def _bucket_key(value: datetime, granularity: Literal["week", "month"]) -> tuple[str, str]:
     if granularity == "week":
         iso = value.isocalendar()
         return f"{iso.year}-W{iso.week:02d}", f"Week {iso.week}, {iso.year}"
@@ -20,7 +21,7 @@ def build_topic_timeline(
     db,
     *,
     slug: str,
-    granularity: str,
+    granularity: Literal["week", "month"],
     date_from: date | None,
     date_to: date | None,
 ) -> TopicTimelineResponse:

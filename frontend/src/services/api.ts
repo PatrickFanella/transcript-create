@@ -16,6 +16,7 @@ import type {
   TimelineBucket,
   TimelineResponse,
   TopicTimelineResponse,
+  OpinionHistoryResponse,
   TranscriptResponse,
   VideoInfo,
   VideoChaptersResponse,
@@ -139,6 +140,21 @@ export const api = {
     return http
       .get(`archive/topics/${encodeURIComponent(slug)}/timeline`, { searchParams: opts, signal })
       .json<TopicTimelineResponse>();
+  },
+  async getTopicOpinions(slug: string, signal?: AbortSignal) {
+    return http
+      .get(`archive/topics/${encodeURIComponent(slug)}/opinions`, { signal })
+      .json<OpinionHistoryResponse>();
+  },
+  async correctOpinion(id: string, payload: { stance?: string; summary?: string; reason: string }) {
+    return http
+      .post(`admin/archive/opinions/${id}/correct`, { json: payload })
+      .json<OpinionHistoryResponse>();
+  },
+  async retractOpinion(id: string, reason: string) {
+    return http
+      .post(`admin/archive/opinions/${id}/retract`, { json: { reason } })
+      .json<OpinionHistoryResponse>();
   },
   async getExploreIntelligence(opts?: ExploreIntelligenceQuery) {
     const params = new URLSearchParams();

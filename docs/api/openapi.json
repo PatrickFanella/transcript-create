@@ -3843,6 +3843,96 @@
         "title": "QualitySettingsInput",
         "type": "object"
       },
+      "QuotedMoment": {
+        "properties": {
+          "end_ms": {
+            "minimum": 0.0,
+            "title": "End Ms",
+            "type": "integer"
+          },
+          "quote_count": {
+            "minimum": 1.0,
+            "title": "Quote Count",
+            "type": "integer"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "start_ms": {
+            "minimum": 0.0,
+            "title": "Start Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_ms",
+          "end_ms",
+          "snippet",
+          "quote_count"
+        ],
+        "title": "QuotedMoment",
+        "type": "object"
+      },
+      "QuotedMomentsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuotedMoment"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "video_id": {
+            "format": "uuid",
+            "title": "Video Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id"
+        ],
+        "title": "QuotedMomentsResponse",
+        "type": "object"
+      },
+      "RelatedEpisode": {
+        "properties": {
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "video": {
+            "$ref": "#/components/schemas/VideoInfo"
+          }
+        },
+        "required": [
+          "video",
+          "score"
+        ],
+        "title": "RelatedEpisode",
+        "type": "object"
+      },
+      "RelatedEpisodesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedEpisode"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "title": "RelatedEpisodesResponse",
+        "type": "object"
+      },
       "SavedSearch": {
         "properties": {
           "created_at": {
@@ -10806,6 +10896,116 @@
           }
         },
         "summary": "Get citation-backed video chapters",
+        "tags": [
+          "Videos"
+        ]
+      }
+    },
+    "/videos/{video_id}/quoted-moments": {
+      "get": {
+        "operationId": "get_quoted_moments_videos__video_id__quoted_moments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "video_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Video Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotedMomentsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Quoted Moments",
+        "tags": [
+          "Videos"
+        ]
+      }
+    },
+    "/videos/{video_id}/related": {
+      "get": {
+        "operationId": "get_related_episodes_videos__video_id__related_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "video_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Video Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 8,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelatedEpisodesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Related Episodes",
         "tags": [
           "Videos"
         ]

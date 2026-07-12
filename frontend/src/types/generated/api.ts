@@ -1630,6 +1630,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/videos/{video_id}/quoted-moments': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Quoted Moments */
+    get: operations['get_quoted_moments_videos__video_id__quoted_moments_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/videos/{video_id}/related': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Related Episodes */
+    get: operations['get_related_episodes_videos__video_id__related_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/videos/{video_id}/transcript': {
     parameters: {
       query?: never;
@@ -4049,6 +4083,40 @@ export interface components {
        * @default true
        */
       word_timestamps: boolean | null;
+    };
+    /** QuotedMoment */
+    QuotedMoment: {
+      /** End Ms */
+      end_ms: number;
+      /** Quote Count */
+      quote_count: number;
+      /** Snippet */
+      snippet: string;
+      /** Start Ms */
+      start_ms: number;
+    };
+    /** QuotedMomentsResponse */
+    QuotedMomentsResponse: {
+      /** Items */
+      items?: components['schemas']['QuotedMoment'][];
+      /**
+       * Video Id
+       * Format: uuid
+       */
+      video_id: string;
+    };
+    /** RelatedEpisode */
+    RelatedEpisode: {
+      /** Reasons */
+      reasons?: string[];
+      /** Score */
+      score: number;
+      video: components['schemas']['VideoInfo'];
+    };
+    /** RelatedEpisodesResponse */
+    RelatedEpisodesResponse: {
+      /** Items */
+      items?: components['schemas']['RelatedEpisode'][];
     };
     /** SavedSearch */
     SavedSearch: {
@@ -8196,6 +8264,72 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['VideoChaptersResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  get_quoted_moments_videos__video_id__quoted_moments_get: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        video_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['QuotedMomentsResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  get_related_episodes_videos__video_id__related_get: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        video_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RelatedEpisodesResponse'];
         };
       };
       /** @description Validation Error */

@@ -17,6 +17,8 @@ import type {
   TimelineResponse,
   TopicTimelineResponse,
   OpinionHistoryResponse,
+  RelatedEpisodesResponse,
+  QuotedMomentsResponse,
   TranscriptResponse,
   VideoInfo,
   VideoChaptersResponse,
@@ -155,6 +157,12 @@ export const api = {
     return http
       .post(`admin/archive/opinions/${id}/retract`, { json: { reason } })
       .json<OpinionHistoryResponse>();
+  },
+  async getRelatedEpisodes(videoId: string, signal?: AbortSignal) {
+    return http.get(`videos/${videoId}/related`, { signal }).json<RelatedEpisodesResponse>();
+  },
+  async getQuotedMoments(videoId: string, signal?: AbortSignal) {
+    return http.get(`videos/${videoId}/quoted-moments`, { signal }).json<QuotedMomentsResponse>();
   },
   async getExploreIntelligence(opts?: ExploreIntelligenceQuery) {
     const params = new URLSearchParams();

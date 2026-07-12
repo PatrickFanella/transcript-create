@@ -360,6 +360,24 @@ export interface OpinionHistoryItem {
 export interface OpinionHistoryResponse {
   items: OpinionHistoryItem[];
 }
+export interface RelatedEpisode {
+  video: VideoInfo;
+  score: number;
+  reasons: string[];
+}
+export interface RelatedEpisodesResponse {
+  items: RelatedEpisode[];
+}
+export interface QuotedMoment {
+  start_ms: number;
+  end_ms: number;
+  snippet: string;
+  quote_count: number;
+}
+export interface QuotedMomentsResponse {
+  video_id: UUID;
+  items: QuotedMoment[];
+}
 
 export interface SavedSearchFilters {
   source?: 'best' | 'native' | 'youtube';

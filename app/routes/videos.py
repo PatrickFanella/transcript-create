@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import text
 
 from .. import crud
+from ..archive.product_intelligence import quoted_moments, related_episodes
 from ..archive.video_chapters import build_grounded_chapters
 from ..audit import ACTION_USER_DATA_DELETION, log_audit_from_request
 from ..db import get_db
@@ -16,6 +17,8 @@ from ..schemas import (
     FormattedTranscriptResponse,
     PageInfo,
     PaginatedVideos,
+    QuotedMomentsResponse,
+    RelatedEpisodesResponse,
     Segment,
     TranscriptBlockResponse,
     TranscriptResponse,
@@ -34,6 +37,20 @@ from ..transcripts.youtube_formatting import build_youtube_caption_blocks, forma
 
 router = APIRouter(prefix="", tags=["Videos"])
 transcript_presentation_service = TranscriptPresentationService()
+
+
+@router.get("/videos/{video_id}/related", response_model=RelatedEpisodesResponse)
+def get_related_episodes(video_id: uuid.UUID, limit: int = Query(8, ge=1, le=20), db=Depends(get_db)):
+    if not crud.get_video(db, video_id):
+        raise VideoNotFoundError(str(video_id))
+    return related_episodes(db, video_id=video_id, limit=limit)
+
+
+@router.get("/videos/{video_id}/quoted-moments", response_model=QuotedMomentsResponse)
+def get_quoted_moments(video_id: uuid.UUID, limit: int = Query(10, ge=1, le=50), db=Depends(get_db)):
+    if not crud.get_video(db, video_id):
+        raise VideoNotFoundError(str(video_id))
+    return quoted_moments(db, video_id=video_id, limit=limit)
 
 
 @router.delete("/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an ingested source")

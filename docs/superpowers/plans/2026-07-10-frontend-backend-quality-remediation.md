@@ -228,7 +228,7 @@ high/critical advisories are cleared.
 - [x] Add automatic opinion history with subject/claim/stance/summary,
   confidence >= 0.90, model/prompt version, time bucket, direct evidence,
   revision history, model-generated labels, and admin correction/retraction.
-- [ ] Add explainable related episodes and most-quoted moments.
+- [x] Add explainable related episodes and most-quoted moments.
 - [ ] Export every-mention collections as JSON, CSV, M3U/deep-link playlist,
   and in-app playback queue.
 - [ ] Cover empty/loading/degraded/error/correction/keyboard/mobile/reduced-motion

@@ -14,6 +14,7 @@ import {
 } from '../features/videoTranscript/transcript';
 import {
   FormattedTranscriptDocument,
+  EpisodeIntelligence,
   PlaybackProgress,
   PlayerPanel,
   PlainTranscriptTurns,
@@ -515,6 +516,7 @@ export default function VideoPage() {
           {operationFeedback}
         </div>
       )}
+      {video && <EpisodeIntelligence videoId={video.id} />}
 
       <div className={viewMode === 'standard' ? 'transcript-layout' : 'space-y-6'}>
         <aside

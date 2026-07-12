@@ -420,6 +420,28 @@ class OpinionHistoryResponse(BaseModel):
     items: List[OpinionHistoryItem] = Field(default_factory=list)
 
 
+class RelatedEpisode(BaseModel):
+    video: "VideoInfo"
+    score: float = Field(ge=0)
+    reasons: List[str] = Field(default_factory=list)
+
+
+class RelatedEpisodesResponse(BaseModel):
+    items: List[RelatedEpisode] = Field(default_factory=list)
+
+
+class QuotedMoment(BaseModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+    snippet: str
+    quote_count: int = Field(ge=1)
+
+
+class QuotedMomentsResponse(BaseModel):
+    video_id: uuid.UUID
+    items: List[QuotedMoment] = Field(default_factory=list)
+
+
 class ArchiveTopicCard(BaseModel):
     slug: str = Field(..., description="Stable topic slug")
     label: str = Field(..., description="Public topic label")

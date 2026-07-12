@@ -11,6 +11,6 @@
 | Historical | retained context, not operational guidance |
 | Superseded | replaced by an identified canonical document |
 
-Authoritative shipped documents are README, architecture, testing, API reference/OpenAPI, access matrix, migrations, deployment matrix, design system, accessibility, authentication, API versioning, and operations runbooks.
+Authoritative shipped documents are README, architecture, testing, API reference/OpenAPI, access matrix, migrations, deployment matrix, design system, accessibility, authentication, API versioning, operations runbooks, and the [review traceability ledger](review-traceability.md).
 
 Billing and PWA/offline support are **disabled**. Billing is only **planned** as a possible future product decision. Review reports and implementation summaries are **historical** after their findings enter the remediation plan. Older deployment/provider guides are **superseded** by `docs/deployment/README.md` unless explicitly revalidated.

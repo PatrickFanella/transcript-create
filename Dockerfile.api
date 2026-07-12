@@ -19,6 +19,7 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY scripts/run_migrations.py ./scripts/run_migrations.py
+COPY scripts/maintain_event_retention.py ./scripts/maintain_event_retention.py
 COPY fonts ./fonts
 RUN python -m compileall -q app
 EXPOSE 8000

@@ -72,7 +72,7 @@ services:
         image: hasanara:gtx1080
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             HF_HOME: /root/.cache/hf
             HF_HUB_CACHE: /root/.cache/hf/hub
             TRANSFORMERS_CACHE: /root/.cache/hf/transformers

@@ -14,7 +14,7 @@ services:
     db:
         container_name: hasanara-db
         ports: !override
-            - 127.0.0.1:15432:5432
+            - 10.0.0.200:15432:5432
         restart: unless-stopped
 
     migrations:
@@ -27,7 +27,8 @@ services:
         networks:
             - default
             - management
-        ports: !override []
+        ports: !override
+            - 10.0.0.200:${API_HOST_PORT:-41177}:8000
         environment:
             FRONTEND_ORIGIN: https://hasanara.tv
             CORS_ALLOW_ORIGINS: https://hasanara.tv
@@ -47,7 +48,7 @@ services:
         container_name: hasanara-summary-refresher
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             ARCHIVE_SUMMARY_REFRESH_SECONDS: ${ARCHIVE_SUMMARY_REFRESH_SECONDS:-900}
             OTEL_SDK_DISABLED: 'true'
             PYTHONPATH: /app
@@ -74,7 +75,7 @@ services:
         container_name: hasanara-archive-intelligence-refresher
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             ARCHIVE_INTELLIGENCE_REFRESH_SECONDS: ${ARCHIVE_INTELLIGENCE_REFRESH_SECONDS:-3600}
             OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
             ARCHIVE_SUMMARY_MODEL: ${ARCHIVE_SUMMARY_MODEL:-qwen3:8b}
@@ -115,4 +116,6 @@ services:
         container_name: hasanara-web
         networks:
             - management
+        ports:
+            - 10.0.0.200:5173:80
         restart: unless-stopped

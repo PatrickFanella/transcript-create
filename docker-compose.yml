@@ -2,7 +2,7 @@ services:
     db:
         image: postgres:16
         environment:
-            POSTGRES_PASSWORD: postgres
+            POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
             POSTGRES_DB: transcripts
         volumes:
             - dbdata:/var/lib/postgresql/data
@@ -37,7 +37,7 @@ services:
         image: hasanara-api:latest
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
         depends_on:
             db:
                 condition: service_healthy
@@ -52,7 +52,7 @@ services:
         env_file: .env
         environment:
             # Point app to the compose network Postgres
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             # Point app to Redis cache inside the compose network
             REDIS_URL: redis://redis:6379/0
             # Point app to OpenSearch service inside the compose network
@@ -86,7 +86,7 @@ services:
         image: hasanara-worker:latest
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             OPENSEARCH_URL: http://opensearch:9200
             # Persist model caches to a mounted volume
             HF_HOME: /root/.cache/hf
@@ -128,7 +128,7 @@ services:
         image: hasanara-api:latest
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             RETENTION_INTERVAL_SECONDS: ${RETENTION_INTERVAL_SECONDS:-86400}
         depends_on:
             migrations:
@@ -217,7 +217,7 @@ services:
         image: postgres:16
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             BACKUP_DIR: /backups
             PGHOST: db
             PGPORT: 5432

@@ -10,14 +10,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 FROM python:3.11-slim AS api
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=dependencies /usr/local/bin /usr/local/bin
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://deno.land/install.sh | sh \
     && mv /root/.deno/bin/deno /usr/local/bin/deno \
     && chmod +x /usr/local/bin/deno \
     && deno --version
-COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=dependencies /usr/local/bin /usr/local/bin
 WORKDIR /app
 COPY app ./app
 COPY worker/__init__.py worker/formatter.py ./worker/

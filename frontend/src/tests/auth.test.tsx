@@ -5,7 +5,8 @@ import { buildApiUrl, http } from '../services/api';
 
 // Test component that uses auth
 function TestComponent() {
-  const { user, loading, status, error, login, loginTwitch, logout } = useAuth();
+  const { user, loading, status, error, role, capabilities, login, loginTwitch, logout } =
+    useAuth();
 
   if (loading) return <div>Loading...</div>;
 
@@ -14,6 +15,8 @@ function TestComponent() {
       <div data-testid="user">{user ? user.email : 'No user'}</div>
       <div data-testid="status">{status}</div>
       <div data-testid="error">{error ?? 'No error'}</div>
+      <div data-testid="role">{role ?? 'No role'}</div>
+      <div data-testid="capabilities">{capabilities.join(',')}</div>
       <button onClick={login}>Login Google</button>
       <button onClick={loginTwitch}>Login Twitch</button>
       <button onClick={logout}>Logout</button>
@@ -51,7 +54,11 @@ describe('auth service', () => {
     it('loads user data on mount', async () => {
       const mockUser = { id: '1', email: 'test@example.com', name: 'Test User' };
       const getMock = vi.fn().mockReturnValue({
-        json: vi.fn().mockResolvedValue({ user: mockUser }),
+        json: vi.fn().mockResolvedValue({
+          user: mockUser,
+          role: 'admin',
+          capabilities: ['admin:access'],
+        }),
       });
       vi.spyOn(http, 'get').mockImplementation(getMock);
 
@@ -66,6 +73,8 @@ describe('auth service', () => {
       });
 
       expect(getMock).toHaveBeenCalledWith('auth/me');
+      expect(screen.getByTestId('role')).toHaveTextContent('admin');
+      expect(screen.getByTestId('capabilities')).toHaveTextContent('admin:access');
     });
 
     it('handles no user logged in', async () => {

@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   apiCreateSavedSearch,
+  apiAddFavorite,
   apiDeleteFavorite,
   apiDeleteSavedSearch,
   apiListFavorites,
   apiListSavedSearches,
   favorites,
+  localSavedSearches,
   useAuth,
 } from '../services';
 import type { SavedSearch, SavedSearchFilters } from '../types/api';
@@ -45,11 +47,13 @@ export default function FavoritesPage() {
     text?: string;
   }> | null>(null);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[] | null>(null);
+  const [localSearches, setLocalSearches] = useState(localSavedSearches.list());
   const [query, setQuery] = useState(readSavedSearchFilters(params).query);
   const [filters, setFilters] = useState<SavedSearchFilters>(
     readSavedSearchFilters(params).filters
   );
   const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     const next = readSavedSearchFilters(params);
@@ -60,10 +64,44 @@ export default function FavoritesPage() {
   useEffect(() => {
     if (user) {
       apiListFavorites()
-        .then((r) => setRemote(r.items))
+        .then(async (response) => {
+          const serverKeys = new Set(
+            response.items.map((item) => `${item.video_id}:${item.start_ms}:${item.end_ms}`)
+          );
+          for (const local of favorites.list()) {
+            const key = `${local.videoId}:${local.startMs}:${local.endMs}`;
+            if (!serverKeys.has(key)) {
+              await apiAddFavorite({
+                video_id: local.videoId,
+                start_ms: local.startMs,
+                end_ms: local.endMs,
+                text: local.text,
+              });
+            }
+            favorites.remove(local);
+          }
+          const refreshed = await apiListFavorites();
+          setItems(favorites.list());
+          setRemote(refreshed.items);
+          if (serverKeys.size || refreshed.items.length) setFeedback('Saved moments synchronized.');
+        })
         .catch(() => setRemote(null));
       apiListSavedSearches()
-        .then((r) => setSavedSearches(r.items))
+        .then(async (response) => {
+          const serverKeys = new Set(
+            response.items.map((item) => `${item.query}:${JSON.stringify(item.filters)}`)
+          );
+          for (const local of localSavedSearches.list()) {
+            const key = `${local.query}:${JSON.stringify(local.filters)}`;
+            if (!serverKeys.has(key)) {
+              await apiCreateSavedSearch({ query: local.query, filters: local.filters });
+            }
+            localSavedSearches.remove(local.id);
+          }
+          const refreshed = await apiListSavedSearches();
+          setLocalSearches(localSavedSearches.list());
+          setSavedSearches(refreshed.items);
+        })
         .catch(() => setSavedSearches(null));
     } else {
       setRemote(null);
@@ -83,9 +121,18 @@ export default function FavoritesPage() {
     if (!trimmed) return;
     setSaving(true);
     try {
-      await apiCreateSavedSearch({ query: trimmed, filters });
-      const next = await apiListSavedSearches().catch(() => null);
-      if (next) setSavedSearches(next.items);
+      if (user) {
+        await apiCreateSavedSearch({ query: trimmed, filters });
+        const next = await apiListSavedSearches();
+        setSavedSearches(next.items);
+        setFeedback('Search saved and synchronized.');
+      } else {
+        localSavedSearches.add(trimmed, filters);
+        setLocalSearches(localSavedSearches.list());
+        setFeedback('Search saved in this browser.');
+      }
+    } catch {
+      setFeedback('The search could not be saved. Try again.');
     } finally {
       setSaving(false);
     }
@@ -100,6 +147,12 @@ export default function FavoritesPage() {
           Keep interesting moments handy and preserve the searches that matter.
         </p>
       </section>
+
+      {feedback && (
+        <div className="alert-warning" role="status">
+          {feedback}
+        </div>
+      )}
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]">
         <div className="surface-card space-y-4">
@@ -160,41 +213,40 @@ export default function FavoritesPage() {
               )}
             </div>
 
-            {user ? (
-              <>
-                <SavedSearchForm
-                  query={query}
-                  filters={filters}
-                  saving={saving}
-                  onQueryChange={setQuery}
-                  onFiltersChange={setFilters}
-                  onSave={saveSearch}
-                />
+            <>
+              <SavedSearchForm
+                query={query}
+                filters={filters}
+                saving={saving}
+                onQueryChange={setQuery}
+                onFiltersChange={setFilters}
+                onSave={saveSearch}
+              />
 
-                {savedSearches && savedSearches.length > 0 ? (
-                  <div className="space-y-3">
-                    {savedSearches.map((saved) => (
-                      <SavedSearchItem
-                        key={saved.id}
-                        saved={saved}
-                        onDelete={async () => {
-                          await apiDeleteSavedSearch(saved.id).catch(() => {});
-                          const next = await apiListSavedSearches().catch(() => null);
-                          if (next) setSavedSearches(next.items);
-                        }}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-muted">No saved searches yet.</p>
-                )}
-              </>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted">
-                Sign in to sync saved searches across devices. Local moments still work in this
-                browser.
-              </div>
-            )}
+              {(user ? savedSearches : localSearches)?.length ? (
+                <div className="space-y-3">
+                  {(user ? (savedSearches ?? []) : localSearches).map((saved) => (
+                    <SavedSearchItem
+                      key={saved.id}
+                      saved={saved}
+                      onDelete={async () => {
+                        if (user) {
+                          await apiDeleteSavedSearch(saved.id);
+                          const next = await apiListSavedSearches();
+                          setSavedSearches(next.items);
+                        } else {
+                          localSavedSearches.remove(saved.id);
+                          setLocalSearches(localSavedSearches.list());
+                        }
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted">No saved searches yet.</p>
+              )}
+              {!user && <p className="text-sm text-muted">Sign in to synchronize local saves.</p>}
+            </>
           </div>
         </aside>
       </section>

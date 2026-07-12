@@ -9,6 +9,12 @@ type User = {
   plan?: string | null;
 };
 
+type AuthEnvelope = {
+  user: User | null;
+  role?: string | null;
+  capabilities?: string[];
+};
+
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous' | 'error';
 
 type AuthState = {
@@ -16,6 +22,8 @@ type AuthState = {
   loading: boolean;
   status: AuthStatus;
   error: string | null;
+  role: string | null;
+  capabilities: string[];
   login: () => void;
   loginTwitch: () => void;
   logout: () => Promise<void>;
@@ -31,20 +39,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<string[]>([]);
   useEffect(() => {
     let active = true;
     void http
       .get('auth/me')
-      .json<{ user: User | null }>()
+      .json<AuthEnvelope>()
       .then((response) => {
         if (!active) return;
         setUser(response.user);
+        setRole(response.role ?? null);
+        setCapabilities(response.capabilities ?? []);
         setError(null);
         setStatus(response.user ? 'authenticated' : 'anonymous');
       })
       .catch((requestError: unknown) => {
         if (!active) return;
         setUser(null);
+        setRole(null);
+        setCapabilities([]);
         setError(errorMessage(requestError));
         setStatus('error');
       });
@@ -59,6 +73,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading: status === 'loading',
         status,
         error,
+        role,
+        capabilities,
         login: () => {
           window.location.href = buildApiUrl('auth/login/google');
         },
@@ -69,6 +85,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             await http.post('auth/logout').json();
             setUser(null);
+            setRole(null);
+            setCapabilities([]);
             setError(null);
             setStatus('anonymous');
           } catch (requestError: unknown) {

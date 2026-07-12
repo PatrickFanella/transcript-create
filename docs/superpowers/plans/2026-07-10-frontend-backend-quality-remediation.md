@@ -203,18 +203,18 @@ high/critical advisories are cleared.
 
 ## Phase 5 — Repair Frontend Behavior, Accessibility, and Performance
 
-- [ ] Make saved/favorites anonymous-capable and merge local records only after
+- [x] Make saved/favorites anonymous-capable and merge local records only after
   confirmed authenticated persistence.
-- [ ] Model auth as loading/authenticated/anonymous/error and surface logout
+- [x] Model auth as loading/authenticated/anonymous/error and surface logout
   failures without clearing valid local state.
-- [ ] Capability-gate admin routes and add tested 403 behavior.
+- [x] Capability-gate admin routes and add tested 403 behavior.
 - [ ] Add wildcard 404, route error boundaries, missing-video state, and
   accurate login content.
 - [ ] Centralize YouTube loading and safely reset player state per video/start.
 - [ ] Add Timeline navigation, URL-backed Explore state, and operation feedback.
 - [ ] Fix mobile focus/Escape, landmarks, tabs, pressed states, 44 px targets,
   transitions, image dimensions, form metadata, reduced motion, and axe tests.
-- [ ] Lazy-load routes, exclude admin code from public pages, and enforce
+- [x] Lazy-load routes, exclude admin code from public pages, and enforce
   150 KiB shell+initial and 100 KiB lazy-route gzip budgets.
 - [ ] Isolate playback time, memoize/index transcript work, throttle scroll, and
   use content visibility.

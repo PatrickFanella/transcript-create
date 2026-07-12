@@ -1,14 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api, apiAddFavorite, favorites, track, useAuth } from '../services';
-import type {
-  ArchiveSearchFilters,
-  GroupedSearchResponse,
-  SearchHit,
-  VideoInfo,
-} from '../types/api';
+import { apiAddFavorite, favorites, track, useAuth } from '../services';
+import type { ArchiveSearchFilters, SearchHit, VideoInfo } from '../types/api';
 import {
   buildTimestampLink,
   formatDate,
@@ -16,6 +10,7 @@ import {
   formatNumber,
 } from '../features/archive/format';
 import { buildCurrentFilters, readFilters, serializeFilters } from '../features/search/filters';
+import { useArchiveSearch } from '../features/search/useArchiveSearch';
 import {
   buildPlayMatchesLink,
   buildQuoteText,
@@ -23,12 +18,6 @@ import {
 } from '../features/search/moments';
 import { groupHitsByVideo } from '../features/searchTranscript/matches';
 import { SearchFiltersPanel, SearchMomentsList } from '../components/archive';
-
-type SearchMode = 'grouped' | 'flat' | null;
-type SearchResult =
-  | { mode: 'grouped'; grouped: GroupedSearchResponse; flatHits: SearchHit[] }
-  | { mode: 'flat'; grouped: null; flatHits: SearchHit[] };
-const EMPTY_HITS: SearchHit[] = [];
 
 async function copyText(text: string) {
   if (!navigator.clipboard) throw new Error('Clipboard unavailable');
@@ -121,7 +110,8 @@ export default function SearchPage() {
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const { user } = useAuth();
-  const shouldFetch = Boolean(filters.q.trim());
+  const { shouldFetch, suggestedSearches, grouped, flatHits, mode, loading, queryError } =
+    useArchiveSearch(filters);
   const canSubmitSearch = Boolean(q.trim());
 
   useEffect(() => {
@@ -135,50 +125,7 @@ export default function SearchPage() {
     setSortBy(filters.sort_by ?? 'relevance');
   }, [filters]);
 
-  const activeFilters: ArchiveSearchFilters = useMemo(
-    () => ({
-      source: filters.source,
-      category: filters.category,
-      date_from: filters.date_from,
-      date_to: filters.date_to,
-      min_duration: filters.min_duration,
-      max_duration: filters.max_duration,
-      sort_by: filters.sort_by,
-      video_id: filters.video_id,
-      limit: filters.limit,
-      offset: filters.offset,
-    }),
-    [filters]
-  );
-  const suggestionsQuery = useQuery({
-    queryKey: ['search-suggestions', 'a', 10],
-    queryFn: ({ signal }) => api.getSearchSuggestions('a', 10, signal),
-  });
-  const searchQuery = useQuery<SearchResult>({
-    queryKey: ['search', filters.q.trim(), activeFilters],
-    enabled: shouldFetch,
-    queryFn: async ({ signal }) => {
-      try {
-        const grouped = await api.searchGrouped(filters.q.trim(), activeFilters, signal);
-        return { mode: 'grouped', grouped, flatHits: [] };
-      } catch (groupedError) {
-        if (signal.aborted) throw groupedError;
-        const response = await api.search(filters.q.trim(), activeFilters, signal);
-        return { mode: 'flat', grouped: null, flatHits: response.hits ?? [] };
-      }
-    },
-  });
-
-  useEffect(() => {
-    if (shouldFetch) track({ type: 'search', payload: { ...activeFilters } });
-  }, [activeFilters, shouldFetch]);
-
-  const suggestedSearches = suggestionsQuery.data?.suggestions ?? [];
-  const grouped = searchQuery.data?.grouped ?? null;
-  const flatHits = searchQuery.data?.flatHits ?? EMPTY_HITS;
-  const mode: SearchMode = searchQuery.data?.mode ?? null;
-  const loading = searchQuery.isFetching;
-  const error = actionError ?? (searchQuery.isError ? 'Search failed. Try again.' : null);
+  const error = actionError ?? queryError;
 
   function submitFilters(event: FormEvent) {
     event.preventDefault();

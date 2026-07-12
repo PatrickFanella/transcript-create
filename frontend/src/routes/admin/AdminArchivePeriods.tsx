@@ -4,99 +4,19 @@ import type {
   ArchiveNamedPeriodAdminResponse,
   ArchiveNamedPeriodUpsertPayload,
 } from '../../types/api';
-
-type PeriodKind =
-  | 'week'
-  | 'month'
-  | 'event'
-  | 'date'
-  | 'holiday'
-  | 'anniversary'
-  | 'leadup'
-  | 'fallout';
-type PeriodStatus = 'published' | 'hidden';
-
-const periodKinds: Array<{ value: 'all' | PeriodKind; label: string }> = [
-  { value: 'all', label: 'All kinds' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-  { value: 'event', label: 'Event' },
-  { value: 'date', label: 'Date' },
-  { value: 'holiday', label: 'Holiday' },
-  { value: 'anniversary', label: 'Anniversary' },
-  { value: 'leadup', label: 'Leadup' },
-  { value: 'fallout', label: 'Fallout' },
-];
-
-const statusOptions: Array<{ value: 'all' | PeriodStatus; label: string }> = [
-  { value: 'all', label: 'All statuses' },
-  { value: 'published', label: 'Published' },
-  { value: 'hidden', label: 'Hidden' },
-];
-
-type PeriodFormState = {
-  label: string;
-  slug: string;
-  kind: string;
-  date_from: string;
-  date_to: string;
-  description: string;
-  status: PeriodStatus;
-  sort_order: string;
-  recurring_month: string;
-  recurring_day: string;
-};
-
-const emptyForm: PeriodFormState = {
-  label: '',
-  slug: '',
-  kind: 'event',
-  date_from: '',
-  date_to: '',
-  description: '',
-  status: 'published',
-  sort_order: '',
-  recurring_month: '',
-  recurring_day: '',
-};
-
-function formatDuration(seconds?: number | null) {
-  if (!seconds && seconds !== 0) return '—';
-  const total = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const secs = total % 60;
-  if (hours > 0) return `${hours}h ${minutes}m ${secs}s`;
-  if (minutes > 0) return `${minutes}m ${secs}s`;
-  return `${secs}s`;
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-function formatRecurringDate(
-  row: Pick<ArchiveNamedPeriodAdminResponse, 'recurring_month' | 'recurring_day'>
-) {
-  if (!row.recurring_month || !row.recurring_day) return null;
-  const sample = new Date(Date.UTC(2024, row.recurring_month - 1, row.recurring_day));
-  if (Number.isNaN(sample.getTime())) return `Every ${row.recurring_month}/${row.recurring_day}`;
-  return `Every ${sample.toLocaleDateString(undefined, { month: 'long', day: 'numeric', timeZone: 'UTC' })}`;
-}
-
-function formatDateRange(
-  row: Pick<
-    ArchiveNamedPeriodAdminResponse,
-    'date_from' | 'date_to' | 'recurring_month' | 'recurring_day'
-  >
-) {
-  const recurring = formatRecurringDate(row);
-  if (recurring) return recurring;
-  if (row.date_from && row.date_to) return `${row.date_from} → ${row.date_to}`;
-  return row.date_from || row.date_to || '—';
-}
+import {
+  emptyPeriodForm as emptyForm,
+  formatPeriodDateRange as formatDateRange,
+  formatPeriodDateTime as formatDateTime,
+  formatPeriodDuration as formatDuration,
+  periodKinds,
+  statusOptions,
+} from '../../features/admin/archivePeriodModel';
+import type {
+  PeriodFormState,
+  PeriodKind,
+  PeriodStatus,
+} from '../../features/admin/archivePeriodModel';
 
 export default function AdminArchivePeriods() {
   const [items, setItems] = useState<ArchiveNamedPeriodAdminResponse[]>([]);

@@ -11,81 +11,21 @@ import type {
   ArchiveVideoTagAdminResponse,
   ArchiveVideoTagUpsertPayload,
 } from '../../types/api';
-
-type Status = 'published' | 'hidden';
-
-type PersonFormState = {
-  display_name: string;
-  slug: string;
-  aliases: string;
-  description: string;
-  status: Status;
-  sort_order: string;
-};
-
-type TagFormState = {
-  label: string;
-  slug: string;
-  kind: string;
-  description: string;
-  status: Status;
-  sort_order: string;
-};
-
-const emptyPersonForm: PersonFormState = {
-  display_name: '',
-  slug: '',
-  aliases: '',
-  description: '',
-  status: 'published',
-  sort_order: '',
-};
-
-const emptyTagForm: TagFormState = {
-  label: '',
-  slug: '',
-  kind: 'category',
-  description: '',
-  status: 'published',
-  sort_order: '',
-};
-
-const tagKindOptions = ['category', 'topic', 'label', 'group'];
-
-function normalizeItems<T>(value: T[] | { items?: T[] } | null | undefined): T[] {
-  if (Array.isArray(value)) return value;
-  return value?.items ?? [];
-}
-
-function parseAliases(raw: string) {
-  return raw
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-function parseSortOrder(raw: string) {
-  if (!raw.trim()) return undefined;
-  const value = Number(raw);
-  return Number.isNaN(value) ? null : value;
-}
-
-function asArchiveVideo(
-  item:
-    | ArchiveVideoMetadataItem
-    | { video?: ArchiveVideoMetadataItem; item?: ArchiveVideoMetadataItem }
-    | null
-    | undefined
-) {
-  if (!item) return null;
-  if ('video' in item && item.video) return item.video;
-  if ('item' in item && item.item) return item.item;
-  return item as ArchiveVideoMetadataItem;
-}
-
-function buildSelectionMap<T extends { slug: string }>(items: T[] | undefined) {
-  return Object.fromEntries((items ?? []).map((item) => [item.slug, true]));
-}
+import {
+  asArchiveVideo,
+  buildSelectionMap,
+  emptyPersonForm,
+  emptyTagForm,
+  normalizeItems,
+  parseAliases,
+  parseSortOrder,
+  tagKindOptions,
+} from '../../features/admin/videoMetadataModel';
+import type {
+  MetadataStatus,
+  PersonFormState,
+  TagFormState,
+} from '../../features/admin/videoMetadataModel';
 
 function chipList(items: Array<ArchivePerson | ArchiveVideoTag>, emptyLabel: string) {
   if (!items.length) {
@@ -490,7 +430,10 @@ export default function AdminVideoMetadata() {
               className="form-control"
               value={personForm.status}
               onChange={(event) =>
-                setPersonForm((current) => ({ ...current, status: event.target.value as Status }))
+                setPersonForm((current) => ({
+                  ...current,
+                  status: event.target.value as MetadataStatus,
+                }))
               }
             >
               <option value="published">Published</option>
@@ -665,7 +608,10 @@ export default function AdminVideoMetadata() {
               className="form-control"
               value={tagForm.status}
               onChange={(event) =>
-                setTagForm((current) => ({ ...current, status: event.target.value as Status }))
+                setTagForm((current) => ({
+                  ...current,
+                  status: event.target.value as MetadataStatus,
+                }))
               }
             >
               <option value="published">Published</option>

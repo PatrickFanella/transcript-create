@@ -218,7 +218,7 @@ high/critical advisories are cleared.
   150 KiB shell+initial and 100 KiB lazy-route gzip budgets.
 - [x] Isolate playback time, memoize/index transcript work, throttle scroll, and
   use content visibility.
-- [ ] Split the five oversized routes into focused hooks/adapters/controllers/
+- [x] Split the five oversized routes into focused hooks/adapters/controllers/
   view models/presentational sections.
 
 ## Phase 6 — Complete Product Recommendations

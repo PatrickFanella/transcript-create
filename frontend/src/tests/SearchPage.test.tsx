@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import SearchPage from '../routes/SearchPage';
 import { api, http } from '../services';
 import { renderWithProviders } from './test-utils';
@@ -139,5 +140,42 @@ describe('SearchPage', () => {
     });
 
     expect(screen.queryByText('Suggested searches')).not.toBeInTheDocument();
+  });
+
+  it('exports and queues every matching mention', async () => {
+    currentSearchParams = new URLSearchParams({ q: 'rent' });
+    vi.spyOn(api, 'getSearchSuggestions').mockResolvedValue({ suggestions: [] });
+    vi.spyOn(api, 'searchGrouped').mockResolvedValue({
+      total_moments: 0,
+      total_videos: 0,
+      groups: [],
+    } as never);
+    vi.spyOn(api, 'getMentionCollection').mockResolvedValue({
+      items: [
+        {
+          video_id: 'video-1',
+          video_title: 'Episode one',
+          start_ms: 12000,
+          end_ms: 18000,
+          snippet: 'the rent is high',
+          source: 'whisper',
+          deep_link: '/v/video-1?t=12',
+        },
+      ],
+    });
+
+    renderWithProviders(<SearchPage />);
+    expect(await screen.findByRole('link', { name: 'Export CSV' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('search/mentions/export')
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add every mention to queue' }));
+
+    expect(await screen.findByText('Playback queue')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Episode one at 12s' })).toHaveAttribute(
+      'href',
+      '/v/video-1?t=12'
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('1 mentions added');
   });
 });

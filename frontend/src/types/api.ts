@@ -53,6 +53,21 @@ export interface MentionMapResponse {
   query_time_ms?: number | null;
 }
 
+export interface MentionExportItem {
+  video_id: UUID;
+  youtube_id?: string | null;
+  video_title: string;
+  start_ms: number;
+  end_ms: number;
+  snippet: string;
+  source: string;
+  deep_link: string;
+}
+
+export interface MentionCollectionResponse {
+  items: MentionExportItem[];
+}
+
 export interface ArchivePopularSearch {
   term: string;
   frequency: number;

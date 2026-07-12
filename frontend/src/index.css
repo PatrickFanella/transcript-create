@@ -115,6 +115,40 @@ body {
 }
 
 @layer components {
+  .topic-timeline-bar {
+    @apply w-full rounded-t bg-accent;
+    min-height: 4px;
+  }
+  .topic-timeline-bar-1 {
+    height: 0.7rem;
+  }
+  .topic-timeline-bar-2 {
+    height: 1.4rem;
+  }
+  .topic-timeline-bar-3 {
+    height: 2.1rem;
+  }
+  .topic-timeline-bar-4 {
+    height: 2.8rem;
+  }
+  .topic-timeline-bar-5 {
+    height: 3.5rem;
+  }
+  .topic-timeline-bar-6 {
+    height: 4.2rem;
+  }
+  .topic-timeline-bar-7 {
+    height: 4.9rem;
+  }
+  .topic-timeline-bar-8 {
+    height: 5.6rem;
+  }
+  .topic-timeline-bar-9 {
+    height: 6.3rem;
+  }
+  .topic-timeline-bar-10 {
+    height: 7rem;
+  }
   .admin-bar-chart-progress {
     @apply block h-6 w-full overflow-hidden rounded border-0 bg-surface-muted;
     appearance: none;

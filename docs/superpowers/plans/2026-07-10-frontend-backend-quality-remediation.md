@@ -229,9 +229,9 @@ high/critical advisories are cleared.
   confidence >= 0.90, model/prompt version, time bucket, direct evidence,
   revision history, model-generated labels, and admin correction/retraction.
 - [x] Add explainable related episodes and most-quoted moments.
-- [ ] Export every-mention collections as JSON, CSV, M3U/deep-link playlist,
+- [x] Export every-mention collections as JSON, CSV, M3U/deep-link playlist,
   and in-app playback queue.
-- [ ] Cover empty/loading/degraded/error/correction/keyboard/mobile/reduced-motion
+- [x] Cover empty/loading/degraded/error/correction/keyboard/mobile/reduced-motion
   states for every new view.
 
 ## Phase 7 — Documentation, Retirement, and Release Hardening
@@ -256,7 +256,7 @@ high/critical advisories are cleared.
 - [ ] Jobs add list, cancel, retry, admin attempts/requeue/quarantine endpoints
   and progress/lease/failure fields.
 - [ ] Events use strict request schemas; API keys use scopes.
-- [ ] Add topic timeline/opinion, related/quoted video, and mention export APIs.
+- [x] Add topic timeline/opinion, related/quoted video, and mention export APIs.
 - [ ] Use additive migrations first; scrub credentials immediately and defer
   destructive compatibility cleanup until dependents are deployed.
 
@@ -294,18 +294,18 @@ high/critical advisories are cleared.
 | Metrics/compression/transactions/retries/error masking | Slice 3.4 | Complete |
 | Authorization model, repository size, runtime dependencies | Slices 3.1/3.4 | Complete |
 | API-key scopes and source deletion | Slice 3.5 | Complete |
-| OpenSearch sync/fallback/freshness | Phase 4 | Pending |
-| API compatibility and generated contracts | Phase 4 | Pending |
-| Anonymous saves, auth/admin/errors/player/filters/stale requests | Phases 4/5 | Pending |
-| Accessibility and UI consistency findings | Phase 5 | Pending |
-| Bundles, transcript rendering, data fetching, route hotspots | Phase 5 | Pending |
-| Topic/opinion/related/quoted/mention-export features | Phase 6 | Pending |
+| OpenSearch sync/fallback/freshness | Phase 4 | Complete |
+| API compatibility and generated contracts | Phase 4 | Complete |
+| Anonymous saves, auth/admin/errors/player/filters/stale requests | Phases 4/5 | Complete |
+| Accessibility and UI consistency findings | Phase 5 | Complete |
+| Bundles, transcript rendering, data fetching, route hotspots | Phase 5 | Complete |
+| Topic/opinion/related/quoted/mention-export features | Phase 6 | Complete |
 | Billing/PWA retirement and documentation drift | Phase 7 | Pending |
 
 ## Final Acceptance
 
 - [ ] Phases 1–5 meet the production-readiness milestone.
-- [ ] Phase 6 product recommendations are shipped and browser-tested.
+- [x] Phase 6 product recommendations are shipped and browser-tested.
 - [ ] Phase 7 documentation and release validation pass.
 - [ ] `make verify` passes from a clean checkout.
 - [ ] Both review traceability lists contain no unresolved finding.

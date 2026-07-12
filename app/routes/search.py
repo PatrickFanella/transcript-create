@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import text as _text
 
 from ..common.session import get_session_token as _get_session_token
@@ -21,10 +21,48 @@ from ..schemas import (
 from ..search.analytics import get_popular_searches as _get_popular_searches
 from ..search.analytics import get_search_analytics as _get_search_analytics
 from ..search.analytics import get_search_suggestions as _get_search_suggestions
+from ..search.mention_exports import mention_collection, render_mention_export
 from ..search.orchestrator import SearchOrchestrator
+from ..settings import settings
 
 router = APIRouter(prefix="", tags=["Search"])
 _search_orchestrator = SearchOrchestrator()
+
+
+@router.get("/search/mentions/export", summary="Export every matched mention")
+def export_search_mentions(
+    q: str = Query(..., min_length=1, max_length=500),
+    format: str = Query("json", pattern="^(json|csv|m3u)$"),
+    source: str = Query("best", pattern="^(best|native|youtube)$"),
+    video_id: uuid.UUID | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    limit: int = Query(5000, ge=1, le=5000),
+    db=Depends(get_db),
+):
+    filters = {
+        **({"date_from": date_from} if date_from else {}),
+        **({"date_to": date_to} if date_to else {}),
+    }
+    items = mention_collection(
+        db,
+        q=q,
+        source=source,
+        video_id=str(video_id) if video_id else None,
+        limit=limit,
+        filters=filters,
+    )
+    body, media_type = render_mention_export(
+        items,
+        format=format,
+        frontend_origin=settings.FRONTEND_ORIGIN,
+    )
+    extension = "m3u" if format == "m3u" else format
+    return Response(
+        content=body,
+        media_type=media_type.split(";", 1)[0],
+        headers={"Content-Disposition": f'attachment; filename="mentions.{extension}"'},
+    )
 
 
 @router.get(

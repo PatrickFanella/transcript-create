@@ -34,4 +34,28 @@ describe('EpisodeIntelligence', () => {
       '/v/video-1?t=12'
     );
   });
+
+  it('exposes empty and unavailable states without accessibility violations', async () => {
+    vi.spyOn(api, 'getRelatedEpisodes').mockResolvedValue({ items: [] });
+    vi.spyOn(api, 'getQuotedMoments').mockResolvedValue({ video_id: 'video-1', items: [] });
+    const { container, rerender } = render(
+      <MemoryRouter>
+        <EpisodeIntelligence videoId="video-1" />
+      </MemoryRouter>
+    );
+    expect(await screen.findByText('No explainable related episodes yet.')).toBeInTheDocument();
+    expect(screen.getByText('No quoted moments have accumulated yet.')).toBeInTheDocument();
+
+    vi.spyOn(api, 'getRelatedEpisodes').mockRejectedValue(new Error('degraded'));
+    vi.spyOn(api, 'getQuotedMoments').mockRejectedValue(new Error('degraded'));
+    rerender(
+      <MemoryRouter>
+        <EpisodeIntelligence videoId="video-2" />
+      </MemoryRouter>
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('temporarily unavailable');
+    expect(
+      (await import('axe-core')).default.run(container).then((result) => result.violations)
+    ).resolves.toEqual([]);
+  });
 });

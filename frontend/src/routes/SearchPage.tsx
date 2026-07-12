@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { apiAddFavorite, favorites, track, useAuth } from '../services';
-import type { ArchiveSearchFilters, SearchHit, VideoInfo } from '../types/api';
+import {
+  api,
+  apiAddFavorite,
+  buildApiUrl,
+  favorites,
+  playbackQueue,
+  track,
+  useAuth,
+} from '../services';
+import type { ArchiveSearchFilters, MentionExportItem, SearchHit, VideoInfo } from '../types/api';
 import {
   buildTimestampLink,
   formatDate,
@@ -109,6 +117,7 @@ export default function SearchPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+  const [queue, setQueue] = useState<MentionExportItem[]>(() => playbackQueue.list());
   const { user } = useAuth();
   const { shouldFetch, suggestedSearches, grouped, flatHits, mode, loading, queryError } =
     useArchiveSearch(filters);
@@ -208,6 +217,22 @@ export default function SearchPage() {
       setOperationFeedback('Quote copied.');
     } catch {
       setActionError('The quote could not be copied.');
+    }
+  }
+
+  const exportParams = useMemo(() => {
+    const value = serializeFilters({ ...filters, limit: 5000, offset: undefined });
+    value.set('format', 'json');
+    return value;
+  }, [filters]);
+
+  async function queueEveryMention() {
+    try {
+      const response = await api.getMentionCollection(filters.q, filters);
+      setQueue(playbackQueue.replace(response.items));
+      setOperationFeedback(`${response.items.length} mentions added to the playback queue.`);
+    } catch {
+      setActionError('The playback queue could not be created.');
     }
   }
 
@@ -379,6 +404,24 @@ export default function SearchPage() {
           <aside className="space-y-4 xl:sticky xl:top-24">
             <section className="archive-section space-y-4">
               <div className="archive-rule-title">Research tools</div>
+              <div className="flex flex-wrap gap-2" aria-label="Every mention exports">
+                {(['json', 'csv', 'm3u'] as const).map((format) => {
+                  const params = new URLSearchParams(exportParams);
+                  params.set('format', format);
+                  return (
+                    <a
+                      key={format}
+                      className="action-link"
+                      href={buildApiUrl('search/mentions/export', params)}
+                    >
+                      Export {format.toUpperCase()}
+                    </a>
+                  );
+                })}
+              </div>
+              <button type="button" className="action-link" onClick={queueEveryMention}>
+                Add every mention to queue
+              </button>
               <Link
                 to={`/topics/${encodeURIComponent(filters.q)}`}
                 className="block rounded-lg border border-border bg-surface-muted p-3 text-sm text-ink transition-colors hover:border-accent/50"
@@ -398,6 +441,43 @@ export default function SearchPage() {
                 </span>
               </Link>
             </section>
+
+            {queue.length > 0 && (
+              <section className="archive-section space-y-4" aria-labelledby="playback-queue-title">
+                <div className="flex items-center justify-between gap-3">
+                  <div id="playback-queue-title" className="archive-rule-title">
+                    Playback queue
+                  </div>
+                  <button
+                    type="button"
+                    className="action-link"
+                    onClick={() => setQueue(playbackQueue.clear())}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <ol className="space-y-3">
+                  {queue.map((item, index) => (
+                    <li
+                      key={`${item.video_id}:${item.start_ms}:${index}`}
+                      className="border-b border-border pb-3"
+                    >
+                      <Link className="block text-sm font-semibold text-ink" to={item.deep_link}>
+                        {item.video_title} at {Math.floor(item.start_ms / 1000)}s
+                      </Link>
+                      <p className="mt-1 line-clamp-2 text-xs text-muted">{item.snippet}</p>
+                      <button
+                        type="button"
+                        className="action-link mt-2"
+                        onClick={() => setQueue(playbackQueue.remove(index))}
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
 
             {suggestedSearches.length > 0 && (
               <section className="archive-section space-y-4">

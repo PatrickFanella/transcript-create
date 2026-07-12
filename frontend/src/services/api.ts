@@ -7,6 +7,7 @@ import type {
   ExploreIntelligenceResponse,
   GroupedSearchResponse,
   MentionMapResponse,
+  MentionCollectionResponse,
   PaginatedVideos,
   SavedSearch,
   SavedSearchFilters,
@@ -120,6 +121,15 @@ export const api = {
     const params = new URLSearchParams({ q });
     appendSearchFilters(params, opts);
     return http.get('search/mention-map', { searchParams: params }).json<MentionMapResponse>();
+  },
+  async getMentionCollection(q: string, opts?: ArchiveSearchFilters) {
+    const params = new URLSearchParams({ q, format: 'json' });
+    appendSearchFilters(params, opts);
+    params.delete('offset');
+    params.set('limit', '5000');
+    return http
+      .get('search/mentions/export', { searchParams: params })
+      .json<MentionCollectionResponse>();
   },
   async getSearchSuggestions(q: string, limit = 10, signal?: AbortSignal) {
     const searchParams = new URLSearchParams({ q, limit: String(limit) });

@@ -19,19 +19,19 @@ export default function TopicTimeline({ data }: { data: TopicTimelineResponse })
         role="img"
         aria-label={`Timeline of ${data.topic} mentions`}
       >
-        {data.buckets.map((bucket) => (
-          <div
-            key={bucket.period}
-            className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
-          >
-            <span className="text-xs text-muted">{bucket.mention_count}</span>
+        {data.buckets.map((bucket) => {
+          const height = Math.max(1, Math.ceil((bucket.mention_count / max) * 10));
+          return (
             <div
-              className="w-full rounded-t bg-accent"
-              style={{ height: `${Math.max(4, (bucket.mention_count / max) * 112)}px` }}
-            />
-            <span className="max-w-full truncate text-[10px] text-subtle">{bucket.period}</span>
-          </div>
-        ))}
+              key={bucket.period}
+              className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
+            >
+              <span className="text-xs text-muted">{bucket.mention_count}</span>
+              <div className={`topic-timeline-bar topic-timeline-bar-${height}`} />
+              <span className="max-w-full truncate text-[10px] text-subtle">{bucket.period}</span>
+            </div>
+          );
+        })}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">

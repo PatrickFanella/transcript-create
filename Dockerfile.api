@@ -16,6 +16,7 @@ COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/
 COPY --from=dependencies /usr/local/bin /usr/local/bin
 WORKDIR /app
 COPY app ./app
+COPY worker/__init__.py worker/formatter.py ./worker/
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY scripts/run_migrations.py ./scripts/run_migrations.py

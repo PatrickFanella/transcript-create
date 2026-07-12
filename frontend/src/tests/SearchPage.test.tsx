@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import SearchPage from '../routes/SearchPage';
 import { api, http } from '../services';
 import { renderWithProviders } from './test-utils';
+import axe from 'axe-core';
 
 const searchParamsMock = vi.fn();
 let currentSearchParams = new URLSearchParams();
@@ -79,7 +80,7 @@ describe('SearchPage', () => {
       ],
     } as never);
 
-    renderWithProviders(<SearchPage />);
+    const { container } = renderWithProviders(<SearchPage />);
 
     await waitFor(() => {
       expect(searchGroupedMock).toHaveBeenCalledWith(
@@ -107,6 +108,7 @@ describe('SearchPage', () => {
     expect(screen.getByText('rent', { selector: 'mark' })).toBeInTheDocument();
 
     expect(screen.getByRole('link', { name: 'gaza' })).toHaveAttribute('href', '/search?q=gaza');
+    expect((await axe.run(container)).violations).toEqual([]);
   });
 
   it('keeps search usable when suggested searches fail', async () => {

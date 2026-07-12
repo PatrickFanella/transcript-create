@@ -603,6 +603,8 @@ export default function ExplorePage() {
                             alt={video.title || 'VOD thumbnail'}
                             className="h-full w-full object-cover opacity-85 transition duration-500 group-hover:scale-[1.025] group-hover:opacity-100"
                             loading="lazy"
+                            width="480"
+                            height="360"
                           />
                         </div>
                         <div className="p-3">

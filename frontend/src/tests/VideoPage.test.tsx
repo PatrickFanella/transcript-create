@@ -6,6 +6,7 @@ import { api } from '../services';
 import { http } from '../services/api';
 import VideoPage from '../routes/VideoPage';
 import { render } from '@testing-library/react';
+import axe from 'axe-core';
 
 vi.mock('../components/YouTubePlayer', () => ({
   __esModule: true,
@@ -42,7 +43,7 @@ describe('VideoPage', () => {
       segments: [],
     } as never);
 
-    render(
+    const { container } = render(
       <MemoryRouter initialEntries={['/v/video-1']}>
         <AuthProvider>
           <Routes>
@@ -64,6 +65,7 @@ describe('VideoPage', () => {
 
     fireEvent.scroll(window);
     expect(await screen.findByRole('button', { name: 'Enable follow live' })).toBeInTheDocument();
+    expect((await axe.run(container)).violations).toEqual([]);
   });
 
   it('shows a retry action when the transcript request fails', async () => {

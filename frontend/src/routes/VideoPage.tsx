@@ -14,7 +14,7 @@ import {
 } from '../features/videoTranscript/transcript';
 import {
   FormattedTranscriptDocument,
-  EpisodeOutline,
+  PlaybackProgress,
   PlayerPanel,
   PlainTranscriptTurns,
   TranscriptSearchBar,
@@ -26,8 +26,9 @@ function secondsToYouTubeTs(s: number) {
   return Math.max(0, Math.floor(s));
 }
 
-function copyText(text: string) {
-  void navigator.clipboard?.writeText(text);
+async function copyText(text: string) {
+  if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+  await navigator.clipboard.writeText(text);
 }
 
 export default function VideoPage() {
@@ -50,10 +51,10 @@ export default function VideoPage() {
   const [activeSegId, setActiveSegId] = useState<number | null>(null);
   const [activeSentenceId, setActiveSentenceId] = useState<string | null>(null);
   const [activeBlockIndex, setActiveBlockIndex] = useState<number | null>(null);
-  const [currentMs, setCurrentMs] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'standard' | 'theater' | 'reader'>('standard');
   const [isPlayingMatches, setIsPlayingMatches] = useState(false);
   const [autoFollowEnabled, setAutoFollowEnabled] = useState(true);
+  const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
   const playerRef = useRef<YouTubePlayerHandle | null>(null);
   const autoFollowScrollTimeoutRef = useRef<number | null>(null);
 
@@ -86,6 +87,15 @@ export default function VideoPage() {
       inline: 'nearest',
     });
   }, [scrollElementIntoView]);
+  const autoScrollToPlayback = useCallback(
+    (element: HTMLElement) =>
+      scrollElementIntoView(element, {
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest',
+      }),
+    [scrollElementIntoView]
+  );
 
   const loadTranscript = useCallback(
     async (id: string, source: 'best' | 'whisper' | 'youtube' = 'best') => {
@@ -265,22 +275,6 @@ export default function VideoPage() {
     }
   }, [scrollElementIntoView, startSeconds, transcript]);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      const seconds = playerRef.current?.getCurrentTime();
-      if (seconds == null || !Number.isFinite(seconds)) return;
-      setCurrentMs(Math.floor(seconds * 1000));
-    }, 750);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (!autoFollowEnabled || currentMs == null) return;
-    const el = document.querySelector('[data-current-sentence="true"]');
-    if (!el) return;
-    scrollElementIntoView(el, { behavior: 'smooth', block: 'center', inline: 'nearest' });
-  }, [autoFollowEnabled, currentMs, scrollElementIntoView]);
-
   const jumpTo = useCallback(
     (ms: number) => {
       const s = Math.floor(ms / 1000);
@@ -445,17 +439,24 @@ export default function VideoPage() {
         });
       }
       track({ type: 'favorite_add', payload: { videoId, start_ms: segment.start_ms } });
+      setOperationFeedback('Transcript moment saved.');
     } catch (err) {
       console.error('Failed to save transcript moment', err);
+      setOperationFeedback('The transcript moment could not be saved.');
     }
   }
 
-  function copyTranscriptQuote(segment: Segment, text: string, segIndex: number) {
+  async function copyTranscriptQuote(segment: Segment, text: string, segIndex: number) {
     if (!videoId) return;
     const url = `${window.location.origin}${buildTimestampLink(videoId, segment.start_ms, segIndex)}`;
-    copyText(
-      `“${normalizeTranscriptText(text)}”\n\n— ${episodeTitle}, ${formatTimestamp(segment.start_ms)}\n${url}`
-    );
+    try {
+      await copyText(
+        `“${normalizeTranscriptText(text)}”\n\n— ${episodeTitle}, ${formatTimestamp(segment.start_ms)}\n${url}`
+      );
+      setOperationFeedback('Quote copied.');
+    } catch {
+      setOperationFeedback('The quote could not be copied.');
+    }
   }
 
   const transcriptTurns = useMemo(
@@ -509,6 +510,11 @@ export default function VideoPage() {
       <VideoHeader title={episodeTitle} actions={video ? <ExportMenu videoId={video.id} /> : null}>
         {video && <VideoDetailsPanel video={video} />}
       </VideoHeader>
+      {operationFeedback && (
+        <div className="text-sm text-success" role="status">
+          {operationFeedback}
+        </div>
+      )}
 
       <div className={viewMode === 'standard' ? 'transcript-layout' : 'space-y-6'}>
         <aside
@@ -538,6 +544,7 @@ export default function VideoPage() {
                   key={mode}
                   type="button"
                   className={viewMode === mode ? 'view-switch-active' : ''}
+                  aria-pressed={viewMode === mode}
                   onClick={() => setViewMode(mode)}
                 >
                   {mode === 'standard' ? 'Split' : mode === 'theater' ? 'Watch' : 'Read'}
@@ -567,7 +574,14 @@ export default function VideoPage() {
               )}
             </div>
           </div>
-          <EpisodeOutline chapters={chapters} currentMs={currentMs} onSelect={selectChapter} />
+          <PlaybackProgress
+            chapters={chapters}
+            onSelectChapter={selectChapter}
+            playerRef={playerRef}
+            transcriptKey={`${videoId}:${transcript?.segments.length ?? 0}:${formattedBlocks.length}`}
+            autoFollow={autoFollowEnabled}
+            onAutoScroll={autoScrollToPlayback}
+          />
         </aside>
 
         <section
@@ -733,7 +747,6 @@ export default function VideoPage() {
                     activeBlockIndex={activeBlockIndex}
                     activeSegId={activeSegId}
                     activeSentenceId={activeSentenceId}
-                    currentMs={currentMs}
                     isSavedSegment={isSavedSegment}
                     onClickSentence={onClickFormattedSentence}
                     onSaveMoment={saveTranscriptMoment}

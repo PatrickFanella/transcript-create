@@ -19,7 +19,7 @@ export default function VideoCard({ video }: VideoCardProps) {
   return (
     <Link
       to={`/v/${video.id}`}
-      className="group overflow-hidden rounded-xl border border-border bg-surface-muted/55 transition-all hover:-translate-y-0.5 hover:border-accent/65 hover:shadow-[0_18px_40px_rgba(0,0,0,0.28)]"
+      className="group overflow-hidden rounded-xl border border-border bg-surface-muted/55 transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-accent/65 hover:shadow-[0_18px_40px_rgba(0,0,0,0.28)]"
     >
       <div className="relative aspect-video overflow-hidden border-b border-border bg-canvas">
         <img
@@ -27,6 +27,8 @@ export default function VideoCard({ video }: VideoCardProps) {
           alt=""
           className="h-full w-full object-cover opacity-85 transition duration-500 group-hover:scale-[1.025] group-hover:opacity-100"
           loading="lazy"
+          width="480"
+          height="360"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
         <span className="timestamp-pill absolute bottom-3 left-3">

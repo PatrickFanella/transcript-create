@@ -5,6 +5,7 @@ import { api } from '../services';
 import { favorites } from '../services/favorites';
 import { http } from '../services/api';
 import { renderWithProviders } from './test-utils';
+import axe from 'axe-core';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -115,7 +116,7 @@ describe('TopicPage', () => {
 
     const toggleMock = vi.spyOn(favorites, 'toggle');
 
-    renderWithProviders(<TopicPage />);
+    const { container } = renderWithProviders(<TopicPage />);
 
     await waitFor(() => {
       expect(mentionMapMock).toHaveBeenCalledWith('rent');
@@ -147,5 +148,6 @@ describe('TopicPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Saved moment' })).toBeInTheDocument();
     });
+    expect((await axe.run(container)).violations).toEqual([]);
   });
 });

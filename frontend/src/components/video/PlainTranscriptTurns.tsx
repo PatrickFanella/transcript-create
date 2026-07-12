@@ -38,7 +38,7 @@ export default function PlainTranscriptTurns({
         const activeEntry = turn.segments.find(({ id }) => id === activeSegId);
 
         return (
-          <section key={turn.key} className="transcript-block" role="listitem">
+          <section key={turn.key} className="transcript-block content-auto" role="listitem">
             <div className="transcript-block-meta">
               <button
                 type="button"
@@ -61,6 +61,9 @@ export default function PlainTranscriptTurns({
                       id={`seg-${id}`}
                       key={id}
                       type="button"
+                      data-transcript-sentence="true"
+                      data-start-ms={seg.start_ms}
+                      data-end-ms={seg.end_ms}
                       onClick={() => onClickSegment(seg, id)}
                       className={`transcript-sentence mx-0.5 text-left ${activeSegId === id ? 'transcript-sentence-active' : ''} ${match ? 'transcript-sentence-match' : ''} ${saved ? 'underline decoration-warning decoration-2 underline-offset-4' : ''}`}
                       aria-label={`Play ${turn.speaker ?? 'paragraph'} from ${msToHms(seg.start_ms)}`}

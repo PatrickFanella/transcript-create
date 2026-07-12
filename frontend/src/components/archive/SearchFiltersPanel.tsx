@@ -65,7 +65,9 @@ export default function SearchFiltersPanel({
             </label>
             <input
               id="search-query"
+              name="q"
               type="search"
+              autoComplete="off"
               value={q}
               onChange={(event) => onQChange(event.target.value)}
               placeholder="Search a topic, quote, guest, or exact phrase…"
@@ -88,6 +90,7 @@ export default function SearchFiltersPanel({
             <span className="meta-label">From</span>
             <input
               id="search-date-from"
+              name="date_from"
               type="date"
               className="form-control min-h-[42px]"
               value={dateFrom}
@@ -98,6 +101,7 @@ export default function SearchFiltersPanel({
             <span className="meta-label">To</span>
             <input
               id="search-date-to"
+              name="date_to"
               type="date"
               className="form-control min-h-[42px]"
               value={dateTo}

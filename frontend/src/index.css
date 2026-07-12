@@ -202,11 +202,11 @@ body {
   }
 
   .form-control {
-    @apply min-h-[40px] w-full rounded-lg border border-border bg-surface-muted/90 px-3 py-2 text-ink shadow-inner shadow-black/20 transition-[border-color,box-shadow,background-color] placeholder:text-subtle focus:border-accent focus:bg-surface focus:ring-2 focus:ring-accent/25;
+    @apply min-h-[44px] w-full rounded-lg border border-border bg-surface-muted/90 px-3 py-2 text-ink shadow-inner shadow-black/20 transition-[border-color,box-shadow,background-color] placeholder:text-subtle focus:border-accent focus:bg-surface focus:ring-2 focus:ring-accent/25;
   }
 
   .nav-link {
-    @apply cursor-pointer rounded-md px-2.5 py-1.5 text-sm font-medium tracking-[0.04em] text-muted transition-all hover:bg-surface-muted hover:text-ink focus:bg-surface-muted focus:text-ink;
+    @apply inline-flex min-h-[44px] cursor-pointer items-center rounded-md px-2.5 py-1.5 text-sm font-medium tracking-[0.04em] text-muted transition-[color,background-color] hover:bg-surface-muted hover:text-ink focus:bg-surface-muted focus:text-ink;
   }
 
   .action-link {
@@ -214,27 +214,27 @@ body {
   }
 
   .icon-button {
-    @apply inline-flex min-h-[38px] min-w-[38px] cursor-pointer items-center justify-center rounded-lg border border-border bg-surface-muted/70 text-muted transition-colors hover:border-border-strong hover:text-ink;
+    @apply inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-lg border border-border bg-surface-muted/70 text-muted transition-colors hover:border-border-strong hover:text-ink;
   }
 
   .btn-base {
-    @apply inline-flex min-h-[38px] min-w-[38px] cursor-pointer items-center justify-center rounded-lg px-3.5 py-1.5 text-center font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-lg px-3.5 py-1.5 text-center font-semibold transition-[color,background-color,border-color,box-shadow,transform] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-primary {
-    @apply inline-flex min-h-[38px] min-w-[38px] cursor-pointer items-center justify-center rounded-lg border border-accent/60 bg-accent px-3.5 py-1.5 text-center font-semibold text-[#101014] shadow-[0_0_0_1px_rgba(183,255,60,0.08),0_12px_30px_rgba(183,255,60,0.18)] transition-all hover:-translate-y-0.5 hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-lg border border-accent/60 bg-accent px-3.5 py-1.5 text-center font-semibold text-[#101014] shadow-[0_0_0_1px_rgba(183,255,60,0.08),0_12px_30px_rgba(183,255,60,0.18)] transition-[color,background-color,border-color,box-shadow,transform] hover:-translate-y-0.5 hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex min-h-[38px] min-w-[38px] cursor-pointer items-center justify-center rounded-lg border border-border bg-surface px-3.5 py-1.5 text-center font-semibold text-ink transition-all hover:border-border-strong hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-lg border border-border bg-surface px-3.5 py-1.5 text-center font-semibold text-ink transition-[color,background-color,border-color,box-shadow] hover:border-border-strong hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-ghost {
-    @apply inline-flex min-h-[38px] min-w-[38px] cursor-pointer items-center justify-center rounded-lg px-3 py-1.5 text-center font-semibold text-muted transition-colors hover:bg-surface-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-lg px-3 py-1.5 text-center font-semibold text-muted transition-colors hover:bg-surface-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn {
-    @apply inline-flex min-h-[40px] min-w-[40px] cursor-pointer items-center justify-center rounded-lg border border-accent/60 bg-accent px-5 py-2 text-center font-semibold text-[#101014] shadow-[0_0_0_1px_rgba(183,255,60,0.08),0_14px_32px_rgba(183,255,60,0.18)] transition-all hover:-translate-y-0.5 hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-lg border border-accent/60 bg-accent px-5 py-2 text-center font-semibold text-[#101014] shadow-[0_0_0_1px_rgba(183,255,60,0.08),0_14px_32px_rgba(183,255,60,0.18)] transition-[color,background-color,border-color,box-shadow,transform] hover:-translate-y-0.5 hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .badge-success {
@@ -355,12 +355,12 @@ body {
   }
 
   .signal-card {
-    @apply relative overflow-hidden rounded-xl border border-border bg-surface-muted/65 p-4 transition-all hover:-translate-y-0.5 hover:border-accent/65 hover:bg-surface;
+    @apply relative overflow-hidden rounded-xl border border-border bg-surface-muted/65 p-4 transition-[transform,border-color,background-color] hover:-translate-y-0.5 hover:border-accent/65 hover:bg-surface;
   }
 
   .signal-card::after {
     content: '';
-    @apply pointer-events-none absolute bottom-0 left-0 h-px w-0 bg-accent transition-all duration-300 group-hover:w-full;
+    @apply pointer-events-none absolute bottom-0 left-0 h-px w-0 bg-accent transition-[width] duration-300 group-hover:w-full;
   }
 
   .period-button {
@@ -563,6 +563,17 @@ body {
 @media (min-width: 1536px) {
   .transcript-layout {
     grid-template-columns: minmax(22rem, 26rem) minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

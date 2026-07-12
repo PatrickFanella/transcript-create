@@ -48,6 +48,8 @@ export default function AppLayout() {
               <img
                 src="/icon.svg"
                 alt=""
+                width="40"
+                height="40"
                 className="h-10 w-10 rounded-lg border border-border bg-surface object-cover"
               />
               <span>
@@ -126,6 +128,8 @@ export default function AppLayout() {
                       <img
                         src={user.avatar_url}
                         alt={`${user.name || user.email} avatar`}
+                        width="32"
+                        height="32"
                         className="h-8 w-8 rounded-full border border-border"
                       />
                     )}
@@ -260,6 +264,8 @@ export default function AppLayout() {
                         <img
                           src={user.avatar_url}
                           alt={`${user.name || user.email} avatar`}
+                          width="32"
+                          height="32"
                           className="h-8 w-8 rounded-full border border-border"
                         />
                       )}

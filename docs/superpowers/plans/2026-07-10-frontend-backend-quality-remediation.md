@@ -211,12 +211,12 @@ high/critical advisories are cleared.
 - [x] Add wildcard 404, route error boundaries, missing-video state, and
   accurate login content.
 - [x] Centralize YouTube loading and safely reset player state per video/start.
-- [ ] Add Timeline navigation, URL-backed Explore state, and operation feedback.
-- [ ] Fix mobile focus/Escape, landmarks, tabs, pressed states, 44 px targets,
+- [x] Add Timeline navigation, URL-backed Explore state, and operation feedback.
+- [x] Fix mobile focus/Escape, landmarks, tabs, pressed states, 44 px targets,
   transitions, image dimensions, form metadata, reduced motion, and axe tests.
 - [x] Lazy-load routes, exclude admin code from public pages, and enforce
   150 KiB shell+initial and 100 KiB lazy-route gzip budgets.
-- [ ] Isolate playback time, memoize/index transcript work, throttle scroll, and
+- [x] Isolate playback time, memoize/index transcript work, throttle scroll, and
   use content visibility.
 - [ ] Split the five oversized routes into focused hooks/adapters/controllers/
   view models/presentational sections.

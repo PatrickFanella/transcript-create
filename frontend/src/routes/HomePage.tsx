@@ -88,6 +88,9 @@ export default function HomePage() {
                   </svg>
                   <input
                     id="home-search"
+                    name="q"
+                    type="search"
+                    autoComplete="off"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="A topic, quote, guest, or phrase…"

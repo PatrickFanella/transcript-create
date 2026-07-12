@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import axe from 'axe-core';
 import AppLayout from '../routes/AppLayout';
 
 vi.mock('../services', () => ({
@@ -16,8 +17,9 @@ vi.mock('../services', () => ({
 
 describe('AppLayout navigation', () => {
   it('includes Timeline in primary navigation', () => {
-    render(<AppLayout />, { wrapper: MemoryRouter });
+    const { container } = render(<AppLayout />, { wrapper: MemoryRouter });
     expect(screen.getByRole('link', { name: 'Timeline' })).toHaveAttribute('href', '/timeline');
+    return axe.run(container).then((result) => expect(result.violations).toEqual([]));
   });
 
   it('only renders the mobile menu while open and restores focus on Escape', () => {

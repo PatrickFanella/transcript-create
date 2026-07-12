@@ -8,8 +8,10 @@ type Props = {
 };
 
 export default function ExportMenu({ videoId }: Props) {
+  const [feedback, setFeedback] = useState<string | null>(null);
   function guard(payload: Record<string, unknown>) {
     track({ type: 'export_click', payload });
+    setFeedback(`${String(payload.format).toUpperCase()} export started.`);
   }
   return (
     <details className="relative inline-block group">
@@ -20,7 +22,7 @@ export default function ExportMenu({ videoId }: Props) {
         </div>
         <div className="flex flex-wrap gap-2">
           <a
-            className="btn-secondary min-h-0 px-2 py-1 text-xs"
+            className="btn-secondary px-2 py-1 text-xs"
             onClick={() => guard({ videoId, format: 'srt', source: 'best' })}
             href={buildApiUrl(`videos/${videoId}/transcript.srt`)}
             download={`video-${videoId}.srt`}
@@ -28,7 +30,7 @@ export default function ExportMenu({ videoId }: Props) {
             SRT
           </a>
           <a
-            className="btn-secondary min-h-0 px-2 py-1 text-xs"
+            className="btn-secondary px-2 py-1 text-xs"
             onClick={() => guard({ videoId, format: 'vtt', source: 'best' })}
             href={buildApiUrl(`videos/${videoId}/transcript.vtt`)}
             download={`video-${videoId}.vtt`}
@@ -36,7 +38,7 @@ export default function ExportMenu({ videoId }: Props) {
             VTT
           </a>
           <a
-            className="btn-secondary min-h-0 px-2 py-1 text-xs"
+            className="btn-secondary px-2 py-1 text-xs"
             onClick={() => guard({ videoId, format: 'json', source: 'best' })}
             href={buildApiUrl(`videos/${videoId}/transcript.json`)}
             download={`video-${videoId}.json`}
@@ -44,7 +46,7 @@ export default function ExportMenu({ videoId }: Props) {
             JSON
           </a>
           <a
-            className="btn-secondary min-h-0 px-2 py-1 text-xs"
+            className="btn-secondary px-2 py-1 text-xs"
             onClick={() => guard({ videoId, format: 'pdf', source: 'whisper' })}
             href={buildApiUrl(`videos/${videoId}/transcript.pdf`)}
             download={`video-${videoId}.pdf`}
@@ -52,6 +54,11 @@ export default function ExportMenu({ videoId }: Props) {
             PDF
           </a>
         </div>
+        {feedback && (
+          <div className="mt-3 text-xs text-success" role="status">
+            {feedback}
+          </div>
+        )}
         <div className="mt-2 text-xs text-muted">
           Exports use the best transcript available for this VOD.
         </div>
@@ -66,3 +73,4 @@ export default function ExportMenu({ videoId }: Props) {
     </details>
   );
 }
+import { useState } from 'react';

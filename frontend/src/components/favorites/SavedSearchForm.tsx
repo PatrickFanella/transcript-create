@@ -23,6 +23,8 @@ export default function SavedSearchForm({
       <label className="block text-sm text-muted">
         Query
         <input
+          name="query"
+          autoComplete="off"
           className="form-control mt-1"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
@@ -33,6 +35,7 @@ export default function SavedSearchForm({
         <label className="block text-sm text-muted">
           From date
           <input
+            name="date_from"
             className="form-control mt-1"
             type="date"
             value={filters.date_from ?? ''}
@@ -47,6 +50,7 @@ export default function SavedSearchForm({
         <label className="block text-sm text-muted">
           To date
           <input
+            name="date_to"
             className="form-control mt-1"
             type="date"
             value={filters.date_to ?? ''}

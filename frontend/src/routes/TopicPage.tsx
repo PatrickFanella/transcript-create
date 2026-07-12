@@ -18,8 +18,9 @@ function mentionLink(videoId: string, moment: SearchHit) {
   return buildTimestampLink(videoId, moment.start_ms, moment.id);
 }
 
-function copyText(text: string) {
-  void navigator.clipboard?.writeText(text);
+async function copyText(text: string) {
+  if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+  await navigator.clipboard.writeText(text);
 }
 
 function quoteText(videoId: string, moment: SearchHit, title: string) {
@@ -44,6 +45,7 @@ export default function TopicPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+  const [feedback, setFeedback] = useState<string | null>(null);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -93,6 +95,7 @@ export default function TopicPage() {
         });
       }
       setSavedKeys((current) => new Set([...current, key]));
+      setFeedback('Moment saved.');
       track({ type: 'favorite_add', payload: { videoId, start_ms: moment.start_ms } });
     } catch (err) {
       console.error('Failed to save topic moment', err);
@@ -122,6 +125,11 @@ export default function TopicPage() {
       {error && (
         <div className="alert-warning" role="alert">
           {error}
+        </div>
+      )}
+      {feedback && (
+        <div className="text-sm text-success" role="status">
+          {feedback}
         </div>
       )}
 
@@ -267,15 +275,17 @@ export default function TopicPage() {
                         <button
                           type="button"
                           className="nav-link"
-                          onClick={() =>
-                            copyText(
+                          onClick={() => {
+                            void copyText(
                               quoteText(
                                 group.video.id,
                                 moment as SearchHit,
                                 group.video.title || 'Untitled VOD'
                               )
                             )
-                          }
+                              .then(() => setFeedback('Quote copied.'))
+                              .catch(() => setError('The quote could not be copied.'));
+                          }}
                         >
                           Copy quote
                         </button>

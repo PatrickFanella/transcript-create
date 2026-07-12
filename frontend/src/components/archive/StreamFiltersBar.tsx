@@ -76,6 +76,7 @@ export default function StreamFiltersBar({
           </label>
           <input
             id="stream-q"
+            name="q"
             type="search"
             placeholder="Search titles, channels, or notes…"
             className="form-control"
@@ -91,6 +92,7 @@ export default function StreamFiltersBar({
           </label>
           <input
             id="stream-date-from"
+            name="date_from"
             type="date"
             className="form-control"
             aria-label="From date"
@@ -105,6 +107,7 @@ export default function StreamFiltersBar({
           </label>
           <input
             id="stream-date-to"
+            name="date_to"
             type="date"
             className="form-control"
             aria-label="To date"

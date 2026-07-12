@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import ExplorePage from '../routes/ExplorePage';
 import { api } from '../services';
 import { render } from '@testing-library/react';
+import axe from 'axe-core';
 
 describe('ExplorePage', () => {
   beforeEach(() => {
@@ -181,7 +182,7 @@ describe('ExplorePage', () => {
         return baseResponse;
       });
 
-    render(
+    const { container } = render(
       <MemoryRouter initialEntries={['/explore']}>
         <ExplorePage />
       </MemoryRouter>
@@ -234,6 +235,7 @@ describe('ExplorePage', () => {
     expect(screen.queryByLabelText(/Date to/i)).not.toBeInTheDocument();
 
     expect(getExploreIntelligence).toHaveBeenCalledWith({});
+    expect((await axe.run(container)).violations).toEqual([]);
   });
 
   it('refetches selected predefined periods and latest default', async () => {

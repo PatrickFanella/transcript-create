@@ -30,8 +30,9 @@ type SearchResult =
   | { mode: 'flat'; grouped: null; flatHits: SearchHit[] };
 const EMPTY_HITS: SearchHit[] = [];
 
-function copyText(text: string) {
-  void navigator.clipboard?.writeText(text);
+async function copyText(text: string) {
+  if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+  await navigator.clipboard.writeText(text);
 }
 
 function ResultHeader({
@@ -51,6 +52,7 @@ function ResultHeader({
     <header className="search-result-head">
       <Link
         to={video ? `/v/${video.id}` : '#'}
+        aria-label={`Open ${title}`}
         className="relative hidden aspect-video overflow-hidden rounded-lg border border-border bg-canvas sm:block lg:aspect-[4/3]"
       >
         {video?.youtube_id ? (
@@ -59,6 +61,8 @@ function ResultHeader({
             alt=""
             className="h-full w-full object-cover opacity-80 transition-opacity hover:opacity-100"
             loading="lazy"
+            width="320"
+            height="180"
           />
         ) : null}
       </Link>
@@ -114,6 +118,7 @@ export default function SearchPage() {
     filters.sort_by ?? 'relevance'
   );
   const [actionError, setActionError] = useState<string | null>(null);
+  const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const { user } = useAuth();
   const shouldFetch = Boolean(filters.q.trim());
@@ -231,6 +236,7 @@ export default function SearchPage() {
           text,
         });
       setSavedKeys((current) => new Set([...current, key]));
+      setOperationFeedback('Moment saved.');
       track({ type: 'favorite_add', payload: { videoId, start_ms: moment.start_ms } });
     } catch (err) {
       console.error('Failed to save moment', err);
@@ -238,12 +244,24 @@ export default function SearchPage() {
     }
   }
 
-  function copyMomentTimestamp(videoId: string, moment: SearchHit) {
-    copyText(`${window.location.origin}${buildTimestampLink(videoId, moment.start_ms, moment.id)}`);
+  async function copyMomentTimestamp(videoId: string, moment: SearchHit) {
+    try {
+      await copyText(
+        `${window.location.origin}${buildTimestampLink(videoId, moment.start_ms, moment.id)}`
+      );
+      setOperationFeedback('Timestamp link copied.');
+    } catch {
+      setActionError('The timestamp link could not be copied.');
+    }
   }
 
-  function copyMomentQuote(videoId: string, moment: SearchHit, title: string) {
-    copyText(buildQuoteText(videoId, moment, title));
+  async function copyMomentQuote(videoId: string, moment: SearchHit, title: string) {
+    try {
+      await copyText(buildQuoteText(videoId, moment, title));
+      setOperationFeedback('Quote copied.');
+    } catch {
+      setActionError('The quote could not be copied.');
+    }
   }
 
   return (
@@ -288,6 +306,11 @@ export default function SearchPage() {
       {error && (
         <div className="alert-warning" role="alert">
           {error}
+        </div>
+      )}
+      {operationFeedback && (
+        <div className="text-sm text-success" role="status">
+          {operationFeedback}
         </div>
       )}
 

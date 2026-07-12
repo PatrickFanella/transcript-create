@@ -23,13 +23,15 @@ export default function StreamCard({ video, dateField }: StreamCardProps) {
   return (
     <Link
       to={`/v/${video.id}`}
-      className="surface-card-compact group flex h-full flex-col overflow-hidden border border-border/80 transition-all duration-200 hover:-translate-y-0.5 hover:border-accent hover:shadow-lg"
+      className="surface-card-compact group flex h-full flex-col overflow-hidden border border-border/80 transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-accent hover:shadow-lg"
     >
       <div className="relative overflow-hidden rounded-xl border border-border/60 bg-surface-muted">
         <img
           src={`https://i.ytimg.com/vi/${video.youtube_id}/hqdefault.jpg`}
           alt={title}
           loading="lazy"
+          width="480"
+          height="270"
           className="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
         />
         <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/75 via-black/25 to-transparent px-3 py-2 text-xs text-white">

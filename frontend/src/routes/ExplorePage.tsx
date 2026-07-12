@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../services';
 import type {
   ArchiveEvidenceMoment,
@@ -110,12 +110,21 @@ function metadataChips(video: VideoInfo) {
 }
 
 export default function ExplorePage() {
+  const [urlParams, setUrlParams] = useSearchParams();
+  const initialKind = normalizePeriodKind(urlParams.get('kind')) ?? 'latest';
   const [data, setData] = useState<ExploreIntelligenceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPeriodSlug, setSelectedPeriodSlug] = useState<string | null>(null);
-  const [periodKind, setPeriodKind] = useState<PeriodKind>('latest');
+  const [selectedPeriodSlug, setSelectedPeriodSlug] = useState<string | null>(
+    urlParams.get('period')
+  );
+  const [periodKind, setPeriodKind] = useState<PeriodKind>(initialKind);
+  const [granularity, setGranularity] = useState<'week' | 'month'>(
+    urlParams.get('granularity') === 'week' ? 'week' : 'month'
+  );
+  const [dateFrom, setDateFrom] = useState(urlParams.get('date_from') ?? '');
+  const [dateTo, setDateTo] = useState(urlParams.get('date_to') ?? '');
   const [periodOptionsByKind, setPeriodOptionsByKind] = useState<
     Partial<Record<Exclude<PeriodKind, 'latest'>, ArchivePeriodOption[]>>
   >({});
@@ -129,6 +138,9 @@ export default function ExplorePage() {
     try {
       const result = await api.getExploreIntelligence({
         ...(queryPeriod ? { period: queryPeriod } : {}),
+        ...(granularity !== 'month' ? { granularity } : {}),
+        ...(dateFrom ? { date_from: dateFrom } : {}),
+        ...(dateTo ? { date_to: dateTo } : {}),
       });
       setData(result);
       if (result.selected_period?.slug) setSelectedPeriodSlug(result.selected_period.slug);
@@ -146,7 +158,7 @@ export default function ExplorePage() {
   };
 
   useEffect(() => {
-    void loadIntelligence(undefined, true);
+    void loadIntelligence(urlParams.get('period'), true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -237,10 +249,15 @@ export default function ExplorePage() {
 
   const selectPeriodKind = (kind: PeriodKind) => {
     setPeriodKind(kind);
+    const next = new URLSearchParams(urlParams);
+    if (kind === 'latest') next.delete('kind');
+    else next.set('kind', kind);
     if (kind === 'latest') {
       setSelectedPeriodSlug(null);
+      next.delete('period');
       void loadIntelligence(undefined);
     }
+    setUrlParams(next);
   };
 
   const selectPeriodBySlug = async (slug: string) => {
@@ -250,7 +267,23 @@ export default function ExplorePage() {
     if (!option) return;
     setPeriodKind(normalizePeriodKind(option.kind) ?? 'latest');
     setSelectedPeriodSlug(option.slug);
+    const next = new URLSearchParams(urlParams);
+    next.set('period', option.slug);
+    next.set('kind', normalizePeriodKind(option.kind) ?? 'latest');
+    setUrlParams(next);
     await loadIntelligence(option.slug);
+  };
+
+  const applyRange = () => {
+    const next = new URLSearchParams(urlParams);
+    if (granularity === 'month') next.delete('granularity');
+    else next.set('granularity', granularity);
+    if (dateFrom) next.set('date_from', dateFrom);
+    else next.delete('date_from');
+    if (dateTo) next.set('date_to', dateTo);
+    else next.delete('date_to');
+    setUrlParams(next);
+    void loadIntelligence(selectedPeriodSlug);
   };
 
   if (loading) {
@@ -321,11 +354,50 @@ export default function ExplorePage() {
               <span>{formatPeriodRange(currentPeriod)}</span>
               <span>{formatNumber(selectedPeriodVods)} VODs</span>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="meta-label">
+                From
+                <input
+                  name="date_from"
+                  type="date"
+                  className="form-control mt-1 min-h-11 w-full"
+                  value={dateFrom}
+                  onChange={(event) => setDateFrom(event.target.value)}
+                />
+              </label>
+              <label className="meta-label">
+                To
+                <input
+                  name="date_to"
+                  type="date"
+                  className="form-control mt-1 min-h-11 w-full"
+                  value={dateTo}
+                  onChange={(event) => setDateTo(event.target.value)}
+                />
+              </label>
+              <label className="meta-label">
+                Granularity
+                <select
+                  name="granularity"
+                  className="form-control mt-1 min-h-11 w-full"
+                  value={granularity}
+                  onChange={(event) =>
+                    setGranularity(event.target.value === 'week' ? 'week' : 'month')
+                  }
+                >
+                  <option value="week">Week</option>
+                  <option value="month">Month</option>
+                </select>
+              </label>
+              <button type="button" className="btn min-h-11 self-end" onClick={applyRange}>
+                Apply range
+              </button>
+            </div>
           </div>
         </div>
 
         <div
-          role="tablist"
+          role="group"
           aria-label="Period kind"
           className="relative z-10 flex gap-1 overflow-x-auto border-t border-border bg-canvas/35 p-2 scrollbar-hidden sm:px-5"
         >
@@ -394,7 +466,7 @@ export default function ExplorePage() {
           </div>
         </nav>
 
-        <main className="min-w-0 space-y-5">
+        <div className="min-w-0 space-y-5">
           <section aria-label="Selected period panel" className="archive-section">
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(17rem,0.8fr)]">
               <div>
@@ -653,7 +725,7 @@ export default function ExplorePage() {
               </div>
             </div>
           </section>
-        </main>
+        </div>
       </div>
     </div>
   );

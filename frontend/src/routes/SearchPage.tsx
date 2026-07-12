@@ -293,7 +293,7 @@ export default function SearchPage() {
 
       {shouldFetch ? (
         <div className="search-workspace">
-          <main className="min-w-0 space-y-4">
+          <div className="min-w-0 space-y-4">
             <section className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <div className="archive-eyebrow">Search report</div>
@@ -404,7 +404,7 @@ export default function SearchPage() {
                   </p>
                 </div>
               )}
-          </main>
+          </div>
 
           <aside className="space-y-4 xl:sticky xl:top-24">
             <section className="archive-section space-y-4">

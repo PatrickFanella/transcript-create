@@ -172,6 +172,14 @@ jobs:
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        with:
+          name: hasanara-${{ gitea.run_id }}-${{ matrix.role }}
+          driver: docker-container
+          driver-opts: |
+            cpu-period=100000
+            cpu-quota=200000
+            memory=4g
+            memory-swap=4g
       - name: Log in to Gitea registry
         env:
           REGISTRY_USER: ${{ vars.REGISTRY_USER }}
@@ -213,6 +221,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm \
+            --cpus=2 --memory=4g --memory-swap=4g --pids-limit=512 \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
             "$TRIVY_IMAGE" image --timeout 15m --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
@@ -249,6 +258,7 @@ jobs:
               --data-urlencode "scope=repository:${repository}:pull,push" \
               https://git.subcult.tv/v2/token | python3 -c 'import json, sys; payload = json.load(sys.stdin); token = payload.get("token") or payload.get("access_token"); assert isinstance(token, str) and token; print(token)')"; then
               if REGISTRY_BEARER_TOKEN="$registry_token" docker run --rm --network "$network" \
+                --cpus=1 --memory=1g --memory-swap=1g --pids-limit=128 \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$evidence_volume:/evidence" \
                 -e REGISTRY_BEARER_TOKEN \
@@ -270,7 +280,7 @@ jobs:
             fi
           done
           [[ "$copied" == true ]]
-          pushed_digest="$(docker run --rm -v "$evidence_volume:/evidence:ro" --entrypoint /bin/sh "$skopeo_image" -ec 'cat /evidence/pushed.digest')"
+          pushed_digest="$(docker run --rm --cpus=0.25 --memory=128m --memory-swap=128m --pids-limit=32 -v "$evidence_volume:/evidence:ro" --entrypoint /bin/sh "$skopeo_image" -ec 'cat /evidence/pushed.digest')"
           [[ "$pushed_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           canonical_digest="$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')"
           [[ "$canonical_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -284,6 +294,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm \
+            --cpus=2 --memory=4g --memory-swap=4g --pids-limit=512 \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.docker:/root/.docker:ro" \
             -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
@@ -299,6 +310,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm \
+            --cpus=2 --memory=4g --memory-swap=4g --pids-limit=512 \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.docker:/root/.docker:ro" \
             -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
@@ -313,6 +325,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm \
+            --cpus=2 --memory=4g --memory-swap=4g --pids-limit=512 \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.docker:/root/.docker:ro" \
             -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
@@ -493,6 +506,15 @@ jobs:
       - name: Log out of Gitea registry
         if: always()
         run: docker logout git.subcult.tv >/dev/null 2>&1 || true
+      - name: Remove local validation image
+        if: always()
+        env:
+          IMAGE: ${{ matrix.image }}
+          TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          if [[ -n "$IMAGE" && -n "$TAG" ]]; then
+            docker image rm "$IMAGE:$TAG" >/dev/null 2>&1 || true
+          fi
 
   release:
     runs-on: ubuntu-latest

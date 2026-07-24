@@ -378,6 +378,9 @@ jobs:
           import os
           from pathlib import Path
 
+          import base64
+          import binascii
+
           expected_digest = os.environ["DIGEST"].removeprefix("sha256:")
           expected_commit = os.environ["SOURCE_COMMIT"]
           expected_role = os.environ["ROLE"]
@@ -386,6 +389,8 @@ jobs:
 
           def statements(path):
               text = Path(path).read_text(encoding="utf-8")
+              if not text.strip():
+                  raise SystemExit("invalid verified attestation output")
               try:
                   parsed = json.loads(text)
               except json.JSONDecodeError:
@@ -393,7 +398,27 @@ jobs:
                       parsed = [json.loads(line) for line in text.splitlines() if line.strip()]
                   except json.JSONDecodeError as error:
                       raise SystemExit("invalid verified attestation output") from error
-              return parsed if isinstance(parsed, list) else [parsed]
+              envelopes = parsed if isinstance(parsed, list) else [parsed]
+              if not envelopes:
+                  raise SystemExit("invalid verified attestation output")
+              decoded_statements = []
+              for envelope in envelopes:
+                  if (
+                      not isinstance(envelope, dict)
+                      or envelope.get("payloadType") != "application/vnd.in-toto+json"
+                      or not isinstance(envelope.get("payload"), str)
+                      or not envelope["payload"]
+                  ):
+                      raise SystemExit("invalid verified attestation output")
+                  try:
+                      payload = base64.b64decode(envelope["payload"], validate=True)
+                      statement = json.loads(payload.decode("utf-8"))
+                  except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+                      raise SystemExit("invalid verified attestation output") from error
+                  if not isinstance(statement, dict):
+                      raise SystemExit("invalid verified attestation output")
+                  decoded_statements.append(statement)
+              return decoded_statements
 
           def has_subject(statement):
               return any(

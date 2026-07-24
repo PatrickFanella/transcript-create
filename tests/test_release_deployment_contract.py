@@ -754,6 +754,13 @@ def test_release_workflow_contracts() -> None:
     assert 'docker buildx imagetools inspect "$IMAGE:$TAG"' in publish
     assert '[[ "$canonical_digest" == "$pushed_digest" ]]' in publish
     assert "printf 'digest=%s\\n' \"$canonical_digest\" >> \"$GITHUB_OUTPUT\"" in publish
+    assert "for attempt in 1 2 3; do" in publish
+    assert publish.count("https://git.subcult.tv/v2/token") == 1
+    assert publish.index("for attempt in 1 2 3; do") < publish.index("registry_token=\"$(curl")
+    assert publish.index("registry_token=\"$(curl") < publish.index('REGISTRY_BEARER_TOKEN="$registry_token" docker run')
+    assert "rm -f /evidence/pushed.digest" in publish
+    assert '[[ "$copied" == true ]]' in publish
+    assert 'sleep "$((attempt * 2))"' in publish
     assert "--ignore" not in workflow
     assert "load: true" in workflow and "push: false" in workflow
     assert "--type slsaprovenance" in workflow and "--type spdxjson" in workflow
@@ -809,8 +816,9 @@ def test_release_workflow_contracts() -> None:
         assert "docker run --rm" in scan
         assert "-v /var/run/docker.sock:/var/run/docker.sock" in scan
         assert '-v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy"' in scan
-        assert '"$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy' in scan
+        assert '"$TRIVY_IMAGE" image' in scan
         assert "${{ github.workspace }}" not in scan
+        assert "--timeout 15m" in scan
     for scan in (digest_scan, os_scan, sbom_scan):
         assert '-v "$HOME/.docker:/root/.docker:ro"' in scan
     assert "/root/.docker:rw" not in images
@@ -833,6 +841,25 @@ def test_release_workflow_contracts() -> None:
     assert "if: always()" in cleanup
     assert 'if [[ -n "$TRIVY_CACHE_VOLUME" ]]; then' in cleanup
     assert 'docker volume rm --force "$TRIVY_CACHE_VOLUME" >/dev/null' in cleanup
+
+    registry_logout = scan_step("Log out of Gitea registry")
+    assert "if: always()" in registry_logout
+    assert "docker logout git.subcult.tv >/dev/null 2>&1 || true" in registry_logout
+    assert "docker logout git.subcult.tv" not in cleanup
+    assert workflow.index("Upload ${{ matrix.role }} image evidence") < workflow.index("Log out of Gitea registry")
+    assert workflow.index("Sign and attest digest") < workflow.index("Log out of Gitea registry")
+    assert workflow.index("Verify signed digest evidence") < workflow.index("Log out of Gitea registry")
+
+    login = scan_step("Log in to Gitea registry")
+    assert "uses:" not in login
+    assert 'REGISTRY_USER: ${{ vars.REGISTRY_USER }}' in login
+    assert 'REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}' in login
+    assert 'printf \'%s\' "$REGISTRY_PAT" | docker login git.subcult.tv --username "$REGISTRY_USER" --password-stdin' in login
+    assert "for attempt in 1 2 3; do" in login
+    assert 'sleep "$((attempt * 2))"' in login
+    assert workflow.index("Set up Docker Buildx") < workflow.index("Log in to Gitea registry") < workflow.index(
+        "Build ${{ matrix.role }} once for scanning"
+    )
 
     provenance = re.search(
         r'Path\(f"\{os\.environ\[\'ROLE\'\]\}\.provenance\.json"\).*?\n          \}\) \+ "\\n"\)',

@@ -33,9 +33,9 @@ logger = get_logger(__name__)
 
 
 def _load_batch(conn, limit: int):
-    return conn.execute(
-        text(
-            """
+    return (
+        conn.execute(
+            text("""
             SELECT v.id, v.youtube_id, v.title, COUNT(s.id) AS segment_count
             FROM videos v
             JOIN segments s ON s.video_id = v.id
@@ -44,24 +44,28 @@ def _load_batch(conn, limit: int):
             GROUP BY v.id, v.youtube_id, v.title
             ORDER BY v.created_at ASC
             LIMIT :limit
-            """
-        ),
-        {"limit": limit},
-    ).mappings().all()
+            """),
+            {"limit": limit},
+        )
+        .mappings()
+        .all()
+    )
 
 
 def _load_segments(conn, video_id):
-    rows = conn.execute(
-        text(
-            """
+    rows = (
+        conn.execute(
+            text("""
             SELECT id, start_ms, end_ms, text, speaker_label
             FROM segments
             WHERE video_id = :video_id
             ORDER BY start_ms, id
-            """
-        ),
-        {"video_id": str(video_id)},
-    ).mappings().all()
+            """),
+            {"video_id": str(video_id)},
+        )
+        .mappings()
+        .all()
+    )
 
     return [
         TranscriptSegment(

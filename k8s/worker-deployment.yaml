@@ -67,6 +67,33 @@ spec:
             configMapKeyRef:
               name: transcript-config
               key: opensearch-url
+        - name: OPENSEARCH_INDEX_NATIVE
+          valueFrom:
+            configMapKeyRef:
+              name: transcript-config
+              key: opensearch-index-native
+        - name: OPENSEARCH_INDEX_YOUTUBE
+          valueFrom:
+            configMapKeyRef:
+              name: transcript-config
+              key: opensearch-index-youtube
+        - name: OPENSEARCH_VERIFY_SSL
+          valueFrom:
+            configMapKeyRef:
+              name: transcript-config
+              key: opensearch-verify-ssl
+        - name: OPENSEARCH_USER
+          valueFrom:
+            secretKeyRef:
+              name: transcript-secrets
+              key: opensearch-user
+              optional: true
+        - name: OPENSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: transcript-secrets
+              key: opensearch-password
+              optional: true
         - name: WHISPER_MODEL
           valueFrom:
             configMapKeyRef:
@@ -77,6 +104,11 @@ spec:
             configMapKeyRef:
               name: transcript-config
               key: whisper-backend-worker
+        - name: SEARCH_BACKEND
+          valueFrom:
+            configMapKeyRef:
+              name: transcript-config
+              key: search-backend
         - name: FORCE_GPU
           value: "true"
         - name: GPU_DEVICE_PREFERENCE

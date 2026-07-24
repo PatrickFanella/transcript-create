@@ -1,26 +1,38 @@
 """Tests for search routes."""
 
+import csv
+import hashlib
+import io
 import secrets
 import uuid
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.main import app
+from app.search.highlights import HIGHLIGHT_END, HIGHLIGHT_START
 from app.security import get_user_required
 
 
 @pytest.fixture(autouse=True)
-def authenticated_job_user():
+def authenticated_job_user(db_session):
     user = {
         "id": str(uuid.uuid4()),
         "email": "search-user@example.com",
         "name": "Search User",
         "plan": "free",
     }
+    db_session.execute(
+        text(
+            "INSERT INTO users (id, email, name, oauth_provider, oauth_subject, plan) "
+            "VALUES (:id, :email, :name, 'test', :subject, :plan)"
+        ),
+        {**user, "subject": user["id"]},
+    )
     app.dependency_overrides[get_user_required] = lambda: user
     yield user
     app.dependency_overrides.pop(get_user_required, None)
@@ -43,25 +55,23 @@ class TestSearchRoutes:
     def test_search_whitespace_query(self, client: TestClient):
         """Test search with whitespace-only query."""
         response = client.get("/search?q=%20%20%20")
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     def test_search_invalid_source(self, client: TestClient):
         """Test search with invalid source parameter."""
         response = client.get("/search?q=test&source=invalid")
-        assert response.status_code == 400
-        assert "Invalid source" in response.json()["detail"]
+        assert response.status_code == 422
+        assert "Invalid source" in response.json()["message"]
 
     def test_search_invalid_limit_too_low(self, client: TestClient):
         """Test search with limit below minimum."""
         response = client.get("/search?q=test&limit=0")
-        assert response.status_code == 400
-        assert "limit must be between" in response.json()["detail"]
+        assert response.status_code == 422
 
     def test_search_invalid_limit_too_high(self, client: TestClient):
         """Test search with limit above maximum."""
         response = client.get("/search?q=test&limit=300")
-        assert response.status_code == 400
-        assert "limit must be between" in response.json()["detail"]
+        assert response.status_code == 422
 
     def test_search_native_source_success(self, client: TestClient):
         """Test search with native source (Postgres FTS)."""
@@ -152,7 +162,7 @@ class TestSearchRoutes:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "hits": {
-                "total": {"value": 1},
+                "total": {"value": 2},
                 "hits": [
                     {
                         "_source": {
@@ -162,8 +172,17 @@ class TestSearchRoutes:
                             "end_ms": 1000,
                             "text": "test content",
                         },
-                        "highlight": {"text": ["<em>test</em> content"]},
-                    }
+                        "highlight": {"text": [f"{HIGHLIGHT_START}test{HIGHLIGHT_END} content"]},
+                    },
+                    {
+                        "_source": {
+                            "id": 124,
+                            "video_id": str(uuid.uuid4()),
+                            "start_ms": 0,
+                            "end_ms": 1000,
+                            "text": "literal <script>alert(1)</script>",
+                        }
+                    },
                 ],
             }
         }
@@ -172,7 +191,13 @@ class TestSearchRoutes:
         response = client.get("/search?q=test&source=native")
         assert response.status_code == 200
         data = response.json()
-        assert "hits" in data
+        assert data["hits"][0]["snippet"] == "test content"
+        assert data["hits"][0]["highlights"] == [{"start": 0, "end": 4}]
+        assert data["hits"][1]["snippet"] == "literal <script>alert(1)</script>"
+        assert data["hits"][1]["highlights"] == []
+        sent_query = mock_post.call_args.kwargs["json"]
+        assert sent_query["highlight"]["pre_tags"] == [HIGHLIGHT_START]
+        assert sent_query["highlight"]["post_tags"] == [HIGHLIGHT_END]
 
     @patch("app.settings.settings.SEARCH_BACKEND", "opensearch")
     @patch("requests.post")
@@ -181,8 +206,19 @@ class TestSearchRoutes:
         mock_post.side_effect = Exception("OpenSearch connection failed")
 
         response = client.get("/search?q=test")
-        assert response.status_code == 500
-        assert "OpenSearch query failed" in response.json()["detail"]
+        assert response.status_code == 503
+        assert response.json()["error"] == "external_service_error"
+
+    @patch("app.settings.settings.SEARCH_BACKEND", "opensearch")
+    @patch("requests.post")
+    def test_search_opensearch_timeout_falls_back_to_postgres(self, mock_post, client: TestClient):
+        mock_post.side_effect = requests.Timeout("timed out")
+
+        response = client.get("/search?q=test&source=native")
+
+        assert response.status_code == 200
+        assert response.json()["backend"] == "postgres"
+        assert response.json()["degraded"] is True
 
     def test_search_unauthenticated_allowed(self, client: TestClient):
         """Test that unauthenticated users can search (within limits)."""
@@ -233,8 +269,8 @@ class TestSearchRoutes:
     def test_search_invalid_sort_by(self, client: TestClient):
         """Test search with invalid sort_by parameter."""
         response = client.get("/search?q=test&sort_by=invalid")
-        assert response.status_code == 400
-        assert "Invalid sort_by" in response.json()["detail"]
+        assert response.status_code == 422
+        assert "Invalid sort_by" in response.json()["message"]
 
     def test_search_query_time_tracking(self, client: TestClient):
         """Test that search returns query time."""
@@ -354,8 +390,8 @@ class TestSearchExport:
     def test_export_invalid_format(self, client: TestClient):
         """Test export with invalid format."""
         response = client.get("/search/export?q=test&format=xml")
-        assert response.status_code == 400
-        assert "Invalid format" in response.json()["detail"]
+        assert response.status_code == 422
+        assert "Invalid format" in response.json()["message"]
 
     def test_export_with_filters(self, client: TestClient):
         """Test export with filters."""
@@ -363,6 +399,79 @@ class TestSearchExport:
         assert response.status_code == 200
         data = response.json()
         assert "results" in data
+
+    @patch("app.routes.search._search_orchestrator.prepare_export_rows")
+    def test_json_export_contains_plain_snippets(self, prepare_export, client: TestClient):
+        video_id = uuid.uuid4()
+        prepare_export.return_value = (
+            [
+                {
+                    "id": 7,
+                    "video_id": video_id,
+                    "start_ms": 100,
+                    "end_ms": 200,
+                    "snippet": "literal <script>alert(1)</script> rent",
+                    "highlights": [{"start": 34, "end": 38}],
+                }
+            ],
+            {str(video_id): {"youtube_id": "yt7", "title": "Title"}},
+        )
+
+        response = client.get("/search/export?q=rent&format=json")
+
+        assert response.status_code == 200
+        assert response.json()["results"][0]["text"] == "literal <script>alert(1)</script> rent"
+        assert HIGHLIGHT_START not in response.text
+        assert HIGHLIGHT_END not in response.text
+
+    @patch("app.routes.search._search_orchestrator.prepare_export_rows")
+    def test_csv_export_contains_plain_snippets(self, prepare_export, client: TestClient):
+        video_id = uuid.uuid4()
+        prepare_export.return_value = (
+            [
+                {
+                    "id": 8,
+                    "video_id": video_id,
+                    "start_ms": 100,
+                    "end_ms": 200,
+                    "snippet": "plain rent",
+                    "highlights": [{"start": 6, "end": 10}],
+                }
+            ],
+            {str(video_id): {"youtube_id": "yt8", "title": "Title"}},
+        )
+
+        response = client.get("/search/export?q=rent&format=csv")
+
+        assert response.status_code == 200
+        assert response.text.endswith("plain rent\n")
+        assert HIGHLIGHT_START not in response.text
+        assert HIGHLIGHT_END not in response.text
+
+    @patch("app.routes.search._search_orchestrator.prepare_export_rows")
+    def test_csv_export_neutralizes_formula_cells_and_uses_standard_quoting(self, prepare_export, client: TestClient):
+        video_id = uuid.uuid4()
+        prepare_export.return_value = (
+            [
+                {
+                    "id": 9,
+                    "video_id": video_id,
+                    "start_ms": 100,
+                    "end_ms": 200,
+                    "snippet": '  @cmd, quote " and newline\nnext',
+                    "highlights": [],
+                }
+            ],
+            {str(video_id): {"youtube_id": "=cmd", "title": "\r+formula"}},
+        )
+
+        response = client.get("/search/export?q=rent&format=csv")
+        parsed = list(csv.reader(io.StringIO(response.text)))
+
+        assert response.status_code == 200
+        assert parsed[1][2] == "'=cmd"
+        assert parsed[1][3] == "'\r+formula"
+        assert parsed[1][6] == "'  @cmd, quote \" and newline\nnext"
 
 
 class TestSearchAnalytics:
@@ -386,8 +495,8 @@ class TestSearchAnalytics:
             {"id": str(user_id), "email": "user@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
         db_session.commit()
 
@@ -407,8 +516,8 @@ class TestSearchAnalytics:
             {"id": str(user_id), "email": "admin@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
         db_session.commit()
 
@@ -434,8 +543,8 @@ class TestSearchAnalytics:
             {"id": str(user_id), "email": "admin2@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
         db_session.commit()
 
@@ -463,8 +572,8 @@ class TestSearchAnalytics:
             {"id": str(user_id), "email": "admin3@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
 
         # Create a search with 0 results
@@ -497,8 +606,8 @@ class TestSearchAnalytics:
             {"id": str(user_id), "email": "admin4@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
         db_session.commit()
 
@@ -519,8 +628,8 @@ class TestSearchAnalytics:
             {"id": str(user_id), "email": "admin5@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
         db_session.commit()
 

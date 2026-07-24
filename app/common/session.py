@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from typing import Optional
 
 from fastapi import Request, Response
@@ -46,9 +47,9 @@ def get_user_from_session(db, token: Optional[str]):
     row = (
         db.execute(
             text(
-                "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=:t AND (s.expires_at IS NULL OR s.expires_at>now())"  # noqa: E501
+                "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=:token_hash AND (s.expires_at IS NULL OR s.expires_at>now())"  # noqa: E501
             ),
-            {"t": token},
+            {"token_hash": sha256(token.encode("utf-8")).hexdigest()},
         )
         .mappings()
         .first()
@@ -68,15 +69,13 @@ def should_refresh_session(db, token: Optional[str]) -> bool:
 
     result = (
         db.execute(
-            text(
-                """
+            text("""
             SELECT created_at, expires_at
             FROM sessions
-            WHERE token = :t
+            WHERE token_hash = :token_hash
             AND (expires_at IS NULL OR expires_at > now())
-            """
-            ),
-            {"t": token},
+            """),
+            {"token_hash": sha256(token.encode("utf-8")).hexdigest()},
         )
         .mappings()
         .first()
@@ -87,23 +86,27 @@ def should_refresh_session(db, token: Optional[str]) -> bool:
 
     # Refresh if session is older than threshold
     threshold = timedelta(hours=settings.SESSION_REFRESH_THRESHOLD_HOURS)
-    age = datetime.utcnow() - result["created_at"]
+    created_at = result["created_at"]
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - created_at
 
     return age > threshold
 
 
 def refresh_session(db, token: str):
     """Extend session expiration time."""
-    new_expires = datetime.utcnow() + timedelta(hours=settings.SESSION_EXPIRE_HOURS)
+    new_expires = datetime.now(timezone.utc) + timedelta(hours=settings.SESSION_EXPIRE_HOURS)
 
-    db.execute(text("UPDATE sessions SET expires_at = :exp WHERE token = :t"), {"exp": new_expires, "t": token})
+    db.execute(
+        text("UPDATE sessions SET expires_at = :exp, last_seen_at=now() WHERE token_hash = :token_hash"),
+        {
+            "exp": new_expires,
+            "token_hash": sha256(token.encode("utf-8")).hexdigest(),
+        },
+    )
     db.commit()
 
 
 def is_admin(user) -> bool:
-    if not user:
-        return False
-    admins_env = os.environ.get("ADMIN_EMAILS", "")
-    admins = set([e.strip().lower() for e in admins_env.split(",") if e.strip()])
-    email = (user.get("email") or "").lower()
-    return email in admins if admins else False
+    return bool(user and (user.get("role") or "").lower() == "admin")

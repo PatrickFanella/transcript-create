@@ -65,8 +65,8 @@ class TestTranscriptModes:
             integration_db.execute(
                 sql_text(
                     """
-                    INSERT INTO segments (transcript_id, idx, start_ms, end_ms, text, speaker, speaker_label)
-                    VALUES (:transcript_id, :idx, :start_ms, :end_ms, :text, :speaker, :speaker_label)
+                    INSERT INTO segments (transcript_id, idx, start_ms, end_ms, text, speaker_label)
+                    VALUES (:transcript_id, :idx, :start_ms, :end_ms, :text, :speaker_label)
                 """
                 ),
                 {
@@ -75,7 +75,6 @@ class TestTranscriptModes:
                     "start_ms": start_ms,
                     "end_ms": end_ms,
                     "text": segment_text,
-                    "speaker": speaker,
                     "speaker_label": speaker,
                 },
             )
@@ -193,8 +192,8 @@ class TestTranscriptModes:
         # Check cleanup config
         config = data["cleanup_config"]
         assert config["remove_fillers"] is True
-        assert config["segment_by_sentences"] is True
-        assert config["merge_short_segments"] is True
+        assert config["segment_sentences"] is False
+        assert config["merge_short_segments"] is False
 
     @pytest.mark.timeout(60)
     def test_invalid_mode(self, integration_client: TestClient, video_with_transcript):

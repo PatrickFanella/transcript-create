@@ -685,10 +685,10 @@ query = f"SELECT * FROM videos WHERE youtube_id = '{youtube_id}'"
 ```python
 # Good - environment variables
 from app.settings import settings
-api_key = settings.STRIPE_API_KEY
+api_key = settings.YOUTUBE_API_KEY
 
 # Bad - hardcoded
-api_key = "sk_live_abc123"  # Never commit secrets!
+api_key = "hardcoded-secret"  # Never commit secrets!
 ```
 
 ### Authentication

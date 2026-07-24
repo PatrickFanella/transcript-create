@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from ..audit import ACTION_API_KEY_CREATED, ACTION_API_KEY_REVOKED, log_audit_from_request
+from ..audit import ACTION_API_KEY_CREATED, ACTION_API_KEY_REVOKED, write_audit_from_request
 from ..db import get_db
 from ..exceptions import AuthorizationError, NotFoundError, ValidationError
 from ..logging_config import get_logger
+from ..policy import API_KEY_SCOPES, DEFAULT_API_KEY_SCOPES
 from ..security import generate_api_key, get_user_required
 from ..settings import settings
 
@@ -30,20 +31,20 @@ class CreateAPIKeyRequest(BaseModel):
         ge=1,
         le=3650,  # Max 10 years
     )
-    scopes: Optional[str] = Field(default=None, description="Comma-separated list of scopes (future use)")
+    scopes: list[str] = Field(default_factory=lambda: list(DEFAULT_API_KEY_SCOPES), min_length=1)
 
 
 class APIKeyResponse(BaseModel):
     """Response containing API key details."""
 
-    id: str
+    id: uuid.UUID
     name: str
     key_prefix: str
     created_at: datetime
     expires_at: Optional[datetime]
     last_used_at: Optional[datetime]
     revoked_at: Optional[datetime]
-    scopes: Optional[str]
+    scopes: str
 
 
 class CreateAPIKeyResponse(BaseModel):
@@ -70,14 +71,12 @@ def list_api_keys(request: Request, db=Depends(get_db), user=Depends(get_user_re
 
     result = (
         db.execute(
-            text(
-                """
+            text("""
             SELECT id, name, key_prefix, created_at, expires_at, last_used_at, revoked_at, scopes
             FROM api_keys
             WHERE user_id = :user_id
             ORDER BY created_at DESC
-        """
-            ),
+        """),
             {"user_id": str(user_id)},
         )
         .mappings()
@@ -107,6 +106,15 @@ def create_api_key(
 ):
     """Create a new API key for the current user."""
     user_id = user.get("id")
+    requested_scopes = set(body.scopes)
+    unsupported = requested_scopes - API_KEY_SCOPES
+    if unsupported:
+        raise ValidationError(
+            "Unsupported API key scope",
+            field="scopes",
+            details={"unsupported": sorted(unsupported), "allowed": sorted(API_KEY_SCOPES)},
+        )
+    serialized_scopes = ",".join(sorted(requested_scopes))
 
     # Generate the API key
     api_key, api_key_hash = generate_api_key()
@@ -120,61 +128,53 @@ def create_api_key(
         # Use default expiration from settings
         expires_at = datetime.utcnow() + timedelta(days=settings.API_KEY_EXPIRE_DAYS)
 
-    # Insert into database
     key_id = uuid.uuid4()
-    db.execute(
-        text(
-            """
+    try:
+        key_data = (
+            db.execute(
+                text("""
             INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, expires_at, scopes)
             VALUES (:id, :user_id, :name, :key_hash, :key_prefix, :expires_at, :scopes)
-        """
-        ),
-        {
-            "id": str(key_id),
-            "user_id": str(user_id),
-            "name": body.name,
-            "key_hash": api_key_hash,
-            "key_prefix": key_prefix,
-            "expires_at": expires_at,
-            "scopes": body.scopes,
-        },
-    )
-    db.commit()
-
-    # Log audit event
-    log_audit_from_request(
-        db,
-        request,
-        ACTION_API_KEY_CREATED,
-        user_id=user_id,
-        resource_type="api_key",
-        resource_id=str(key_id),
-        details={"name": body.name, "expires_at": expires_at.isoformat() if expires_at else None},
-    )
+            RETURNING id, name, key_prefix, created_at, expires_at, last_used_at, revoked_at, scopes
+        """),
+                {
+                    "id": str(key_id),
+                    "user_id": str(user_id),
+                    "name": body.name,
+                    "key_hash": api_key_hash,
+                    "key_prefix": key_prefix,
+                    "expires_at": expires_at,
+                    "scopes": serialized_scopes,
+                },
+            )
+            .mappings()
+            .one()
+        )
+        write_audit_from_request(
+            db,
+            request,
+            ACTION_API_KEY_CREATED,
+            user_id=user_id,
+            resource_type="api_key",
+            resource_id=str(key_id),
+            details={
+                "name": body.name,
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "scopes": sorted(requested_scopes),
+            },
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     logger.info(
         "API key created",
         extra={
             "user_id": str(user_id),
             "key_id": str(key_id),
-            "name": body.name,
+            "api_key_name": body.name,
         },
-    )
-
-    # Retrieve the created key
-    key_data = (
-        db.execute(
-            text(
-                """
-            SELECT id, name, key_prefix, created_at, expires_at, last_used_at, revoked_at, scopes
-            FROM api_keys
-            WHERE id = :id
-        """
-            ),
-            {"id": str(key_id)},
-        )
-        .mappings()
-        .first()
     )
 
     return {
@@ -204,13 +204,11 @@ def revoke_api_key(
     # Verify the key belongs to the user
     key = (
         db.execute(
-            text(
-                """
+            text("""
             SELECT id, name, user_id, revoked_at
             FROM api_keys
             WHERE id = :id
-        """
-            ),
+        """),
             {"id": key_id},
         )
         .mappings()
@@ -226,36 +224,35 @@ def revoke_api_key(
     if key["revoked_at"]:
         raise ValidationError("API key is already revoked")
 
-    # Revoke the key
-    db.execute(
-        text(
-            """
+    try:
+        db.execute(
+            text("""
             UPDATE api_keys
             SET revoked_at = now()
             WHERE id = :id
-        """
-        ),
-        {"id": key_id},
-    )
-    db.commit()
-
-    # Log audit event
-    log_audit_from_request(
-        db,
-        request,
-        ACTION_API_KEY_REVOKED,
-        user_id=user_id,
-        resource_type="api_key",
-        resource_id=key_id,
-        details={"name": key["name"]},
-    )
+        """),
+            {"id": key_id},
+        )
+        write_audit_from_request(
+            db,
+            request,
+            ACTION_API_KEY_REVOKED,
+            user_id=user_id,
+            resource_type="api_key",
+            resource_id=key_id,
+            details={"name": key["name"]},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     logger.info(
         "API key revoked",
         extra={
             "user_id": str(user_id),
             "key_id": key_id,
-            "name": key["name"],
+            "api_key_name": key["name"],
         },
     )
 

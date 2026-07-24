@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Iterable
 from typing import Any, Dict
 
 import requests
@@ -10,12 +11,31 @@ from sqlalchemy import text as _text
 
 from app import crud
 from app.exceptions import ExternalServiceError, ValidationError
-from app.schemas import GroupedSearchResponse, MentionMap, SearchHit, SearchResponse
+from app.schemas import (
+    GroupedSearchResponse,
+    HighlightRange,
+    MentionMap,
+    SearchHit,
+    SearchResponse,
+)
 from app.search import analytics as search_analytics
+from app.search import highlights as search_highlights
+from app.search.highlights import (
+    HIGHLIGHT_END,
+    HIGHLIGHT_START,
+    normalize_highlight_ranges,
+    normalize_search_rows,
+    parse_highlighted_snippet,
+)
+from app.search.outbox import search_freshness
 from app.search.repositories import PostgresSearchBackend
 from app.search.service import SearchService
-from app.search.types import SearchRequest, SearchRequestContext
+from app.search.types import SearchRequest
 from app.settings import settings
+
+
+def _schema_highlights(values: Iterable[search_highlights.HighlightRange]) -> list[HighlightRange]:
+    return [HighlightRange(start=value["start"], end=value["end"]) for value in values]
 
 
 class SearchOrchestrator:
@@ -42,14 +62,30 @@ class SearchOrchestrator:
         start_time = time.time()
 
         context = search_analytics.record_search_request(request, db, q, source)
-        requires_relational_filters = any(
-            [date_from, date_to, min_duration is not None, max_duration is not None, channel, category, language, has_speaker_labels is not None]
-        ) or sort_by != "relevance"
-        filters = search_analytics.build_search_filters(date_from, date_to, min_duration, max_duration, channel, language, has_speaker_labels, category)
+        requires_relational_filters = (
+            any(
+                [
+                    date_from,
+                    date_to,
+                    min_duration is not None,
+                    max_duration is not None,
+                    channel,
+                    category,
+                    language,
+                    has_speaker_labels is not None,
+                ]
+            )
+            or sort_by != "relevance"
+        )
+        filters = search_analytics.build_search_filters(
+            date_from, date_to, min_duration, max_duration, channel, language, has_speaker_labels, category
+        )
 
         if settings.SEARCH_BACKEND == "opensearch" and not requires_relational_filters:
             effective_source = "native" if source == "best" else source
-            index = settings.OPENSEARCH_INDEX_NATIVE if effective_source == "native" else settings.OPENSEARCH_INDEX_YOUTUBE
+            index = (
+                settings.OPENSEARCH_INDEX_NATIVE if effective_source == "native" else settings.OPENSEARCH_INDEX_YOUTUBE
+            )
             query: Dict[str, Any] = {
                 "from": offset,
                 "size": limit,
@@ -63,7 +99,11 @@ class SearchOrchestrator:
                         "minimum_should_match": 1,
                     }
                 },
-                "highlight": {"fields": {"text": {"number_of_fragments": 3, "fragment_size": 180}}},
+                "highlight": {
+                    "pre_tags": [HIGHLIGHT_START],
+                    "post_tags": [HIGHLIGHT_END],
+                    "fields": {"text": {"number_of_fragments": 3, "fragment_size": 180}},
+                },
             }
             if video_id:
                 bool_query: Dict[str, Any] = query["query"]["bool"]  # type: ignore[assignment]
@@ -101,11 +141,31 @@ class SearchOrchestrator:
             elif sort_by == "duration_asc":
                 query["sort"] = [{"duration_seconds": {"order": "asc", "missing": "_last"}}, "_score"]
             try:
-                r = requests.post(f"{settings.OPENSEARCH_URL}/{index}/_search", json=query, timeout=10)
+                auth = None
+                if settings.OPENSEARCH_USER and settings.OPENSEARCH_PASSWORD:
+                    auth = (settings.OPENSEARCH_USER, settings.OPENSEARCH_PASSWORD)
+                r = requests.post(
+                    f"{settings.OPENSEARCH_URL.rstrip('/')}/{index}/_search",
+                    auth=auth,
+                    json=query,
+                    timeout=10,
+                    verify=settings.OPENSEARCH_VERIFY_SSL,
+                )
                 r.raise_for_status()
                 data = r.json()
-            except requests.exceptions.Timeout:
-                raise ExternalServiceError("OpenSearch", "Request timeout")
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                return self._postgres_fallback(
+                    db,
+                    context=context,
+                    q=q,
+                    source=source,
+                    video_id=video_id,
+                    limit=limit,
+                    offset=offset,
+                    sort_by=sort_by,
+                    filters=filters,
+                    start_time=start_time,
+                )
             except requests.exceptions.HTTPError as e:
                 status_code = e.response.status_code if e.response is not None else "Unknown"
                 content = e.response.text if e.response is not None else ""
@@ -119,13 +179,16 @@ class SearchOrchestrator:
             for h in data.get("hits", {}).get("hits", []):
                 src = h.get("_source", {})
                 hl = h.get("highlight", {}).get("text", [src.get("text", "")])
+                marked_snippet = hl[0] if isinstance(hl, list) and hl else src.get("text", "")
+                snippet, highlights = parse_highlighted_snippet(marked_snippet)
                 hits.append(
                     SearchHit(
                         id=int(src.get("id")),
                         video_id=uuid.UUID(src.get("video_id")),
                         start_ms=int(src.get("start_ms", 0)),
                         end_ms=int(src.get("end_ms", 0)),
-                        snippet=hl[0],
+                        snippet=snippet,
+                        highlights=highlights,
                         source="whisper" if effective_source == "native" else "youtube",
                     )
                 )
@@ -144,7 +207,16 @@ class SearchOrchestrator:
                     total or len(hits),
                     query_time_ms,
                 )
-            return SearchResponse(total=total, hits=hits, query_time_ms=query_time_ms)
+            freshness = search_freshness(db)
+            return SearchResponse(
+                total=total,
+                hits=hits,
+                query_time_ms=query_time_ms,
+                backend="opensearch",
+                degraded=False,
+                indexed_at=freshness["indexed_at"],
+                index_lag_seconds=freshness["index_lag_seconds"],
+            )
 
         if source == "best":
             rows = crud.search_best_segments_advanced(
@@ -163,6 +235,7 @@ class SearchOrchestrator:
                     start_ms=r["start_ms"],
                     end_ms=r["end_ms"],
                     snippet=r["snippet"] or "",
+                    highlights=normalize_highlight_ranges(str(r["snippet"] or ""), r.get("highlights") or []),
                     source=r["source"],
                     video_title=r.get("video_title"),
                     channel_name=r.get("channel_name"),
@@ -191,6 +264,7 @@ class SearchOrchestrator:
                     start_ms=r.start_ms,
                     end_ms=r.end_ms,
                     snippet=r.snippet,
+                    highlights=list(r.highlights),
                     source="whisper",
                 )
                 for r in native_results
@@ -212,6 +286,7 @@ class SearchOrchestrator:
                     start_ms=r["start_ms"],
                     end_ms=r["end_ms"],
                     snippet=r["snippet"] or "",
+                    highlights=normalize_highlight_ranges(str(r["snippet"] or ""), r.get("highlights") or []),
                     source="youtube",
                     video_title=r.get("video_title"),
                     channel_name=r.get("channel_name"),
@@ -231,7 +306,134 @@ class SearchOrchestrator:
                 len(hits),
                 query_time_ms,
             )
-        return SearchResponse(hits=hits, query_time_ms=query_time_ms)
+        freshness = search_freshness(db)
+        return SearchResponse(
+            hits=hits,
+            query_time_ms=query_time_ms,
+            backend="postgres",
+            degraded=False,
+            indexed_at=freshness["indexed_at"],
+            index_lag_seconds=freshness["index_lag_seconds"],
+        )
+
+    def _postgres_fallback(
+        self,
+        db,
+        *,
+        context,
+        q: str,
+        source: str,
+        video_id: uuid.UUID | None,
+        limit: int,
+        offset: int,
+        sort_by: str,
+        filters: dict,
+        start_time: float,
+    ) -> SearchResponse:
+        if source == "best":
+            rows = crud.search_best_segments_advanced(
+                db,
+                q=q,
+                video_id=str(video_id) if video_id else None,
+                limit=limit,
+                offset=offset,
+                sort_by=sort_by,
+                filters=filters,
+            )
+            hits = [
+                SearchHit(
+                    id=row["id"],
+                    video_id=row["video_id"],
+                    start_ms=row["start_ms"],
+                    end_ms=row["end_ms"],
+                    snippet=row["snippet"] or "",
+                    highlights=_schema_highlights(
+                        normalize_highlight_ranges(str(row["snippet"] or ""), row.get("highlights") or [])
+                    ),
+                    source="whisper" if row["source"] == "whisper" else "youtube",
+                    video_title=None,
+                    channel_name=None,
+                    uploaded_at=None,
+                    duration_seconds=None,
+                )
+                for row in rows
+            ]
+        elif source == "native":
+            results = SearchService(backend=PostgresSearchBackend(db)).search(
+                SearchRequest(
+                    q=q,
+                    source=source,
+                    video_id=str(video_id) if video_id else None,
+                    limit=limit,
+                    offset=offset,
+                    sort_by=sort_by,
+                    filters=filters,
+                )
+            )
+            hits = [
+                SearchHit(
+                    id=row.id,
+                    video_id=uuid.UUID(row.video_id),
+                    start_ms=row.start_ms,
+                    end_ms=row.end_ms,
+                    snippet=row.snippet,
+                    highlights=_schema_highlights(row.highlights),
+                    source="whisper",
+                    video_title=None,
+                    channel_name=None,
+                    uploaded_at=None,
+                    duration_seconds=None,
+                )
+                for row in results
+            ]
+        else:
+            rows = crud.search_youtube_segments_advanced(
+                db,
+                q=q,
+                video_id=str(video_id) if video_id else None,
+                limit=limit,
+                offset=offset,
+                sort_by=sort_by,
+                filters=filters,
+            )
+            hits = [
+                SearchHit(
+                    id=row["id"],
+                    video_id=row["video_id"],
+                    start_ms=row["start_ms"],
+                    end_ms=row["end_ms"],
+                    snippet=row["snippet"] or "",
+                    highlights=_schema_highlights(
+                        normalize_highlight_ranges(str(row["snippet"] or ""), row.get("highlights") or [])
+                    ),
+                    source="youtube",
+                    video_title=None,
+                    channel_name=None,
+                    uploaded_at=None,
+                    duration_seconds=None,
+                )
+                for row in rows
+            ]
+        query_time_ms = int((time.time() - start_time) * 1000)
+        if context.user_id:
+            search_analytics.save_search_history(
+                db,
+                context.user_id,
+                q,
+                {"source": source, "video_id": str(video_id) if video_id else None, **filters, "sort_by": sort_by},
+                len(hits),
+                query_time_ms,
+            )
+        freshness = search_freshness(db)
+        return SearchResponse(
+            total=None,
+            hits=hits,
+            query_time_ms=query_time_ms,
+            backend="postgres",
+            degraded=True,
+            indexed_at=freshness["indexed_at"],
+            index_lag_seconds=freshness["index_lag_seconds"],
+        )
 
     def grouped_search(
         self,
@@ -253,7 +455,9 @@ class SearchOrchestrator:
         category: str | None = None,
         sort_by: str = "relevance",
     ) -> GroupedSearchResponse:
-        filters = search_analytics.build_search_filters(date_from, date_to, min_duration, max_duration, channel, language, has_speaker_labels, category)
+        filters = search_analytics.build_search_filters(
+            date_from, date_to, min_duration, max_duration, channel, language, has_speaker_labels, category
+        )
         context = search_analytics.record_search_request(request, db, q, source)
         result = crud.get_grouped_search(
             db,
@@ -297,7 +501,9 @@ class SearchOrchestrator:
         sort_by: str = "relevance",
         top_limit: int = 5,
     ) -> MentionMap:
-        filters = search_analytics.build_search_filters(date_from, date_to, min_duration, max_duration, channel, language, has_speaker_labels, category)
+        filters = search_analytics.build_search_filters(
+            date_from, date_to, min_duration, max_duration, channel, language, has_speaker_labels, category
+        )
         context = search_analytics.record_search_request(request, db, q, source)
         result = crud.get_mention_map(
             db,
@@ -346,7 +552,9 @@ class SearchOrchestrator:
         if format not in ("csv", "json"):
             raise ValidationError("Invalid format. Must be 'csv' or 'json'", field="format")
 
-        filters = search_analytics.build_search_filters(date_from, date_to, min_duration, max_duration, channel, language, has_speaker_labels)
+        filters = search_analytics.build_search_filters(
+            date_from, date_to, min_duration, max_duration, channel, language, has_speaker_labels
+        )
         if source == "best":
             rows = crud.search_best_segments_advanced(
                 db,
@@ -378,12 +586,16 @@ class SearchOrchestrator:
                 filters=filters,
             )
 
+        rows = normalize_search_rows(rows)
+
         video_details: dict[str, dict[str, Any]] = {}
         for r in rows:
             vid = str(r["video_id"])
             if vid not in video_details:
                 video_row = (
-                    db.execute(_text("SELECT youtube_id, title, duration_seconds FROM videos WHERE id = :vid"), {"vid": vid})
+                    db.execute(
+                        _text("SELECT youtube_id, title, duration_seconds FROM videos WHERE id = :vid"), {"vid": vid}
+                    )
                     .mappings()
                     .first()
                 )

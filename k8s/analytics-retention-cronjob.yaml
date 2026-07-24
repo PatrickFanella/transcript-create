@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: transcript-analytics-retention
+  labels:
+    app: transcript-create
+    component: analytics-retention
+spec:
+  schedule: "17 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app: transcript-create
+            component: analytics-retention
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: analytics-retention
+              image: transcript-create:latest
+              imagePullPolicy: IfNotPresent
+              command: ["python3", "/app/scripts/maintain_event_retention.py"]
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: transcript-secrets
+                      key: database-url
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi

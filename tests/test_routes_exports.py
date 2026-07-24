@@ -1,5 +1,6 @@
 """Tests for export routes."""
 
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -31,8 +32,8 @@ class TestExportRoutes:
             {"id": str(user_id), "email": "export@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
 
         # Create test video with YouTube transcript
@@ -80,8 +81,8 @@ class TestExportRoutes:
             {"id": str(user_id), "email": "vtt@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
 
         job_id = uuid.uuid4()
@@ -128,8 +129,8 @@ class TestExportRoutes:
             {"id": str(user_id), "email": "native@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
 
         job_id = uuid.uuid4()
@@ -174,8 +175,8 @@ class TestExportRoutes:
             {"id": str(user_id), "email": "nativevtt@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
 
         job_id = uuid.uuid4()
@@ -221,8 +222,8 @@ class TestExportRoutes:
             {"id": str(user_id), "email": "json@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
 
         job_id = uuid.uuid4()
@@ -253,10 +254,11 @@ class TestExportRoutes:
         response = client.get(f"/videos/{video_id}/transcript.json", cookies={"tc_session": session_token})
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
-        assert len(data) == 1
-        assert data[0]["text"] == "JSON export"
-        assert data[0]["speaker_label"] == "Speaker 1"
+        assert data["source"] == "whisper"
+        assert data["video_id"] == str(video_id)
+        assert len(data["segments"]) == 1
+        assert data["segments"][0]["text"] == "JSON export"
+        assert data["segments"][0]["speaker_label"] == "Speaker 1"
 
     def test_export_youtube_transcript_json(self, client: TestClient, db_session):
         """Test YouTube transcript JSON export."""
@@ -271,8 +273,8 @@ class TestExportRoutes:
             {"id": str(user_id), "email": "ytjson@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
 
         job_id = uuid.uuid4()
@@ -303,8 +305,9 @@ class TestExportRoutes:
         response = client.get(f"/videos/{video_id}/youtube-transcript.json", cookies={"tc_session": session_token})
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
-        assert data[0]["text"] == "YT JSON"
+        assert data["video_id"] == str(video_id)
+        assert data["language"] == "en"
+        assert data["segments"][0]["text"] == "YT JSON"
 
     def test_export_native_transcript_pdf(self, client: TestClient, db_session):
         """Test native transcript PDF export."""
@@ -319,8 +322,8 @@ class TestExportRoutes:
             {"id": str(user_id), "email": "pdf@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
 
         job_id = uuid.uuid4()
@@ -367,44 +370,11 @@ class TestExportRoutes:
             {"id": str(user_id), "email": "notfound@example.com"},
         )
         db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+            text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+            {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
         )
         db_session.commit()
 
         video_id = uuid.uuid4()
         response = client.get(f"/videos/{video_id}/transcript.srt", cookies={"tc_session": session_token})
         assert response.status_code == 404
-
-    def test_export_free_user_quota_exceeded(self, client: TestClient, db_session):
-        """Test export quota for free users."""
-        user_id = uuid.uuid4()
-        session_token = secrets.token_urlsafe(32)
-
-        db_session.execute(
-            text(
-                "INSERT INTO users (id, email, oauth_provider, oauth_subject, plan) "
-                "VALUES (:id, :email, 'google', 'test', 'free')"
-            ),
-            {"id": str(user_id), "email": "freequota@example.com"},
-        )
-        db_session.execute(
-            text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-            {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
-        )
-
-        # Create many export events to exceed quota
-        for _i in range(10):  # Assuming FREE_DAILY_EXPORT_LIMIT is less than 10
-            db_session.execute(
-                text(
-                    "INSERT INTO events (user_id, session_token, type, payload) "
-                    "VALUES (:uid, :token, 'export', :payload)"
-                ),
-                {"uid": str(user_id), "token": session_token, "payload": {"format": "srt"}},
-            )
-        db_session.commit()
-
-        video_id = uuid.uuid4()
-        response = client.get(f"/videos/{video_id}/transcript.srt", cookies={"tc_session": session_token})
-        # Should be blocked due to quota
-        assert response.status_code in [402, 404]  # 402 for quota, 404 for missing video

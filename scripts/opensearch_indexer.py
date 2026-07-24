@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import socket
 import sys
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ configure_logging(
     json_format=(settings.LOG_FORMAT == "json"),
 )
 logger = get_logger(__name__)
+CONSUMER_ID = f"{socket.gethostname()}-{__import__('os').getpid()}"
 
 
 def ensure_index(name: str, recreate: bool = False):
@@ -108,16 +110,16 @@ def ensure_index(name: str, recreate: bool = False):
         return
     r = requests.put(url, json=mapping, timeout=60)
     if r.status_code >= 400:
-        logging.error("Index create failed: %s", r.text)
+        logger.error("Index create failed: %s", r.text)
     r.raise_for_status()
-    logging.info("Created index %s", name)
+    logger.info("Created index %s", name)
 
 
 def update_index_settings(name: str, new_settings: dict):
     url = f"{settings.OPENSEARCH_URL}/{name}/_settings"
     r = requests.put(url, json={"index": new_settings}, timeout=30)
     r.raise_for_status()
-    logging.info("Updated %s settings: %s", name, new_settings)
+    logger.info("Updated %s settings: %s", name, new_settings)
 
 
 def gen_bulk_actions(index: str, rows: Iterable[dict]):
@@ -145,7 +147,14 @@ def bulk_post(actions: List[dict], retries: int = 5, base_sleep: float = 0.5):
             r.raise_for_status()
             j = r.json()
             if j.get("errors"):
-                logging.warning("Bulk had item errors (continuing): %s", j.get("errors"))
+                failures = []
+                for item in j.get("items", []):
+                    result = next(iter(item.values()), {})
+                    status = int(result.get("status", 500))
+                    if status not in {200, 201, 404, 409}:
+                        failures.append(result)
+                if failures:
+                    raise requests.HTTPError(f"OpenSearch bulk item failures: {failures[:3]}", response=r)
             return j
         except requests.HTTPError as e:
             last_exc = e
@@ -159,26 +168,112 @@ def bulk_post(actions: List[dict], retries: int = 5, base_sleep: float = 0.5):
         raise last_exc
 
 
+def claim_outbox(engine, limit: int) -> list[dict]:
+    """Lease pending events in a short transaction; indexing happens afterward."""
+    with engine.begin() as conn:
+        return [
+            dict(row)
+            for row in conn.execute(
+                text("""
+                    WITH candidates AS (
+                        SELECT id FROM search_index_outbox
+                        WHERE processed_at IS NULL AND dead_lettered_at IS NULL
+                          AND available_at <= now()
+                          AND (locked_at IS NULL OR locked_at < now() - interval '5 minutes')
+                        ORDER BY id FOR UPDATE SKIP LOCKED LIMIT :limit
+                    )
+                    UPDATE search_index_outbox o SET locked_at=now(), locked_by=:consumer
+                    FROM candidates c WHERE o.id=c.id
+                    RETURNING o.*
+                """),
+                {"limit": limit, "consumer": CONSUMER_ID},
+            )
+            .mappings()
+            .all()
+        ]
+
+
+def outbox_actions(rows: list[dict]) -> list[dict]:
+    actions: list[dict] = []
+    for row in rows:
+        index = settings.OPENSEARCH_INDEX_NATIVE if row["source"] == "native" else settings.OPENSEARCH_INDEX_YOUTUBE
+        metadata = {
+            "_index": index,
+            "_id": row["document_id"],
+            "version": row["version"],
+            "version_type": "external_gte",
+        }
+        if row["operation"] == "delete":
+            actions.append({"delete": metadata})
+        else:
+            actions.extend(({"index": metadata}, row["payload"]))
+    return actions
+
+
+def finish_outbox(engine, rows: list[dict], error: Exception | None = None) -> None:
+    ids = [row["id"] for row in rows]
+    if not ids:
+        return
+    with engine.begin() as conn:
+        if error is None:
+            conn.execute(
+                text("""
+                    UPDATE search_index_outbox SET processed_at=now(), locked_at=NULL, locked_by=NULL,
+                        last_error=NULL WHERE id=ANY(CAST(:ids AS bigint[])) AND locked_by=:consumer
+                """),
+                {"ids": ids, "consumer": CONSUMER_ID},
+            )
+            conn.execute(
+                text("""
+                    INSERT INTO search_index_checkpoints(consumer,last_outbox_id,indexed_at)
+                    VALUES (:consumer,:last_id,now())
+                    ON CONFLICT (consumer) DO UPDATE SET last_outbox_id=EXCLUDED.last_outbox_id,
+                        indexed_at=EXCLUDED.indexed_at, updated_at=now()
+                """),
+                {"consumer": CONSUMER_ID, "last_id": max(ids)},
+            )
+        else:
+            conn.execute(
+                text("""
+                    UPDATE search_index_outbox SET attempt_count=attempt_count+1,
+                        available_at=now() + make_interval(secs => LEAST(3600, 5 * power(2, attempt_count))::int),
+                        last_error=:error, locked_at=NULL, locked_by=NULL,
+                        dead_lettered_at=CASE WHEN attempt_count+1 >= 10 THEN now() ELSE NULL END
+                    WHERE id=ANY(CAST(:ids AS bigint[])) AND locked_by=:consumer
+                """),
+                {"ids": ids, "consumer": CONSUMER_ID, "error": str(error)[:2000]},
+            )
+
+
+def process_outbox(engine, batch: int = 1000) -> int:
+    rows = claim_outbox(engine, batch)
+    if not rows:
+        return 0
+    try:
+        bulk_post(outbox_actions(rows))
+    except Exception as exc:
+        finish_outbox(engine, rows, error=exc)
+        raise
+    finish_outbox(engine, rows)
+    return len(rows)
+
+
 def index_table(engine, table: str, index: str, last_id: int, batch: int, bulk_docs: int) -> int:
     with engine.connect() as conn:
         if table == "segments":
-            sql = text(
-                """
+            sql = text("""
                 SELECT id, video_id, start_ms, end_ms, text
                 FROM segments WHERE id > :last_id
                 ORDER BY id ASC LIMIT :lim
-            """
-            )
+            """)
         else:
-            sql = text(
-                """
+            sql = text("""
                 SELECT ys.id, yt.video_id, ys.start_ms, ys.end_ms, ys.text
                 FROM youtube_segments ys
                 JOIN youtube_transcripts yt ON yt.id = ys.youtube_transcript_id
                 WHERE ys.id > :last_id
                 ORDER BY ys.id ASC LIMIT :lim
-            """
-            )
+            """)
         rows = conn.execute(sql, {"last_id": last_id, "lim": batch}).mappings().all()
         if not rows:
             return 0
@@ -207,28 +302,13 @@ def main(
                 settings.OPENSEARCH_INDEX_YOUTUBE, {"refresh_interval": "-1", "translog.durability": "async"}
             )
         except Exception as e:
-            logging.warning("Failed to disable refresh: %s", e)
-    last_native = 0
-    last_youtube = 0
+            logger.warning("Failed to disable refresh: %s", e)
     while True:
-        progressed = False
-        if source in ("native", "both"):
-            new_last = index_table(eng, "segments", settings.OPENSEARCH_INDEX_NATIVE, last_native, batch, bulk_docs)
-            if new_last:
-                last_native = new_last
-                progressed = True
-                logging.info("Indexed native up to id=%d", last_native)
-        if source in ("youtube", "both"):
-            new_last = index_table(
-                eng, "youtube_segments", settings.OPENSEARCH_INDEX_YOUTUBE, last_youtube, batch, bulk_docs
-            )
-            if new_last:
-                last_youtube = new_last
-                progressed = True
-                logging.info("Indexed youtube up to id=%d", last_youtube)
-        if not progressed:
+        processed = process_outbox(eng, batch=min(batch, bulk_docs))
+        if not processed:
             break
-    logging.info("Indexing complete")
+        logger.info("Processed search outbox batch", extra={"count": processed})
+    logger.info("Indexing complete")
     # Restore refresh interval
     if refresh_off:
         try:
@@ -239,7 +319,7 @@ def main(
                 settings.OPENSEARCH_INDEX_YOUTUBE, {"refresh_interval": "1s", "translog.durability": "request"}
             )
         except Exception as e:
-            logging.warning("Failed to restore refresh: %s", e)
+            logger.warning("Failed to restore refresh: %s", e)
 
 
 if __name__ == "__main__":

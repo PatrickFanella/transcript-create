@@ -8,11 +8,14 @@ global:
 image:
   repository: ghcr.io/subculture-collective/transcript-create
   tag: "1.0.0"  # Use specific version tags, not 'latest'
+  digest: ""
   pullPolicy: IfNotPresent
   pullSecrets:
     - name: ghcr-pull-secret
 
 api:
+  # Exact HTTPS browser origin allowed by FastAPI CORS. Replace before deployment.
+  frontendOrigin: "https://your-production-frontend-domain.com"
   replicaCount: 5
   
   resources:
@@ -45,7 +48,6 @@ api:
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
       nginx.ingress.kubernetes.io/limit-rps: "1000"
       nginx.ingress.kubernetes.io/limit-connections: "100"
-      nginx.ingress.kubernetes.io/enable-cors: "true"
       nginx.ingress.kubernetes.io/proxy-body-size: "50m"
       nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
       nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
@@ -57,7 +59,7 @@ api:
         more_set_headers "X-Content-Type-Options: nosniff";
         more_set_headers "X-Frame-Options: DENY";
         more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
-        more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'";
+        more_set_headers "Content-Security-Policy: default-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
     hosts:
       - host: api.your-production-domain.com
         paths:
@@ -131,6 +133,12 @@ persistence:
 config:
   whisper:
     model: large-v3
+
+  search:
+    backend: opensearch
+    indexNative: segments
+    indexYoutube: youtube_segments
+    verifySsl: true
   
   cleanup:
     afterProcess: true
@@ -144,9 +152,15 @@ config:
     transcriptTtl: 7200
     searchTtl: 1200
   
-  quotas:
-    freeDailySearchLimit: 5
-    freeDailyExportLimit: 1
+  # Replace callback URLs with the exact HTTPS values registered with each
+  # provider before deployment. Bootstrap identities are comma-separated
+  # immutable provider:subject values.
+  oauth:
+    # Required deployment-time overrides; production rejects these placeholders
+    # whenever the matching OAuth client credentials are enabled.
+    googleRedirectUri: "REQUIRED_OAUTH_GOOGLE_REDIRECT_URI"
+    twitchRedirectUri: "REQUIRED_OAUTH_TWITCH_REDIRECT_URI"
+    bootstrapAdminIdentities: ""
   
   security:
     enableRateLimiting: true
@@ -162,6 +176,10 @@ config:
 
 secrets:
   existingSecret: transcript-prod-secrets
+
+migrations:
+  # Never enable during an ordinary rolling Helm upgrade.
+  allowSessionTokenContractMigration: false
 
 monitoring:
   serviceMonitor:

@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 
-def derive_chapters_from_window_labels(window_labels: list[dict[str, Any]], max_gap_ms: int = 60_000) -> list[dict[str, Any]]:
+def derive_chapters_from_window_labels(
+    window_labels: list[dict[str, Any]], max_gap_ms: int = 60_000
+) -> list[dict[str, Any]]:
     ordered = sorted(window_labels, key=lambda row: (int(row.get("start_ms") or 0), str(row.get("label_id") or "")))
     chapters: list[dict[str, Any]] = []
     for row in ordered:

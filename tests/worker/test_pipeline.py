@@ -1,6 +1,5 @@
 """Tests for worker.pipeline module."""
 
-import json
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch
@@ -8,8 +7,9 @@ from unittest.mock import Mock, patch
 import pytest
 from sqlalchemy import text
 
-from worker import pipeline
 from app import crud
+from worker import pipeline
+from worker.caption_ingest import CaptionIngestionResult
 
 
 def _video_insert_params(mock_conn):
@@ -320,7 +320,8 @@ class TestExpandChannelJob:
 
             # Find the log call that contains expansion results by checking for entry_count in extra
             expansion_log_calls = [
-                call for call in mock_logger.info.call_args_list
+                call
+                for call in mock_logger.info.call_args_list
                 if "extra" in call[1] and "entry_count" in call[1].get("extra", {})
             ]
 
@@ -378,135 +379,39 @@ class TestExpandChannelJob:
 class TestProcessVideo:
     """Tests for process_video function."""
 
-    @patch("worker.pipeline.diarize_and_align")
-    @patch("worker.pipeline.transcribe_chunk")
-    @patch("worker.pipeline.chunk_audio")
-    @patch("worker.pipeline.ensure_wav_16k")
-    @patch("worker.pipeline.download_audio")
-    @patch("worker.pipeline.settings")
-    def test_process_video_success_path(
-        self,
-        mock_settings,
-        mock_download,
-        mock_ensure_wav,
-        mock_chunk,
-        mock_transcribe,
-        mock_diarize,
-        mock_engine,
-        tmp_path,
-    ):
+    @pytest.fixture(autouse=True)
+    def _stub_parent_job_refresh(self, monkeypatch):
+        monkeypatch.setattr(pipeline, "refresh_job_state", Mock())
+
+    @patch("worker.pipeline.process_native_video")
+    def test_process_video_success_path(self, mock_process_native, mock_engine, tmp_path):
         """Test successful video processing pipeline."""
         video_id = uuid.uuid4()
-        job_id = uuid.uuid4()
-
-        # Mock settings
-        mock_settings.CHUNK_SECONDS = 900
-        mock_settings.WHISPER_MODEL = "medium"
-        mock_settings.CLEANUP_AFTER_PROCESS = False
-
-        # Mock database queries
-        mock_video = {
-            "id": video_id,
-            "youtube_id": "test123",
-            "job_id": job_id,
-        }
-
-        mock_conn = Mock()
-        mock_conn.execute.return_value.mappings.return_value.first.return_value = mock_video
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=False)
-        mock_engine.begin.return_value = mock_conn
-
-        # Mock file operations
-        raw_path = tmp_path / "raw.m4a"
-        wav_path = tmp_path / "audio_16k.wav"
-        chunk_path = tmp_path / "chunk_0000.wav"
-
-        mock_download.return_value = raw_path
-        mock_ensure_wav.return_value = wav_path
-
-        # Mock chunking
-        from worker.audio import Chunk
-
-        mock_chunk.return_value = [Chunk(path=chunk_path, offset=0.0)]
-
-        # Mock transcription
-        transcript_segments = [
-            {
-                "start": 0.0,
-                "end": 5.0,
-                "text": "Test transcript",
-                "avg_logprob": -0.5,
-                "temperature": 0.0,
-                "token_count": 3,
-                "confidence": 0.95,
-            }
-        ]
-        mock_transcribe.return_value = (transcript_segments, {"language": "en"})
-
-        # Mock diarization
-        mock_diarize.return_value = transcript_segments
+        mock_process_native.return_value = 1
 
         # Patch WORKDIR
         with patch("worker.pipeline.WORKDIR", tmp_path):
-            pipeline.process_video(mock_engine, video_id)
+            assert pipeline.process_video(mock_engine, video_id) == 1
 
-        # Verify all stages were called
-        mock_download.assert_called_once()
-        mock_ensure_wav.assert_called_once_with(raw_path)
-        mock_chunk.assert_called_once_with(wav_path, 900)
-        mock_transcribe.assert_called_once()
-        mock_diarize.assert_called_once()
+        args, kwargs = mock_process_native.call_args
+        assert args == (mock_engine, video_id)
+        assert kwargs["workdir"] == tmp_path
+        assert kwargs["deps"].download_audio is pipeline.download_audio
 
-    @patch("worker.pipeline.crud.replace_transcript_blocks")
-    @patch("worker.pipeline.diarize_and_align")
-    @patch("worker.pipeline.transcribe_chunk")
-    @patch("worker.pipeline.chunk_audio")
-    @patch("worker.pipeline.ensure_wav_16k")
-    @patch("worker.pipeline.download_audio")
-    @patch("worker.pipeline.settings")
-    def test_process_video_persists_transcript_blocks(
-        self,
-        mock_settings,
-        mock_download,
-        mock_ensure_wav,
-        mock_chunk,
-        mock_transcribe,
-        mock_diarize,
-        mock_replace_blocks,
-        mock_engine,
-        tmp_path,
-    ):
+    @patch("worker.pipeline.process_native_video")
+    def test_process_video_delegates_persistence(self, mock_process_native, mock_engine, tmp_path):
         video_id = uuid.uuid4()
-        job_id = uuid.uuid4()
-        mock_settings.CHUNK_SECONDS = 900
-        mock_settings.WHISPER_MODEL = "medium"
-        mock_settings.CLEANUP_AFTER_PROCESS = False
-        mock_video = {"id": video_id, "youtube_id": "test123", "job_id": job_id}
-        mock_conn = Mock()
-        mock_conn.execute.return_value.mappings.return_value.first.return_value = mock_video
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=False)
-        mock_engine.begin.return_value = mock_conn
-        raw_path = tmp_path / "raw.m4a"
-        wav_path = tmp_path / "audio_16k.wav"
-        chunk_path = tmp_path / "chunk_0000.wav"
-        mock_download.return_value = raw_path
-        mock_ensure_wav.return_value = wav_path
-        from worker.audio import Chunk
-        mock_chunk.return_value = [Chunk(path=chunk_path, offset=0.0)]
-        transcript_segments = [{"start": 0.0, "end": 5.0, "text": "Test transcript", "speaker": "Speaker 1"}]
-        mock_transcribe.return_value = (transcript_segments, {"language": "en"})
-        mock_diarize.return_value = transcript_segments
+        mock_process_native.return_value = 1
         with patch("worker.pipeline.WORKDIR", tmp_path):
-            pipeline.process_video(mock_engine, video_id)
-        assert mock_replace_blocks.called
-        blocks = mock_replace_blocks.call_args.args[2]
-        assert len(blocks) == 1
-        assert blocks[0].speaker_label == "Speaker 1"
+            assert pipeline.process_video(mock_engine, video_id) == 1
+        assert mock_process_native.call_args.kwargs["deps"].replace_transcript_blocks is crud.replace_transcript_blocks
 
 
 class TestTranscriptBlockCrud:
+    @pytest.fixture(autouse=True)
+    def _stub_parent_job_refresh(self, monkeypatch):
+        monkeypatch.setattr(pipeline, "refresh_job_state", Mock())
+
     def test_replace_and_list_transcript_blocks(self, db_session):
         job_id = crud.create_job(db_session, "single", "https://youtube.com/watch?v=test")
         video_id = uuid.uuid4()
@@ -524,246 +429,90 @@ class TestTranscriptBlockCrud:
         assert len(rows) == 1
         assert rows[0]["text"] == "Hello world."
 
-    @patch("worker.pipeline.download_audio")
-    @patch("worker.pipeline.WORKDIR")
-    def test_process_video_download_failure(self, mock_workdir, mock_download, mock_engine, tmp_path):
-        """Test handling of download failure."""
+    @patch("worker.pipeline.process_native_video")
+    def test_process_video_propagates_native_failure(self, mock_process_native, mock_engine, tmp_path):
+        """The wrapper does not alter native pipeline failures."""
         video_id = uuid.uuid4()
+        mock_process_native.side_effect = Exception("Download failed")
 
-        # Set WORKDIR to tmp_path
-        mock_workdir.__truediv__ = lambda self, other: tmp_path / str(other)
-
-        mock_video = {"id": video_id, "youtube_id": "test123", "job_id": uuid.uuid4()}
-
-        mock_conn = Mock()
-        mock_conn.execute.return_value.mappings.return_value.first.return_value = mock_video
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=False)
-        mock_engine.begin.return_value = mock_conn
-
-        # Simulate download failure
-        mock_download.side_effect = Exception("Download failed")
-
-        with pytest.raises(Exception, match="Download failed"):
+        with patch("worker.pipeline.WORKDIR", tmp_path), pytest.raises(Exception, match="Download failed"):
             pipeline.process_video(mock_engine, video_id)
 
-    @patch("worker.pipeline.diarize_and_align")
-    @patch("worker.pipeline.transcribe_chunk")
-    @patch("worker.pipeline.chunk_audio")
-    @patch("worker.pipeline.ensure_wav_16k")
-    @patch("worker.pipeline.download_audio")
-    @patch("worker.pipeline.settings")
-    def test_process_video_cleanup_after_success(
-        self,
-        mock_settings,
-        mock_download,
-        mock_ensure_wav,
-        mock_chunk,
-        mock_transcribe,
-        mock_diarize,
-        mock_engine,
-        tmp_path,
-    ):
-        """Test file cleanup after successful processing."""
+        assert mock_process_native.call_args.args == (mock_engine, video_id)
+
+    @patch("worker.pipeline.process_native_video")
+    def test_process_video_delegates_cleanup(self, mock_process_native, mock_engine, tmp_path):
+        """The wrapper delegates cleanup and returns the native segment count."""
         video_id = uuid.uuid4()
-
-        # Enable cleanup
-        mock_settings.CHUNK_SECONDS = 900
-        mock_settings.WHISPER_MODEL = "medium"
-        mock_settings.CLEANUP_AFTER_PROCESS = True
-        mock_settings.CLEANUP_DELETE_RAW = True
-        mock_settings.CLEANUP_DELETE_WAV = True
-        mock_settings.CLEANUP_DELETE_CHUNKS = True
-        mock_settings.CLEANUP_DELETE_DIR_IF_EMPTY = True
-
-        mock_video = {"id": video_id, "youtube_id": "test123", "job_id": uuid.uuid4()}
-
-        mock_conn = Mock()
-        mock_conn.execute.return_value.mappings.return_value.first.return_value = mock_video
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=False)
-        mock_engine.begin.return_value = mock_conn
-
-        # Create real files for cleanup testing
-        video_dir = tmp_path / str(video_id)
-        video_dir.mkdir()
-
-        raw_path = video_dir / "raw.m4a"
-        raw_path.touch()
-        wav_path = video_dir / "audio_16k.wav"
-        wav_path.touch()
-        chunk_path = video_dir / "chunk_0000.wav"
-        chunk_path.touch()
-
-        mock_download.return_value = raw_path
-        mock_ensure_wav.return_value = wav_path
-
-        from worker.audio import Chunk
-
-        mock_chunk.return_value = [Chunk(path=chunk_path, offset=0.0)]
-
-        transcript_segments = [
-            {"start": 0.0, "end": 5.0, "text": "Test", "avg_logprob": -0.5, "temperature": 0.0, "token_count": 1}
-        ]
-        mock_transcribe.return_value = (transcript_segments, {"language": "en"})
-        mock_diarize.return_value = transcript_segments
+        mock_process_native.return_value = 1
 
         with patch("worker.pipeline.WORKDIR", tmp_path):
-            pipeline.process_video(mock_engine, video_id)
+            assert pipeline.process_video(mock_engine, video_id) == 1
 
-        # Verify files were deleted
-        assert not raw_path.exists()
-        assert not wav_path.exists()
-        assert not chunk_path.exists()
-        assert not video_dir.exists()
+        assert mock_process_native.call_args.kwargs["deps"].settings is pipeline.settings
 
-    @patch("worker.pipeline.diarize_and_align")
-    @patch("worker.pipeline.transcribe_chunk")
-    @patch("worker.pipeline.chunk_audio")
-    @patch("worker.pipeline.ensure_wav_16k")
-    @patch("worker.pipeline.download_audio")
-    @patch("worker.pipeline.settings")
-    def test_process_video_multiple_chunks(
-        self,
-        mock_settings,
-        mock_download,
-        mock_ensure_wav,
-        mock_chunk,
-        mock_transcribe,
-        mock_diarize,
-        mock_engine,
-        tmp_path,
-    ):
-        """Test processing video with multiple chunks."""
+    @patch("worker.pipeline.process_native_video")
+    def test_process_video_returns_native_segment_count(self, mock_process_native, mock_engine, tmp_path):
+        """The wrapper preserves the native pipeline's segment-count result."""
         video_id = uuid.uuid4()
-
-        mock_settings.CHUNK_SECONDS = 900
-        mock_settings.WHISPER_MODEL = "medium"
-        mock_settings.CLEANUP_AFTER_PROCESS = False
-
-        mock_video = {"id": video_id, "youtube_id": "test123", "job_id": uuid.uuid4()}
-
-        mock_conn = Mock()
-        mock_conn.execute.return_value.mappings.return_value.first.return_value = mock_video
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=False)
-        mock_engine.begin.return_value = mock_conn
-
-        raw_path = tmp_path / "raw.m4a"
-        wav_path = tmp_path / "audio_16k.wav"
-
-        mock_download.return_value = raw_path
-        mock_ensure_wav.return_value = wav_path
-
-        from worker.audio import Chunk
-
-        # Multiple chunks with offsets
-        mock_chunk.return_value = [
-            Chunk(path=tmp_path / "chunk_0000.wav", offset=0.0),
-            Chunk(path=tmp_path / "chunk_0001.wav", offset=900.0),
-        ]
-
-        # Mock transcription for each chunk
-        mock_transcribe.side_effect = [
-            ([{"start": 0.0, "end": 5.0, "text": "First", "avg_logprob": -0.5, "temperature": 0.0, "token_count": 1}], {"language": "en"}),
-            ([{"start": 0.0, "end": 5.0, "text": "Second", "avg_logprob": -0.5, "temperature": 0.0, "token_count": 1}], {"language": "en"}),
-        ]
-
-        # Diarization returns all segments
-        mock_diarize.return_value = [
-            {"start": 0.0, "end": 5.0, "text": "First", "avg_logprob": -0.5, "temperature": 0.0, "token_count": 1},
-            {"start": 900.0, "end": 905.0, "text": "Second", "avg_logprob": -0.5, "temperature": 0.0, "token_count": 1},
-        ]
+        mock_process_native.return_value = 2
 
         with patch("worker.pipeline.WORKDIR", tmp_path):
-            pipeline.process_video(mock_engine, video_id)
-
-        # Transcribe should be called twice
-        assert mock_transcribe.call_count == 2
-
-        # Verify offsets were applied to segments
-        # Second segment should have offset of 900.0 added
+            assert pipeline.process_video(mock_engine, video_id) == 2
+        mock_process_native.assert_called_once()
 
 
 class TestCaptureYouTubeCaptions:
     """Tests for capture_youtube_captions_for_unprocessed function."""
 
+    @patch("worker.pipeline.ingest_captions_for_unprocessed_videos")
     @patch("worker.pipeline.get_youtube_service")
-    def test_capture_youtube_captions_success(self, mock_get_service, mock_conn):
+    def test_capture_youtube_captions_success(self, mock_get_service, mock_ingest, mock_conn):
         """Test successful YouTube caption capture."""
-        video_id = uuid.uuid4()
-        youtube_id = "test123"
-
-        # Mock video query
-        mock_conn.execute.return_value.all.return_value = [(video_id, youtube_id)]
-
         mock_service = Mock()
-        mock_service.fetch_auto_captions.return_value = (
-            Mock(language="en", kind="auto", url="http://example.com/captions.json3"),
-            [Mock(start=0.0, end=5.0, text="Test caption")],
-        )
         mock_get_service.return_value = mock_service
-        mock_conn.execute.return_value.first.return_value = (1,)
+        mock_ingest.return_value = CaptionIngestionResult(1, 1, 0, 0, False, None)
         count = pipeline.capture_youtube_captions_for_unprocessed(mock_conn, limit=5)
 
         assert count == 1
-
-    @patch("worker.pipeline.get_youtube_service")
-    def test_capture_youtube_captions_no_captions(self, mock_get_service, mock_conn):
-        """Test when no captions are available."""
-        video_id = uuid.uuid4()
-        youtube_id = "test123"
-
-        mock_conn.execute.return_value.all.return_value = [(video_id, youtube_id)]
-        mock_service = Mock()
-        mock_service.fetch_auto_captions.return_value = None
-        mock_get_service.return_value = mock_service
-
-        count = pipeline.capture_youtube_captions_for_unprocessed(mock_conn, limit=5)
-
-        assert count == 0
-
-    @patch("worker.pipeline.get_youtube_service")
-    def test_capture_youtube_captions_fetch_error(self, mock_get_service, mock_conn):
-        """Test handling of caption fetch errors."""
-        video_id = uuid.uuid4()
-        youtube_id = "test123"
-
-        mock_conn.execute.return_value.all.return_value = [(video_id, youtube_id)]
-        mock_service = Mock()
-        mock_service.fetch_auto_captions.side_effect = Exception("Fetch failed")
-        mock_get_service.return_value = mock_service
-
-        # Should not raise, just log warning
-        count = pipeline.capture_youtube_captions_for_unprocessed(mock_conn, limit=5)
-
-        assert count == 0
-
-    @patch("worker.pipeline.get_youtube_service")
-    def test_capture_youtube_captions_multiple_videos(self, mock_get_service, mock_conn):
-        """Test processing multiple videos."""
-        videos = [
-            (uuid.uuid4(), "video1"),
-            (uuid.uuid4(), "video2"),
-        ]
-
-        mock_conn.execute.return_value.all.return_value = videos
-
-        mock_service = Mock()
-        mock_service.fetch_auto_captions.return_value = (
-            Mock(language="en", kind="auto", url="http://example.com/captions.json3"),
-            [Mock(start=0.0, end=5.0, text="Test")],
+        mock_ingest.assert_called_once_with(
+            mock_conn,
+            limit=5,
+            staged_only=False,
+            active_only=False,
+            terminal_failures=False,
+            youtube_service=mock_service,
         )
-        mock_get_service.return_value = mock_service
-        mock_conn.execute.return_value.first.return_value = (1,)
+
+    @patch("worker.pipeline.ingest_captions_for_unprocessed_videos")
+    def test_capture_youtube_captions_no_captions(self, mock_ingest, mock_conn):
+        """Test when no captions are available."""
+        mock_ingest.return_value = CaptionIngestionResult(1, 0, 1, 0, False, None)
+
+        count = pipeline.capture_youtube_captions_for_unprocessed(mock_conn, limit=5)
+
+        assert count == 0
+
+    @patch("worker.pipeline.ingest_captions_for_unprocessed_videos")
+    def test_capture_youtube_captions_fetch_error(self, mock_ingest, mock_conn):
+        """Test handling of caption fetch errors."""
+        mock_ingest.return_value = CaptionIngestionResult(1, 0, 0, 1, False, None)
+        count = pipeline.capture_youtube_captions_for_unprocessed(mock_conn, limit=5)
+
+        assert count == 0
+
+    @patch("worker.pipeline.ingest_captions_for_unprocessed_videos")
+    def test_capture_youtube_captions_multiple_videos(self, mock_ingest, mock_conn):
+        """Test processing multiple videos."""
+        mock_ingest.return_value = CaptionIngestionResult(2, 2, 0, 0, False, None)
         count = pipeline.capture_youtube_captions_for_unprocessed(mock_conn, limit=5)
 
         assert count == 2
-        assert mock_service.fetch_auto_captions.call_count == 2
 
-    def test_capture_youtube_captions_no_pending(self, mock_conn):
+    @patch("worker.pipeline.ingest_captions_for_unprocessed_videos")
+    def test_capture_youtube_captions_no_pending(self, mock_ingest, mock_conn):
         """Test when no videos need caption processing."""
-        mock_conn.execute.return_value.all.return_value = []
+        mock_ingest.return_value = CaptionIngestionResult(0, 0, 0, 0, False, None)
 
         count = pipeline.capture_youtube_captions_for_unprocessed(mock_conn, limit=5)
 

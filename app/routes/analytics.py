@@ -199,35 +199,29 @@ def get_jobs_over_time(
     start_date = now - timedelta(days=days)
 
     if period == "daily":
-        query = text(
-            """
+        query = text("""
             SELECT DATE(created_at) as date, COUNT(*) as count
             FROM jobs
             WHERE created_at >= :start_date
             GROUP BY DATE(created_at)
             ORDER BY date ASC
-        """
-        )
+        """)
     elif period == "weekly":
-        query = text(
-            """
+        query = text("""
             SELECT DATE_TRUNC('week', created_at) as date, COUNT(*) as count
             FROM jobs
             WHERE created_at >= :start_date
             GROUP BY DATE_TRUNC('week', created_at)
             ORDER BY date ASC
-        """
-        )
+        """)
     elif period == "monthly":
-        query = text(
-            """
+        query = text("""
             SELECT DATE_TRUNC('month', created_at) as date, COUNT(*) as count
             FROM jobs
             WHERE created_at >= :start_date
             GROUP BY DATE_TRUNC('month', created_at)
             ORDER BY date ASC
-        """
-        )
+        """)
     else:
         return {"error": "Invalid period. Use 'daily', 'weekly', or 'monthly'"}
 
@@ -269,14 +263,12 @@ def get_job_status_breakdown(
     user=Depends(require_role(ROLE_ADMIN)),
 ):
     """Get breakdown of videos by status."""
-    query = text(
-        """
+    query = text("""
         SELECT state, COUNT(*) as count
         FROM videos
         GROUP BY state
         ORDER BY count DESC
-    """
-    )
+    """)
 
     rows = db.execute(query).all()
 
@@ -319,8 +311,7 @@ def get_export_format_breakdown(
     """Get breakdown of exports by format from events."""
     start_date = datetime.utcnow() - timedelta(days=days)
 
-    query = text(
-        """
+    query = text("""
         SELECT
             payload->>'format' as format,
             COUNT(*) as count
@@ -330,8 +321,7 @@ def get_export_format_breakdown(
           AND payload->>'format' IS NOT NULL
         GROUP BY format
         ORDER BY count DESC
-    """
-    )
+    """)
 
     rows = db.execute(query, {"start_date": start_date}).all()
 
@@ -382,16 +372,14 @@ def get_search_analytics(
     # Popular search terms from user_searches table if it exists
     popular_terms = []
     try:
-        query = text(
-            """
+        query = text("""
             SELECT query, COUNT(*) as count
             FROM user_searches
             WHERE created_at >= :start_date
             GROUP BY query
             ORDER BY count DESC
             LIMIT 20
-        """
-        )
+        """)
         rows = db.execute(query, {"start_date": start_date}).all()
         popular_terms = [{"term": row[0], "count": row[1]} for row in rows]
     except Exception:
@@ -405,25 +393,21 @@ def get_search_analytics(
     try:
         zero_results = (
             db.execute(
-                text(
-                    """
+                text("""
                 SELECT COUNT(*) FROM user_searches
                 WHERE created_at >= :start_date AND result_count = 0
-            """
-                ),
+            """),
                 {"start_date": start_date},
             ).scalar()
             or 0
         )
 
         stats = db.execute(
-            text(
-                """
+            text("""
                 SELECT AVG(result_count), AVG(query_time_ms)
                 FROM user_searches
                 WHERE created_at >= :start_date
-            """
-            ),
+            """),
             {"start_date": start_date},
         ).first()
 
@@ -510,16 +494,12 @@ def get_system_health(
     )
 
     # Calculate average processing time from completed videos in last 7 days
-    avg_time_result = db.execute(
-        text(
-            """
+    avg_time_result = db.execute(text("""
             SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at)))
             FROM videos
             WHERE state = 'completed'
               AND updated_at >= NOW() - INTERVAL '7 days'
-        """
-        )
-    ).scalar()
+        """)).scalar()
     avg_processing_time = int(avg_time_result) if avg_time_result else 0
 
     # Error rate
@@ -541,15 +521,11 @@ def get_system_health(
     # Queue metrics
     pending = db.execute(text("SELECT COUNT(*) FROM videos WHERE state = 'pending'")).scalar() or 0
 
-    oldest_pending_result = db.execute(
-        text(
-            """
+    oldest_pending_result = db.execute(text("""
             SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) / 60
             FROM videos
             WHERE state = 'pending'
-        """
-        )
-    ).scalar()
+        """)).scalar()
     oldest_pending_minutes = int(oldest_pending_result) if oldest_pending_result else 0
 
     return {

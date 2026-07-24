@@ -13,7 +13,6 @@ if str(REPO_ROOT) not in sys.path:
 from app.archive.title_entity_curation import import_title_entity_curation_rows, read_curation_csv
 from app.db import SessionLocal, session_scope
 
-
 EPILOG = """
 Examples:
   python scripts/suggest_people_from_titles.py --limit 2000 --format csv > title-entity-candidates.csv

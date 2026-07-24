@@ -1,0 +1,5 @@
+-r requirements-api.txt
+yt-dlp==2026.7.4
+faster-whisper==1.2.0
+openai-whisper==20250625
+pyannote.audio==4.0.1

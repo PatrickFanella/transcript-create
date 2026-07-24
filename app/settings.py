@@ -1,10 +1,27 @@
+import hmac
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlparse
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[1]  # repo root (parent of 'app')
+
+_ANALYTICS_HMAC_SECRET_PLACEHOLDERS = {
+    "change-me-generate-a-different-secure-random-value",
+    "your_analytics_hmac_secret_here",
+    "your-independent-random-secret",
+}
+
+_SESSION_SECRET_PLACEHOLDERS = {
+    "change-me",
+    "change-me-generate-secure-random-value",
+    "your-random-secret",
+    "your_session_secret_here",
+    "session_secret_placeholder_rejected",
+}
 
 
 class Settings(BaseSettings):
@@ -15,6 +32,8 @@ class Settings(BaseSettings):
     WHISPER_BACKEND: str = "faster-whisper"
     CHUNK_SECONDS: int = 900
     MAX_PARALLEL_JOBS: int = 1
+    JOB_LEASE_SECONDS: int = 300
+    MAX_JOB_ATTEMPTS: int = 3
     ROCM: bool = True
     # Force GPU usage for faster-whisper; if true, we will try GPU backends only and fail otherwise
     FORCE_GPU: bool = False
@@ -92,6 +111,7 @@ class Settings(BaseSettings):
     OPENSEARCH_INDEX_YOUTUBE: str = "youtube_segments"
     OPENSEARCH_USER: str = ""
     OPENSEARCH_PASSWORD: str = ""
+    OPENSEARCH_VERIFY_SSL: bool = True
 
     # Redis caching configuration
     REDIS_URL: str = ""  # e.g., "redis://localhost:6379/0" or empty to disable caching
@@ -105,6 +125,9 @@ class Settings(BaseSettings):
     FRONTEND_ORIGIN: str = "http://localhost:5173"
     # Session and OAuth
     SESSION_SECRET: str = "change-me"
+    # Dedicated key for deriving pseudonymous analytics subjects. Production
+    # must set this independently from the login-session secret.
+    ANALYTICS_HMAC_SECRET: str = ""
     OAUTH_GOOGLE_CLIENT_ID: str = ""
     OAUTH_GOOGLE_CLIENT_SECRET: str = ""
     # OAuth redirect URI - must match what's configured in Google Cloud Console
@@ -115,8 +138,8 @@ class Settings(BaseSettings):
     OAUTH_TWITCH_CLIENT_SECRET: str = ""
     # OAuth redirect URI - must match what's configured in Twitch Developer Console
     OAUTH_TWITCH_REDIRECT_URI: str = "http://localhost:8000/auth/callback/twitch"
-    # Comma-separated admin emails for admin dashboard access
-    ADMIN_EMAILS: str = ""
+    # Comma-separated immutable provider:subject identities for future canonical sign-in bootstrap.
+    BOOTSTRAP_ADMIN_IDENTITIES: Annotated[frozenset[str], NoDecode] = frozenset()
     PRO_PLAN_NAME: str = "pro"
     # PDF export font: path to a .ttf file inside the container/host; falls back to system serif
     PDF_FONT_PATH: str = ""
@@ -192,6 +215,9 @@ class Settings(BaseSettings):
     DIARIZATION_FALLBACK_MODEL: str = "pyannote/speaker-diarization"
     DIARIZATION_POLL_INTERVAL: int = 10
     DIARIZATION_RUNNING_TIMEOUT_MINUTES: int = 5
+    # Bound pyannote memory use and recycle its process between jobs.
+    DIARIZATION_MAX_DURATION_SECONDS: int = 7200
+    DIARIZATION_MAX_JOBS_PER_PROCESS: int = 1
     # Custom vocabulary post-processing
     ENABLE_CUSTOM_VOCABULARY: bool = True  # Apply custom vocabulary corrections
     # Translation support
@@ -237,6 +263,31 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @field_validator("BOOTSTRAP_ADMIN_IDENTITIES", mode="before")
+    @classmethod
+    def parse_bootstrap_admin_identities(cls, value: object) -> frozenset[str]:
+        if value is None or value == "":
+            return frozenset()
+        if isinstance(value, str):
+            entries: tuple[object, ...] = tuple(value.split(","))
+        elif isinstance(value, (frozenset, set, tuple, list)):
+            entries = tuple(value)
+        else:
+            raise ValueError("BOOTSTRAP_ADMIN_IDENTITIES must be a comma-separated list of provider:subject entries")
+
+        identities = set()
+        for entry in entries:
+            if not isinstance(entry, str):
+                raise ValueError("BOOTSTRAP_ADMIN_IDENTITIES entries must use provider:subject syntax")
+            identity = entry.strip()
+            if identity.count(":") != 1:
+                raise ValueError("BOOTSTRAP_ADMIN_IDENTITIES entries must use provider:subject syntax")
+            provider, subject = (part.strip() for part in identity.split(":", 1))
+            if not provider or not subject:
+                raise ValueError("BOOTSTRAP_ADMIN_IDENTITIES entries must use provider:subject syntax")
+            identities.add(f"{provider}:{subject}")
+        return frozenset(identities)
+
 
 def _has_value(value: str | None) -> bool:
     return bool((value or "").strip())
@@ -253,11 +304,19 @@ def _is_local_origin(origin: str) -> bool:
 
 
 def _is_valid_origin(origin: str) -> bool:
-    parsed = urlparse(origin)
+    try:
+        parsed = urlparse(origin)
+        _ = parsed.port
+    except ValueError:
+        return False
     return bool(
         parsed.scheme == "https"
         and parsed.hostname
         and not _is_local_origin(origin)
+        and not parsed.username
+        and not parsed.password
+        and "*" not in origin
+        and not any(character.isspace() for character in origin)
         and parsed.path in {"", "/"}
         and not parsed.params
         and not parsed.query
@@ -267,11 +326,40 @@ def _is_valid_origin(origin: str) -> bool:
 
 def _is_valid_production_redirect_uri(uri: str) -> bool:
     parsed = urlparse(uri)
-    return bool(
-        parsed.scheme == "https"
-        and parsed.hostname
-        and not _is_local_origin(uri)
+    return bool(parsed.scheme == "https" and parsed.hostname and not _is_local_origin(uri))
+
+
+def _is_placeholder_redirect_uri(uri: str) -> bool:
+    """Reject repository examples and deployment-required callback placeholders."""
+    parsed = urlparse(uri.strip())
+    value = uri.strip().casefold()
+    return (
+        not value
+        or "required_oauth_" in value
+        or "your-" in value
+        or (parsed.hostname or "").casefold().endswith(".example.com")
+        or (parsed.hostname or "").casefold() == "example.com"
     )
+
+
+def validate_worker_production_settings(config: Settings | None = None) -> None:
+    """Fail closed on production settings used by the worker process."""
+
+    cfg = config or settings
+    if (cfg.ENVIRONMENT or "").strip().lower() != "production":
+        return
+
+    errors: list[str] = []
+
+    if urlparse(cfg.OPENSEARCH_URL).scheme == "https" and not cfg.OPENSEARCH_VERIFY_SSL:
+        errors.append("OPENSEARCH_VERIFY_SSL must remain enabled for production HTTPS endpoints.")
+
+    db_password = _parse_db_password(cfg.DATABASE_URL)
+    if not db_password or db_password in {"postgres", "change-me", "change-me-in-production"}:
+        errors.append("DATABASE_URL must use a non-default database password in production.")
+
+    if errors:
+        raise ValueError("Production worker configuration validation failed:\n- " + "\n- ".join(errors))
 
 
 def validate_production_settings(config: Settings | None = None) -> None:
@@ -283,8 +371,32 @@ def validate_production_settings(config: Settings | None = None) -> None:
 
     errors: list[str] = []
 
-    if not _has_value(cfg.SESSION_SECRET) or cfg.SESSION_SECRET.strip() == "change-me":
-        errors.append("SESSION_SECRET must be a generated secret in production (not 'change-me').")
+    if not cfg.OAUTH_STATE_VALIDATION:
+        errors.append("OAUTH_STATE_VALIDATION cannot be disabled in production.")
+
+    session_secret = cfg.SESSION_SECRET.strip()
+    if not _has_value(session_secret):
+        errors.append("SESSION_SECRET must be a generated secret in production.")
+    elif session_secret.casefold() in _SESSION_SECRET_PLACEHOLDERS:
+        errors.append("SESSION_SECRET must not use a documented placeholder in production.")
+    elif len(session_secret.encode("utf-8")) < 32:
+        errors.append("SESSION_SECRET must contain at least 32 bytes in production.")
+
+    analytics_hmac_secret = cfg.ANALYTICS_HMAC_SECRET.strip()
+    if not _has_value(analytics_hmac_secret):
+        errors.append("ANALYTICS_HMAC_SECRET must be a dedicated generated secret in production.")
+    elif analytics_hmac_secret.casefold() in _ANALYTICS_HMAC_SECRET_PLACEHOLDERS:
+        errors.append("ANALYTICS_HMAC_SECRET must not use a documented placeholder in production.")
+    elif len(analytics_hmac_secret.encode("utf-8")) < 32:
+        errors.append("ANALYTICS_HMAC_SECRET must contain at least 32 bytes in production.")
+    elif hmac.compare_digest(
+        analytics_hmac_secret.encode("utf-8"),
+        cfg.SESSION_SECRET.strip().encode("utf-8"),
+    ):
+        errors.append("ANALYTICS_HMAC_SECRET must differ from SESSION_SECRET in production.")
+
+    if urlparse(cfg.OPENSEARCH_URL).scheme == "https" and not cfg.OPENSEARCH_VERIFY_SSL:
+        errors.append("OPENSEARCH_VERIFY_SSL must remain enabled for production HTTPS endpoints.")
 
     db_password = _parse_db_password(cfg.DATABASE_URL)
     if not db_password or db_password in {"postgres", "change-me", "change-me-in-production"}:
@@ -299,10 +411,10 @@ def validate_production_settings(config: Settings | None = None) -> None:
 
     cors_origins = [origin.strip() for origin in (cfg.CORS_ALLOW_ORIGINS or "").split(",") if origin.strip()]
     if any(
-        origin == "*" or origin.startswith("*") or origin.endswith("*") or _is_local_origin(origin)
+        origin == "*" or "*" in origin or _is_local_origin(origin) or not _is_valid_origin(origin)
         for origin in cors_origins
     ):
-        errors.append("CORS_ALLOW_ORIGINS must not contain wildcards or local development origins in production.")
+        errors.append("CORS_ALLOW_ORIGINS must contain only exact production https origins without wildcards or paths.")
 
     oauth_providers = {
         "google": (
@@ -324,11 +436,12 @@ def validate_production_settings(config: Settings | None = None) -> None:
                 errors.append(f"OAUTH_{provider.upper()}_CLIENT_SECRET must be set when {provider} OAuth is enabled.")
             if (
                 not _has_value(redirect_uri)
+                or _is_placeholder_redirect_uri(redirect_uri)
                 or not _is_valid_production_redirect_uri(redirect_uri.strip())
             ):
                 errors.append(
-                    f"OAUTH_{provider.upper()}_REDIRECT_URI must be an https production callback URI when "
-                    f"{provider} OAuth is enabled."
+                    f"OAUTH_{provider.upper()}_REDIRECT_URI must be a non-placeholder https production "
+                    f"callback URI when {provider} OAuth is enabled."
                 )
 
     if errors:

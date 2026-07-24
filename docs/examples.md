@@ -466,41 +466,6 @@ async function deleteFavorite(favoriteId) {
 }
 ```
 
-## Subscription Management
-
-### Create Checkout Session
-
-```javascript
-async function upgradeToPro(period = 'monthly') {
-  const response = await fetch('https://api.example.com/billing/checkout-session', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ period }),
-  });
-  
-  const data = await response.json();
-  
-  // Redirect to Stripe checkout
-  window.location.href = data.url;
-}
-```
-
-### Access Billing Portal
-
-```javascript
-async function manageBilling() {
-  const response = await fetch('https://api.example.com/billing/portal', {
-    credentials: 'include',
-  });
-  
-  const data = await response.json();
-  
-  // Redirect to Stripe portal
-  window.location.href = data.url;
-}
-```
-
 ## Error Handling
 
 ### Comprehensive Error Handler
@@ -577,4 +542,4 @@ def api_request_with_retry(url, session, max_retries=3):
 - [Getting Started](getting-started.md) - API basics
 - [API Reference](api-reference.md) - Complete endpoint documentation
 - [Authentication](authentication.md) - OAuth and sessions
-- [Webhooks](webhooks.md) - Stripe webhook handling
+- [Webhooks](webhooks.md) - disabled webhook status

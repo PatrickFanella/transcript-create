@@ -56,6 +56,28 @@ class SensitiveDataFilter:
         return message
 
 
+class AccessLogRedactionFilter(logging.Filter):
+    """Remove query strings from access logs while retaining path and status."""
+
+    @staticmethod
+    def _without_query(value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return value.split("?", 1)[0]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Uvicorn's access formatter receives the request target in ``args``.
+        # Redact every string argument defensively so custom access formats do
+        # not accidentally retain a callback query string.
+        if record.name.startswith("uvicorn.access"):
+            if isinstance(record.args, tuple):
+                record.args = tuple(self._without_query(value) for value in record.args)
+            elif isinstance(record.args, dict):
+                record.args = {key: self._without_query(value) for key, value in record.args.items()}
+            record.msg = self._without_query(record.msg)
+        return True
+
+
 class JSONFormatter(logging.Formatter):
     """JSON formatter for structured logging."""
 
@@ -204,11 +226,18 @@ def configure_logging(
         )
 
     handler.setFormatter(formatter)
+    handler.addFilter(AccessLogRedactionFilter())
 
     # Configure root logger
     log_level = getattr(logging, level.upper(), logging.INFO)
     root_logger.setLevel(log_level)
     root_logger.addHandler(handler)
+
+    # Uvicorn can install its own handler instead of propagating to root.
+    # Filter both paths so query values never reach either formatter.
+    access_logger = logging.getLogger("uvicorn.access")
+    for access_handler in access_logger.handlers:
+        access_handler.addFilter(AccessLogRedactionFilter())
 
     # Set third-party loggers to WARNING to reduce noise
     for logger_name in ["urllib3", "asyncio", "multipart", "httpx", "httpcore"]:

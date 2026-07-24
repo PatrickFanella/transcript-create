@@ -48,10 +48,14 @@ def build_windows_from_segments(segments: list[dict], source: str, window_ms: in
         nonlocal current_segments, current_start
         if not current_segments or current_start is None:
             return
-        text_parts = [str(segment["text"]).strip() for segment in current_segments if str(segment.get("text", "")).strip()]
+        text_parts = [
+            str(segment["text"]).strip() for segment in current_segments if str(segment.get("text", "")).strip()
+        ]
         text = _normalize_text(" ".join(text_parts))
         start_ms = current_start
-        natural_end_ms = max(int(segment.get("end_ms") or segment.get("start_ms") or start_ms) for segment in current_segments)
+        natural_end_ms = max(
+            int(segment.get("end_ms") or segment.get("start_ms") or start_ms) for segment in current_segments
+        )
         end_ms = min(natural_end_ms, start_ms + window_ms)
         segment_ids = [int(segment["id"]) for segment in current_segments if segment.get("id") is not None]
         windows.append(
@@ -85,15 +89,13 @@ def load_source_segments(db: Any, video_id: str, source: str) -> list[dict]:
     if source == "whisper":
         statement = text("SELECT id, start_ms, end_ms, text FROM segments WHERE video_id = :video_id ORDER BY start_ms")
     elif source == "youtube":
-        statement = text(
-            """
+        statement = text("""
             SELECT ys.id, ys.start_ms, ys.end_ms, ys.text
             FROM youtube_segments AS ys
             JOIN youtube_transcripts AS yt ON ys.youtube_transcript_id = yt.id
             WHERE yt.video_id = :video_id
             ORDER BY ys.start_ms
-            """
-        )
+            """)
     else:
         raise ValueError(f"unsupported transcript source: {source}")
 
@@ -109,8 +111,7 @@ def persist_windows(db: Any, video_id: str, windows: list[TranscriptWindow]) -> 
     if not windows:
         return 0
 
-    statement = text(
-        """
+    statement = text("""
         INSERT INTO archive_transcript_windows (
             video_id, source, start_ms, end_ms, segment_ids, text_hash, text, token_count, transcript_quality, created_at
         ) VALUES (
@@ -119,8 +120,7 @@ def persist_windows(db: Any, video_id: str, windows: list[TranscriptWindow]) -> 
             text = EXCLUDED.text,
             token_count = EXCLUDED.token_count,
             segment_ids = EXCLUDED.segment_ids
-        """
-    )
+        """)
 
     for window in windows:
         db.execute(

@@ -120,16 +120,27 @@ class TestSearchYouTubeCaptions:
     def test_search_youtube_captions(self, integration_client: TestClient, integration_db, clean_test_data):
         """Test searching in YouTube caption data."""
         # Create video with YouTube captions
+        job_id = uuid.uuid4()
         video_id = uuid.uuid4()
 
         integration_db.execute(
             text(
                 """
-                INSERT INTO videos (id, youtube_id, title, duration_seconds, state)
-                VALUES (:video_id, 'test123', 'Test Video', 180, 'completed')
+                INSERT INTO jobs (id, kind, state, input_url)
+                VALUES (:job_id, 'single', 'completed', 'https://youtube.com/watch?v=test123')
+                """
+            ),
+            {"job_id": job_id},
+        )
+
+        integration_db.execute(
+            text(
+                """
+                INSERT INTO videos (id, job_id, youtube_id, title, duration_seconds, state)
+                VALUES (:video_id, :job_id, 'test123', 'Test Video', 180, 'completed')
             """
             ),
-            {"video_id": str(video_id)},
+            {"video_id": video_id, "job_id": job_id},
         )
 
         # Insert YouTube caption segments (if such a table exists)

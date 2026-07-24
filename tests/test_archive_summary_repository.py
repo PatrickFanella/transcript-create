@@ -2,6 +2,8 @@
 
 import json
 import uuid
+from collections import Counter
+from contextlib import nullcontext
 from datetime import date, datetime, timezone
 from types import MappingProxyType
 
@@ -13,10 +15,13 @@ from app.archive.intelligence_repository import (
     SEED_TOPICS,
     RETIRED_NAMED_PERIOD_SLUGS,
     _month_bounds,
+    _period_intelligence_from_row,
+    _safe_video_metadata_map,
     _safe_mappings,
     _week_bounds,
     alias_matches_text,
     autopublish_search_topics,
+    merge_label_topic_cards,
     seed_archive_topics,
     seed_named_periods,
     refresh_named_period_stats,
@@ -24,6 +29,7 @@ from app.archive.intelligence_repository import (
     refresh_topic_period_stats,
     slugify_topic,
 )
+from app.schemas import ArchiveTopicCard
 
 
 class _ImmutableMappingResult:
@@ -45,6 +51,46 @@ def test_safe_mappings_returns_mutable_dict_rows():
     assert rows == [{"video_id": "video-1", "title": "Immutable row"}]
     rows[0]["people"] = []
     assert rows[0]["people"] == []
+
+
+def test_safe_video_metadata_map_uses_savepoint_without_rolling_back_refresh_writes(monkeypatch):
+    class _Savepoint:
+        def __init__(self, db):
+            self.db = db
+
+        def __enter__(self):
+            self.db.savepoints_started += 1
+
+        def __exit__(self, exc_type, exc, traceback):
+            if exc_type is not None:
+                self.db.savepoints_rolled_back += 1
+            return False
+
+    class _Db:
+        def __init__(self):
+            self.refresh_writes = ["stats row"]
+            self.rollback_count = 0
+            self.savepoints_started = 0
+            self.savepoints_rolled_back = 0
+
+        def begin_nested(self):
+            return _Savepoint(self)
+
+        def rollback(self):
+            self.rollback_count += 1
+
+    def fail_metadata_lookup(*args, **kwargs):
+        raise ProgrammingError("metadata lookup failed", None, None)
+
+    monkeypatch.setattr("app.archive.intelligence_repository.get_video_metadata_map", fail_metadata_lookup)
+    db = _Db()
+
+    metadata = _safe_video_metadata_map(db, ["video-1"])
+
+    assert metadata == {"video-1": {"people": [], "tags": []}}
+    assert db.refresh_writes == ["stats row"]
+    assert db.rollback_count == 0
+    assert db.savepoints_started == db.savepoints_rolled_back == 1
 
 
 class _FakeResult:
@@ -87,6 +133,9 @@ class _FakeDb:
 
     def rollback(self):
         self.rollback_count += 1
+
+    def begin_nested(self):
+        return nullcontext()
 
 
 class _SeedDb(_FakeDb):
@@ -271,6 +320,7 @@ def test_seed_named_periods_corrects_current_curated_windows(monkeypatch):
     seed_named_periods(db)
 
     by_slug = {row["slug"]: row for row in db.inserted_periods}
+    kind_counts = Counter(row["kind"] for row in by_slug.values())
     retired_update_slugs = {params["slug"] for sql, params in db.calls if "UPDATE archive_named_periods" in sql and "slug = :slug" in sql}
     retired_update_patterns = {params["pattern"] for sql, params in db.calls if "UPDATE archive_named_periods" in sql and "slug ~ :pattern" in sql}
 
@@ -301,6 +351,19 @@ def test_seed_named_periods_corrects_current_curated_windows(monkeypatch):
     assert by_slug["may-day"]["kind"] == "holiday"
     assert by_slug["may-day"]["recurring_month"] == 5
     assert by_slug["may-day"]["recurring_day"] == 1
+    assert kind_counts["event"] >= 10
+    assert kind_counts["leadup"] >= 5
+    assert kind_counts["fallout"] >= 5
+    assert kind_counts["holiday"] >= 8
+    assert kind_counts["anniversary"] >= 8
+    assert kind_counts["date"] >= 5
+    assert by_slug["january-6-capitol-attack"]["kind"] == "event"
+    assert by_slug["gamestop-saga"]["kind"] == "event"
+    assert by_slug["dobbs-leadup"]["kind"] == "leadup"
+    assert by_slug["2022-midterms-fallout"]["kind"] == "fallout"
+    assert by_slug["juneteenth"]["recurring_month"] == 6
+    assert by_slug["october-7-anniversary"]["recurring_day"] == 7
+    assert by_slug["2024-election-day"]["kind"] == "date"
 
 
 def test_refresh_named_period_stats_includes_metadata_in_public_payloads():
@@ -566,7 +629,7 @@ def test_refresh_topic_mentions_uses_youtube_caption_segments():
                         }
                     ]
                 )
-            if "INSERT INTO archive_topic_mentions" in sql_text:
+            if "INSERT INTO archive_topic_mentions_stage" in sql_text:
                 self.inserted_mentions.extend(params or [])
                 return _FakeResult()
             return _FakeResult()
@@ -579,6 +642,78 @@ def test_refresh_topic_mentions_uses_youtube_caption_segments():
     assert db.inserted_mentions[0]["video_id"] == video_id
     assert db.inserted_mentions[0]["segment_id"] == -123
     assert "YouTube caption segment" in db.inserted_mentions[0]["snippet"]
+
+
+def test_refresh_topic_mentions_reconciles_stage_without_rewriting_unchanged_rows():
+    topic_id = uuid.uuid4()
+    unselected_topic_id = uuid.uuid4()
+
+    class _ReconcileDb(_FakeDb):
+        def execute(self, sql, params=None):
+            sql_text = str(sql)
+            self.calls.append((sql_text, params))
+            if "FROM archive_topics t" in sql_text:
+                return _FakeResult(
+                    rows=[
+                        {
+                            "id": topic_id,
+                            "slug": "gaza",
+                            "label": "Gaza",
+                            "aliases": [],
+                        }
+                    ]
+                )
+            return _FakeResult()
+
+    db = _ReconcileDb([])
+
+    assert refresh_topic_mentions(db) == {"topics": 1, "mentions": 0}
+
+    sql_calls = [sql for sql, _ in db.calls]
+    lock_index = next(i for i, sql in enumerate(sql_calls) if "pg_advisory_xact_lock" in sql)
+    topic_index = next(i for i, sql in enumerate(sql_calls) if "FROM archive_topics t" in sql)
+    assert lock_index < topic_index
+    assert any("CREATE TEMP TABLE archive_topic_mentions_stage" in sql and "ON COMMIT DROP" in sql for sql in sql_calls)
+    assert any("ANALYZE archive_topic_mentions_stage" in sql for sql in sql_calls)
+
+    delete_sql, delete_params = next((sql, params) for sql, params in db.calls if "DELETE FROM archive_topic_mentions m" in sql)
+    assert "NOT EXISTS" in delete_sql
+    assert delete_params == {"topic_id_0": topic_id}
+    assert unselected_topic_id not in delete_params.values()
+
+    upsert_sql = next(sql for sql in sql_calls if "INSERT INTO archive_topic_mentions AS m" in sql)
+    assert "existing.id IS NULL" in upsert_sql
+    for column in ("end_ms", "snippet", "score", "occurred_at"):
+        assert f"existing.{column} IS DISTINCT FROM s.{column}" in upsert_sql
+        assert f"m.{column} IS DISTINCT FROM EXCLUDED.{column}" in upsert_sql
+    assert "ON CONFLICT (topic_id, video_id, segment_id, start_ms) DO UPDATE" in upsert_sql
+    assert "created_at =" not in upsert_sql.split("DO UPDATE SET", 1)[1]
+
+
+def test_refresh_topic_mentions_partial_scan_never_deletes_staged_absences():
+    topic_id = uuid.uuid4()
+
+    class _PartialDb(_FakeDb):
+        def execute(self, sql, params=None):
+            sql_text = str(sql)
+            self.calls.append((sql_text, params))
+            if "FROM archive_topics t" in sql_text:
+                return _FakeResult(
+                    rows=[
+                        {
+                            "id": topic_id,
+                            "slug": "gaza",
+                            "label": "Gaza",
+                            "aliases": [],
+                        }
+                    ]
+                )
+            return _FakeResult()
+
+    db = _PartialDb([])
+
+    assert refresh_topic_mentions(db, segment_limit=100) == {"topics": 1, "mentions": 0}
+    assert not any("DELETE FROM archive_topic_mentions m" in sql for sql, _ in db.calls)
 
 
 def test_refresh_topic_period_stats_uses_created_at_when_uploaded_at_missing():
@@ -644,7 +779,15 @@ def test_autopublish_search_topics_skips_existing_slugs():
             sql_text = str(sql)
             self.calls.append((sql_text, params))
             if "FROM search_suggestions" in sql_text:
-                return _FakeResult(rows=[{"term": "new topic", "frequency": 9}, {"term": "ICE", "frequency": 5}])
+                return _FakeResult(
+                    rows=[
+                        {"term": "new topic", "frequency": 9},
+                        {"term": "number", "frequency": 8},
+                        {"term": "okay", "frequency": 7},
+                        {"term": "that's", "frequency": 6},
+                        {"term": "ICE", "frequency": 5},
+                    ]
+                )
             if "SELECT slug FROM archive_topics" in sql_text:
                 return _FakeResult(rows=[{"slug": "ice"}])
             return _FakeResult()
@@ -654,3 +797,58 @@ def test_autopublish_search_topics_skips_existing_slugs():
 
     assert stats["topics"] == 1
     assert any("'automatic'" in sql and "new topic" in str(params) for sql, params in db.calls if "INSERT INTO archive_topics" in sql)
+
+
+def test_merge_topic_cards_excludes_untrusted_automatic_and_junk_cards():
+    def card(slug: str, label: str, source: str, trend_score: float):
+        return ArchiveTopicCard(
+            slug=slug,
+            label=label,
+            source=source,
+            aliases=[label],
+            total_moments=10,
+            total_videos=2,
+            recent_mentions_90d=3,
+            trend_score=trend_score,
+            related_topics=[],
+            evidence=[],
+        )
+
+    merged = merge_label_topic_cards(
+        [card("know", "know", "automatic", 100), card("gaza", "Gaza", "hybrid", 20)],
+        [card("number", "number", "automatic", 80), card("abortion", "Abortion", "admin", 15)],
+        limit=8,
+    )
+
+    assert [item.slug for item in merged] == ["gaza", "abortion"]
+
+
+def test_cached_period_topics_are_revalidated_before_public_use():
+    cached_card = {
+        "slug": "know",
+        "label": "know",
+        "source": "automatic",
+        "aliases": ["know"],
+        "total_moments": 100,
+        "total_videos": 20,
+        "recent_mentions_90d": 100,
+        "trend_score": 100,
+        "related_topics": [],
+        "evidence": [],
+    }
+    trusted_card = {**cached_card, "slug": "gaza", "label": "Gaza", "source": "hybrid", "trend_score": 20}
+
+    period = _period_intelligence_from_row(
+        {
+            "slug": "2026-06",
+            "label": "June 2026",
+            "video_count": 2,
+            "total_duration_seconds": 100,
+            "top_topics": [cached_card, trusted_card],
+            "summary": "Cached snapshot",
+            "evidence": [],
+            "representative_videos": [],
+        }
+    )
+
+    assert [item.slug for item in period.top_topics] == ["gaza"]

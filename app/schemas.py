@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 
 class QualitySettingsInput(BaseModel):
@@ -45,6 +45,13 @@ class JobCreate(BaseModel):
         None, ge=1, description="Number of jobs expected in this batch before staged promotion is allowed"
     )
     staged: bool = Field(False, description="If true, ingest YouTube captions first, then queue native transcription")
+    idempotency_key: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+        description="Caller-generated key that makes job submission safely repeatable",
+    )
 
     @field_validator("url")
     @classmethod
@@ -72,6 +79,14 @@ class JobStatus(BaseModel):
         description="Current state: 'pending', 'expanded', 'completed', 'failed'",
     )
     error: Optional[str] = Field(None, description="Error message if job failed")
+    stage: str = Field("queued", description="Current processing stage")
+    completed_units: int = Field(0, ge=0, description="Completed work units")
+    total_units: Optional[int] = Field(None, ge=0, description="Total work units when known")
+    heartbeat_at: Optional[datetime] = Field(None, description="Most recent worker lease heartbeat")
+    cancellation_requested_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    attempt_count: int = Field(0, ge=0)
+    last_failure_summary: Optional[str] = None
     created_at: datetime = Field(..., description="Timestamp when job was created")
     updated_at: datetime = Field(..., description="Timestamp when job was last updated")
 
@@ -87,6 +102,33 @@ class JobStatus(BaseModel):
             }
         }
     }
+
+
+class JobAttempt(BaseModel):
+    """One durable worker attempt for a job."""
+
+    id: uuid.UUID
+    job_id: uuid.UUID
+    attempt_number: int
+    worker_id: str
+    lease_expires_at: datetime
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    outcome: Optional[str] = None
+    error: Optional[str] = None
+
+
+class AnalyticsEventInput(BaseModel):
+    """Strict client analytics event envelope."""
+
+    type: str = Field(min_length=1, max_length=64)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalyticsEventBatchInput(BaseModel):
+    """Bounded analytics batch envelope."""
+
+    events: List[AnalyticsEventInput] = Field(min_length=1, max_length=50)
 
 
 class Segment(BaseModel):
@@ -114,7 +156,9 @@ class TranscriptResponse(BaseModel):
 
     video_id: uuid.UUID = Field(..., description="Unique identifier for the video")
     segments: List[Segment] = Field(..., description="List of transcript segments in chronological order")
-    source: Literal["whisper", "youtube", "merged"] = Field("whisper", description="Transcript source used for this response")
+    source: Literal["whisper", "youtube", "merged"] = Field(
+        "whisper", description="Transcript source used for this response"
+    )
     source_label: str = Field("Whisper transcript", description="Human-readable transcript source label")
 
     model_config = {
@@ -155,6 +199,19 @@ class YouTubeTranscriptResponse(BaseModel):
     source_label: str = Field("YouTube captions", description="Human-readable transcript source label")
 
 
+class HighlightRange(BaseModel):
+    """A half-open highlighted span measured in Unicode code points."""
+
+    start: int = Field(..., ge=0, description="Inclusive Unicode code-point offset")
+    end: int = Field(..., ge=0, description="Exclusive Unicode code-point offset")
+
+    @model_validator(mode="after")
+    def validate_positive_width(self) -> "HighlightRange":
+        if self.end <= self.start:
+            raise ValueError("highlight end must be greater than start")
+        return self
+
+
 class SearchHit(BaseModel):
     """A single search result matching the query."""
 
@@ -162,12 +219,25 @@ class SearchHit(BaseModel):
     video_id: uuid.UUID = Field(..., description="Video containing this segment")
     start_ms: int = Field(..., description="Start time in milliseconds", ge=0)
     end_ms: int = Field(..., description="End time in milliseconds", ge=0)
-    snippet: str = Field(..., description="Text snippet with search term highlighted")
-    source: Literal["whisper", "youtube", "merged"] = Field("whisper", description="Transcript source containing this hit")
+    snippet: str = Field(..., description="Plain-text transcript or title snippet")
+    highlights: List[HighlightRange] = Field(
+        default_factory=list,
+        description="Highlighted half-open ranges measured in Unicode code points",
+    )
+    source: Literal["whisper", "youtube", "merged"] = Field(
+        "whisper", description="Transcript source containing this hit"
+    )
     video_title: Optional[str] = Field(None, description="Video title for progressive archive UIs")
     channel_name: Optional[str] = Field(None, description="Channel name for progressive archive UIs")
     uploaded_at: Optional[datetime] = Field(None, description="Video upload time")
     duration_seconds: Optional[int] = Field(None, description="Video duration in seconds")
+
+    @model_validator(mode="after")
+    def validate_highlights_within_snippet(self) -> "SearchHit":
+        snippet_length = len(self.snippet)
+        if any(highlight.end > snippet_length for highlight in self.highlights):
+            raise ValueError("highlight end must not exceed snippet length in Unicode code points")
+        return self
 
     model_config = {
         "json_schema_extra": {
@@ -176,7 +246,8 @@ class SearchHit(BaseModel):
                 "video_id": "123e4567-e89b-12d3-a456-426614174000",
                 "start_ms": 45000,
                 "end_ms": 48500,
-                "snippet": "This is an example of <em>search term</em> in context",
+                "snippet": "This is an example of search term in context",
+                "highlights": [{"start": 22, "end": 33}],
             }
         }
     }
@@ -188,6 +259,10 @@ class SearchResponse(BaseModel):
     total: Optional[int] = Field(None, description="Total number of matching results (only with OpenSearch backend)")
     hits: List[SearchHit] = Field(..., description="List of search results")
     query_time_ms: Optional[int] = Field(None, description="Time taken to execute the query in milliseconds")
+    backend: Literal["postgres", "opensearch"] = Field(default="postgres")
+    degraded: bool = Field(default=False)
+    indexed_at: Optional[datetime] = Field(default=None)
+    index_lag_seconds: Optional[int] = Field(default=None, ge=0)
 
 
 class ArchivePopularSearch(BaseModel):
@@ -226,6 +301,10 @@ class GroupedSearchResponse(BaseModel):
     total_videos: int = Field(..., description="Number of videos with at least one moment")
     groups: List[EpisodeSearchGroup] = Field(default_factory=list, description="Search groups by video")
     query_time_ms: Optional[int] = Field(None, description="Time taken to execute the query in milliseconds")
+    backend: Literal["postgres", "opensearch"] = Field(default="postgres")
+    degraded: bool = Field(default=False)
+    indexed_at: Optional[datetime] = Field(default=None)
+    index_lag_seconds: Optional[int] = Field(default=None, ge=0)
 
 
 class MentionMap(BaseModel):
@@ -233,15 +312,23 @@ class MentionMap(BaseModel):
     total_moments: int = Field(..., description="Total matched moments in the response window")
     total_videos: int = Field(..., description="Number of videos with at least one mention")
     first_mentioned_year: Optional[int] = Field(None, description="Year of the earliest dated mention")
-    most_discussed_period: Optional[str] = Field(None, description="Period with the most matched moments, usually a year")
+    most_discussed_period: Optional[str] = Field(
+        None, description="Period with the most matched moments, usually a year"
+    )
     most_discussed_count: int = Field(0, description="Number of matched moments in the most discussed period")
     recent_mentions_90d: int = Field(0, description="Matched moments from the last 90 days")
-    related_topics: List[str] = Field(default_factory=list, description="Citation-derived co-occurring terms from matched snippets")
+    related_topics: List[str] = Field(
+        default_factory=list, description="Citation-derived co-occurring terms from matched snippets"
+    )
     top_episodes_count: int = Field(0, description="Number of top episodes included in this mention map")
     first_mention: Optional[SearchMoment] = Field(None, description="Earliest matching mention")
     latest_mention: Optional[SearchMoment] = Field(None, description="Latest matching mention")
     top_episodes: List[EpisodeSearchGroup] = Field(default_factory=list, description="Top matching episodes")
     query_time_ms: Optional[int] = Field(None, description="Time taken to execute the query in milliseconds")
+    backend: Literal["postgres", "opensearch"] = Field(default="postgres")
+    degraded: bool = Field(default=False)
+    indexed_at: Optional[datetime] = Field(default=None)
+    index_lag_seconds: Optional[int] = Field(default=None, ge=0)
 
 
 class TimelineBucket(BaseModel):
@@ -263,6 +350,96 @@ class ArchiveEvidenceMoment(BaseModel):
     end_ms: int = Field(..., description="Moment end timestamp")
     snippet: str = Field(..., description="Evidence snippet from transcript text")
     topic: Optional[str] = Field(None, description="Topic or query this evidence supports")
+
+
+class TopicTimelineBucket(BaseModel):
+    period: str
+    label: str
+    mention_count: int = Field(ge=0)
+    episode_count: int = Field(ge=0)
+    evidence: List[ArchiveEvidenceMoment] = Field(default_factory=list)
+
+
+class TopicTimelineResponse(BaseModel):
+    topic: str
+    granularity: Literal["week", "month"]
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+    buckets: List[TopicTimelineBucket] = Field(default_factory=list)
+
+
+class OpinionEvidence(BaseModel):
+    video_id: uuid.UUID
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+    excerpt: str = Field(min_length=1, max_length=4000)
+
+
+class OpinionCandidateCreate(BaseModel):
+    normalized_claim: str = Field(min_length=1, max_length=1000)
+    stance: str = Field(min_length=1, max_length=100)
+    summary: str = Field(min_length=1, max_length=4000)
+    confidence: float = Field(ge=0, le=1)
+    model_version: str = Field(min_length=1, max_length=200)
+    prompt_version: str = Field(min_length=1, max_length=200)
+    time_bucket: str = Field(min_length=1, max_length=100)
+    evidence: List[OpinionEvidence] = Field(default_factory=list)
+
+
+class OpinionCorrection(BaseModel):
+    stance: Optional[str] = Field(None, min_length=1, max_length=100)
+    summary: Optional[str] = Field(None, min_length=1, max_length=4000)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class OpinionRevisionResponse(BaseModel):
+    revision: int
+    stance: str
+    summary: str
+    confidence: float
+    model_version: str
+    prompt_version: str
+    time_bucket: str
+    evidence: List[OpinionEvidence]
+    model_generated: bool
+    status: Literal["candidate", "published", "corrected", "retracted"]
+    correction_reason: Optional[str] = None
+    created_at: datetime
+
+
+class OpinionHistoryItem(BaseModel):
+    id: uuid.UUID
+    subject_slug: str
+    normalized_claim: str
+    status: Literal["candidate", "published", "corrected", "retracted"]
+    current_revision: int
+    revisions: List[OpinionRevisionResponse]
+
+
+class OpinionHistoryResponse(BaseModel):
+    items: List[OpinionHistoryItem] = Field(default_factory=list)
+
+
+class RelatedEpisode(BaseModel):
+    video: "VideoInfo"
+    score: float = Field(ge=0)
+    reasons: List[str] = Field(default_factory=list)
+
+
+class RelatedEpisodesResponse(BaseModel):
+    items: List[RelatedEpisode] = Field(default_factory=list)
+
+
+class QuotedMoment(BaseModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+    snippet: str
+    quote_count: int = Field(ge=1)
+
+
+class QuotedMomentsResponse(BaseModel):
+    video_id: uuid.UUID
+    items: List[QuotedMoment] = Field(default_factory=list)
 
 
 class ArchiveTopicCard(BaseModel):
@@ -455,7 +632,9 @@ class ArchiveVideoMetadataAdminVideo(BaseModel):
 
 
 class ArchiveVideoMetadataAdminListResponse(BaseModel):
-    items: List[ArchiveVideoMetadataAdminVideo] = Field(default_factory=list, description="Videos with assigned metadata")
+    items: List[ArchiveVideoMetadataAdminVideo] = Field(
+        default_factory=list, description="Videos with assigned metadata"
+    )
 
 
 class ArchiveLabelResponse(BaseModel):
@@ -543,13 +722,23 @@ class ArchiveIntelligenceResponse(BaseModel):
     summary: ArchiveSummary = Field(..., description="Archive summary stats and recent VODs")
     exploration_modes: List[str] = Field(default_factory=list, description="Available exploration modes")
     trending_searches: List[ArchiveTrendingSearch] = Field(default_factory=list, description="Trending public searches")
-    suggested_searches: List[ArchiveTrendingSearch] = Field(default_factory=list, description="Suggested archive searches")
-    topic_cards: List[ArchiveTopicCard] = Field(default_factory=list, description="Hybrid curated/automatic topic cards")
-    periods: List[ArchivePeriodIntelligence] = Field(default_factory=list, description="Timeline periods enriched with topic/evidence data")
-    people: List[ArchivePerson] = Field(default_factory=list, description="Featured people facets for the selected scope")
+    suggested_searches: List[ArchiveTrendingSearch] = Field(
+        default_factory=list, description="Suggested archive searches"
+    )
+    topic_cards: List[ArchiveTopicCard] = Field(
+        default_factory=list, description="Hybrid curated/automatic topic cards"
+    )
+    periods: List[ArchivePeriodIntelligence] = Field(
+        default_factory=list, description="Timeline periods enriched with topic/evidence data"
+    )
+    people: List[ArchivePerson] = Field(
+        default_factory=list, description="Featured people facets for the selected scope"
+    )
     tags: List[ArchiveVideoTag] = Field(default_factory=list, description="Featured tag facets for the selected scope")
     selected_period: Optional[ArchivePeriodOption] = Field(None, description="Currently selected predefined period")
-    period_options: List[ArchivePeriodOption] = Field(default_factory=list, description="Available predefined archive periods")
+    period_options: List[ArchivePeriodOption] = Field(
+        default_factory=list, description="Available predefined archive periods"
+    )
     query_time_ms: Optional[int] = Field(None, description="Time taken to compose archive intelligence")
 
 
@@ -933,11 +1122,17 @@ class TranscriptBlockResponse(BaseModel):
     segment_ids: List[int] = Field(..., description="Source segment indices included in the block")
     kind: Literal["paragraph", "speaker_turn"] = Field(..., description="Block kind")
     formatter_version: str = Field(..., description="Formatter version used to build the block")
-    primary_source: Optional[Literal["whisper", "youtube", "merged"]] = Field(None, description="Primary source selected for this block")
-    supporting_sources: List[Literal["whisper", "youtube"]] = Field(default_factory=list, description="Sources that supported or contributed to this block")
+    primary_source: Optional[Literal["whisper", "youtube", "merged"]] = Field(
+        None, description="Primary source selected for this block"
+    )
+    supporting_sources: List[Literal["whisper", "youtube"]] = Field(
+        default_factory=list, description="Sources that supported or contributed to this block"
+    )
     needs_review: bool = Field(False, description="True when source disagreement should be reviewed")
     merge_reason: Optional[str] = Field(None, description="Deterministic merge decision reason")
-    similarity: Optional[float] = Field(None, description="Token similarity between Whisper and YouTube text for this block")
+    similarity: Optional[float] = Field(
+        None, description="Token similarity between Whisper and YouTube text for this block"
+    )
 
 
 class VideoChapterEvidence(BaseModel):
@@ -974,7 +1169,9 @@ class FormattedTranscriptResponse(BaseModel):
     format: Literal["inline", "dialogue", "structured"] = Field(..., description="Formatting style used")
     cleanup_config: CleanupConfig = Field(..., description="Cleanup configuration used")
     blocks: List[TranscriptBlockResponse] = Field(default_factory=list, description="Formatted transcript blocks")
-    source: Literal["whisper", "youtube", "merged"] = Field("whisper", description="Transcript source used for this response")
+    source: Literal["whisper", "youtube", "merged"] = Field(
+        "whisper", description="Transcript source used for this response"
+    )
     source_label: str = Field("Whisper transcript", description="Human-readable transcript source label")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc), description="Timestamp of formatting"

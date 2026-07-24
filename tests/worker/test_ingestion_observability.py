@@ -1,9 +1,22 @@
 """Tests for ingestion observability: structured logs and metrics."""
 
+import logging
 import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from worker.youtube_resilience import reset_circuit_breakers_for_tests
+
+
+@pytest.fixture(autouse=True)
+def _isolate_ytdlp_settings(monkeypatch):
+    """Prevent observability tests from touching mounted runtime cookies."""
+    monkeypatch.setattr("worker.audio.settings.YTDLP_COOKIES_PATH", None)
+    monkeypatch.setattr("worker.youtube_captions.settings.YTDLP_COOKIES_PATH", None)
+    reset_circuit_breakers_for_tests()
+    yield
+    reset_circuit_breakers_for_tests()
 
 
 class TestYtdlpMetrics:
@@ -48,8 +61,19 @@ class TestDownloadAudioObservability:
         mock_run.return_value = MagicMock(returncode=0, stderr="")
         mock_get_tokens.return_value = {"player": "mock_token"}
 
-        with caplog.at_level("INFO"):
-            download_audio(url, dest_dir)
+        target_logger = logging.getLogger("worker.audio")
+        previous_level = target_logger.level
+        previous_disabled = target_logger.disabled
+        target_logger.setLevel(logging.INFO)
+        target_logger.disabled = False
+        target_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level("INFO"):
+                download_audio(url, dest_dir)
+        finally:
+            target_logger.removeHandler(caplog.handler)
+            target_logger.setLevel(previous_level)
+            target_logger.disabled = previous_disabled
 
         # Verify structured log fields are present
         log_records = [r for r in caplog.records if "download" in r.getMessage().lower()]
@@ -70,7 +94,7 @@ class TestDownloadAudioObservability:
     @patch("worker.audio._get_po_tokens")
     def test_download_increments_metrics_on_success(self, mock_get_tokens, mock_run, tmp_path):
         """Test that successful downloads increment success metrics."""
-        from worker.audio import download_audio
+        from worker.audio import _build_client_strategies, download_audio
         from worker.metrics import ytdlp_operation_attempts_total
 
         url = "https://www.youtube.com/watch?v=test123"
@@ -81,16 +105,18 @@ class TestDownloadAudioObservability:
         mock_run.return_value = MagicMock(returncode=0, stderr="")
         mock_get_tokens.return_value = {}
 
+        client_name = _build_client_strategies()[0].name
+
         # Get metric values before
         before_attempts = ytdlp_operation_attempts_total.labels(
-            operation="download", client="web_safari", result="success"
+            operation="download", client=client_name, result="success"
         )._value.get()
 
         download_audio(url, dest_dir)
 
         # Get metric values after
         after_attempts = ytdlp_operation_attempts_total.labels(
-            operation="download", client="web_safari", result="success"
+            operation="download", client=client_name, result="success"
         )._value.get()
 
         # Verify metrics increased
@@ -100,7 +126,7 @@ class TestDownloadAudioObservability:
     @patch("worker.audio._get_po_tokens")
     def test_download_increments_error_metrics_on_failure(self, mock_get_tokens, mock_run, tmp_path):
         """Test that failed downloads increment failure metrics."""
-        from worker.audio import download_audio
+        from worker.audio import _build_client_strategies, download_audio
         from worker.metrics import ytdlp_operation_attempts_total
 
         url = "https://www.youtube.com/watch?v=test123"
@@ -113,9 +139,11 @@ class TestDownloadAudioObservability:
         )
         mock_get_tokens.return_value = {}
 
+        client_name = _build_client_strategies()[0].name
+
         # Get metric values before
         before_failures = ytdlp_operation_attempts_total.labels(
-            operation="download", client="web_safari", result="failure"
+            operation="download", client=client_name, result="failure"
         )._value.get()
 
         # Attempt download (should fail)
@@ -124,7 +152,7 @@ class TestDownloadAudioObservability:
 
         # Get metric values after
         after_failures = ytdlp_operation_attempts_total.labels(
-            operation="download", client="web_safari", result="failure"
+            operation="download", client=client_name, result="failure"
         )._value.get()
 
         # Verify failure metrics increased
@@ -171,8 +199,19 @@ class TestMetadataFetchObservability:
         mock_run.return_value.run_json.return_value = {"id": "test123", "title": "Test"}
         mock_get_token.return_value = None
 
-        with caplog.at_level("INFO"):
-            _yt_dlp_json(url)
+        target_logger = logging.getLogger("worker.youtube_captions")
+        previous_level = target_logger.level
+        previous_disabled = target_logger.disabled
+        target_logger.setLevel(logging.INFO)
+        target_logger.disabled = False
+        target_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level("INFO"):
+                _yt_dlp_json(url)
+        finally:
+            target_logger.removeHandler(caplog.handler)
+            target_logger.setLevel(previous_level)
+            target_logger.disabled = previous_disabled
 
         # Verify structured log fields are present
         log_records = [r for r in caplog.records if "metadata" in r.getMessage().lower()]
@@ -187,23 +226,25 @@ class TestMetadataFetchObservability:
     def test_metadata_increments_metrics_on_success(self, mock_get_token, mock_run):
         """Test that successful metadata fetch increments metrics."""
         from worker.metrics import ytdlp_operation_attempts_total
-        from worker.youtube_captions import _yt_dlp_json
+        from worker.youtube_captions import _build_metadata_strategies, _yt_dlp_json
 
         url = "https://www.youtube.com/watch?v=test123"
 
         mock_run.return_value.run_json.return_value = {"id": "test123", "title": "Test"}
         mock_get_token.return_value = None
 
+        client_name = _build_metadata_strategies()[0][0]
+
         # Get metric values before - use first strategy client
         before_attempts = ytdlp_operation_attempts_total.labels(
-            operation="metadata", client="web_safari", result="success"
+            operation="metadata", client=client_name, result="success"
         )._value.get()
 
         _yt_dlp_json(url)
 
         # Get metric values after
         after_attempts = ytdlp_operation_attempts_total.labels(
-            operation="metadata", client="web_safari", result="success"
+            operation="metadata", client=client_name, result="success"
         )._value.get()
 
         # Verify metrics increased

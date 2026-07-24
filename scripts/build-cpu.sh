@@ -76,6 +76,7 @@ echo "  Image size: ${IMAGE_SIZE}"
 echo ""
 echo -e "${YELLOW}Verifying build...${NC}"
 docker run --rm "${IMAGE_NAME}:${IMAGE_TAG}" python3 -c "import torch; print('✓ Torch version:', torch.__version__)"
+"$(dirname "$0")/scan-container-image.sh" "${IMAGE_NAME}:${IMAGE_TAG}"
 
 # Push if requested
 if [ "${PUSH_IMAGE}" = true ]; then

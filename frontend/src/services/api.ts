@@ -1,25 +1,44 @@
 import ky from 'ky';
 import type {
   ArchiveSearchFilters,
+  AccountResponse,
+  ActiveSession,
+  AdminUser,
+  LinkProviderResponse,
+  LinkedIdentity,
+  OAuthProvider,
+  ProfileResponse,
+  UserRole,
   ArchivePeriodOptionsResponse,
   ArchiveSummary,
   ExploreIntelligenceQuery,
   ExploreIntelligenceResponse,
   GroupedSearchResponse,
   MentionMapResponse,
+  MentionCollectionResponse,
   PaginatedVideos,
   SavedSearch,
   SavedSearchFilters,
   SearchResponse,
+  SearchSuggestionsResponse,
   StreamLibraryFilters,
   TimelineBucket,
   TimelineResponse,
+  TopicTimelineResponse,
+  OpinionHistoryResponse,
+  RelatedEpisodesResponse,
+  QuotedMomentsResponse,
   TranscriptResponse,
   VideoInfo,
   VideoChaptersResponse,
 } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+let csrfToken: string | null = null;
+
+export function setCsrfToken(token: string | null) {
+  csrfToken = token;
+}
 
 export function buildApiUrl(
   path = '',
@@ -46,7 +65,20 @@ export function buildApiUrl(
   return query ? `${url}?${query}` : url;
 }
 
-export const http = ky.create({ prefixUrl: API_BASE, timeout: 15000, credentials: 'include' });
+export const http = ky.create({
+  prefixUrl: API_BASE,
+  timeout: 15000,
+  credentials: 'include',
+  hooks: {
+    beforeRequest: [
+      ({ method, headers }) => {
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase()) && csrfToken) {
+          headers.set('X-CSRF-Token', csrfToken);
+        }
+      },
+    ],
+  },
+});
 
 function appendSearchFilters(params: URLSearchParams, opts?: ArchiveSearchFilters) {
   if (!opts) return;
@@ -99,20 +131,77 @@ function normalizeTimelineResponse(
 }
 
 export const api = {
-  async search(q: string, opts?: ArchiveSearchFilters) {
-    const params = new URLSearchParams({ q });
-    appendSearchFilters(params, opts);
-    return http.get('search', { searchParams: params }).json<SearchResponse>();
+  async getAccount() {
+    return http.get('account').json<AccountResponse>();
   },
-  async searchGrouped(q: string, opts?: ArchiveSearchFilters) {
+  async updateProfile(payload: { name: string; avatar_url: string | null }) {
+    return http.patch('account', { json: payload }).json<ProfileResponse>();
+  },
+  async listIdentities() {
+    return http.get('account/identities').json<{ identities: LinkedIdentity[] }>();
+  },
+  async linkProvider(provider: OAuthProvider) {
+    return http.post(`account/identities/${provider}/link`).json<LinkProviderResponse>();
+  },
+  async unlinkProvider(provider: OAuthProvider) {
+    return http.delete(`account/identities/${provider}`).json<{ ok: boolean }>();
+  },
+  async listSessions() {
+    return http.get('account/sessions').json<{ sessions: ActiveSession[] }>();
+  },
+  async revokeSession(sessionId: string) {
+    return http.delete(`account/sessions/${encodeURIComponent(sessionId)}`).json<{ ok: boolean }>();
+  },
+  async revokeSessions(keepCurrent: boolean) {
+    return http
+      .delete('account/sessions', { searchParams: { keep_current: String(keepCurrent) } })
+      .json<{ revoked: number }>();
+  },
+  async deleteAccount() {
+    return http
+      .delete('account', { json: { confirmation: 'DELETE' } })
+      .json<{ deleted: boolean }>();
+  },
+  async listAdminUsers(query?: string, signal?: AbortSignal) {
+    const searchParams = query ? { q: query } : undefined;
+    return http.get('admin/users', { searchParams, signal }).json<{ items: AdminUser[] }>();
+  },
+  async updateAdminUserRole(userId: string, role: UserRole) {
+    return http
+      .put(`admin/users/${encodeURIComponent(userId)}/role`, { json: { role } })
+      .json<{ user_id: string; role: UserRole }>();
+  },
+  async search(q: string, opts?: ArchiveSearchFilters, signal?: AbortSignal) {
     const params = new URLSearchParams({ q });
     appendSearchFilters(params, opts);
-    return http.get('search/grouped', { searchParams: params }).json<GroupedSearchResponse>();
+    return http.get('search', { searchParams: params, signal }).json<SearchResponse>();
+  },
+  async searchGrouped(q: string, opts?: ArchiveSearchFilters, signal?: AbortSignal) {
+    const params = new URLSearchParams({ q });
+    appendSearchFilters(params, opts);
+    return http
+      .get('search/grouped', { searchParams: params, signal })
+      .json<GroupedSearchResponse>();
   },
   async getMentionMap(q: string, opts?: ArchiveSearchFilters) {
     const params = new URLSearchParams({ q });
     appendSearchFilters(params, opts);
     return http.get('search/mention-map', { searchParams: params }).json<MentionMapResponse>();
+  },
+  async getMentionCollection(q: string, opts?: ArchiveSearchFilters) {
+    const params = new URLSearchParams({ q, format: 'json' });
+    appendSearchFilters(params, opts);
+    params.delete('offset');
+    params.set('limit', '5000');
+    return http
+      .get('search/mentions/export', { searchParams: params })
+      .json<MentionCollectionResponse>();
+  },
+  async getSearchSuggestions(q: string, limit = 10, signal?: AbortSignal) {
+    const searchParams = new URLSearchParams({ q, limit: String(limit) });
+    return http
+      .get('search/suggestions', { searchParams, signal })
+      .json<SearchSuggestionsResponse>();
   },
   async getArchiveSummary() {
     return http.get('archive/summary').json<ArchiveSummary>();
@@ -120,6 +209,36 @@ export const api = {
   async getTimeline() {
     const response = await http.get('archive/timeline').json<TimelineResponse | TimelineBucket[]>();
     return normalizeTimelineResponse(response);
+  },
+  async getTopicTimeline(
+    slug: string,
+    opts?: { granularity?: 'week' | 'month'; date_from?: string; date_to?: string },
+    signal?: AbortSignal
+  ) {
+    return http
+      .get(`archive/topics/${encodeURIComponent(slug)}/timeline`, { searchParams: opts, signal })
+      .json<TopicTimelineResponse>();
+  },
+  async getTopicOpinions(slug: string, signal?: AbortSignal) {
+    return http
+      .get(`archive/topics/${encodeURIComponent(slug)}/opinions`, { signal })
+      .json<OpinionHistoryResponse>();
+  },
+  async correctOpinion(id: string, payload: { stance?: string; summary?: string; reason: string }) {
+    return http
+      .post(`admin/archive/opinions/${id}/correct`, { json: payload })
+      .json<OpinionHistoryResponse>();
+  },
+  async retractOpinion(id: string, reason: string) {
+    return http
+      .post(`admin/archive/opinions/${id}/retract`, { json: { reason } })
+      .json<OpinionHistoryResponse>();
+  },
+  async getRelatedEpisodes(videoId: string, signal?: AbortSignal) {
+    return http.get(`videos/${videoId}/related`, { signal }).json<RelatedEpisodesResponse>();
+  },
+  async getQuotedMoments(videoId: string, signal?: AbortSignal) {
+    return http.get(`videos/${videoId}/quoted-moments`, { signal }).json<QuotedMomentsResponse>();
   },
   async getExploreIntelligence(opts?: ExploreIntelligenceQuery) {
     const params = new URLSearchParams();
@@ -151,9 +270,12 @@ export const api = {
 
     return http.get('archive/intelligence/periods').json<ArchivePeriodOptionsResponse>();
   },
-  async getTranscript(videoId: string) {
+  async getTranscript(videoId: string, source: 'best' | 'whisper' | 'youtube' = 'best') {
     return http
-      .get(`videos/${videoId}/transcript`, { searchParams: { mode: 'formatted', source: 'best' } })
+      .get(`videos/${videoId}/transcript`, {
+        searchParams: { mode: 'formatted', source },
+        timeout: 60_000,
+      })
       .json<TranscriptResponse>();
   },
   async getVideoChapters(videoId: string) {

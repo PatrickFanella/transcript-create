@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+
+from sqlalchemy import bindparam, text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.schemas import ArchiveIntelligenceResponse, ArchivePerson, ArchiveVideoTag, VideoInfo
 
@@ -60,7 +64,80 @@ def _collect_unique_videos(response: ArchiveIntelligenceResponse) -> list[VideoI
     return videos
 
 
-def attach_archive_facets(response: ArchiveIntelligenceResponse) -> ArchiveIntelligenceResponse:
+def _string_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return [value]
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item) for item in value if item is not None and str(item)]
+
+
+def _topic_catalog_facets(db, slugs: list[str]) -> tuple[list[ArchivePerson], list[ArchiveVideoTag]]:
+    if db is None or not slugs:
+        return [], []
+    params = {"slugs": slugs}
+    try:
+        people_rows = (
+            db.execute(
+                text("""
+                SELECT slug, display_name, aliases, description, default_role, sort_order
+                FROM archive_people
+                WHERE status = 'published' AND slug IN :slugs
+                """).bindparams(bindparam("slugs", expanding=True)),
+                params,
+            )
+            .mappings()
+            .all()
+        )
+        tag_rows = (
+            db.execute(
+                text("""
+                SELECT slug, label, kind, description, sort_order
+                FROM archive_video_tags
+                WHERE status = 'published' AND slug IN :slugs
+                """).bindparams(bindparam("slugs", expanding=True)),
+                params,
+            )
+            .mappings()
+            .all()
+        )
+    except (OperationalError, ProgrammingError):
+        db.rollback()
+        return [], []
+
+    people_by_slug = {
+        str(row["slug"]): ArchivePerson(
+            slug=str(row["slug"]),
+            display_name=str(row["display_name"]),
+            aliases=_string_list(row.get("aliases")),
+            description=row.get("description"),
+            default_role=row.get("default_role"),
+            sort_order=int(row.get("sort_order") or 0),
+        )
+        for row in people_rows
+    }
+    tags_by_slug = {
+        str(row["slug"]): ArchiveVideoTag(
+            slug=str(row["slug"]),
+            label=str(row["label"]),
+            kind=str(row.get("kind") or "category"),
+            description=row.get("description"),
+            sort_order=int(row.get("sort_order") or 0),
+        )
+        for row in tag_rows
+    }
+    return (
+        [people_by_slug[slug] for slug in slugs if slug in people_by_slug],
+        [tags_by_slug[slug] for slug in slugs if slug in tags_by_slug],
+    )
+
+
+def attach_archive_facets(response: ArchiveIntelligenceResponse, db=None) -> ArchiveIntelligenceResponse:
     people_by_slug: dict[str, _PersonFacet] = {}
     tags_by_slug: dict[str, _TagFacet] = {}
 
@@ -82,8 +159,15 @@ def attach_archive_facets(response: ArchiveIntelligenceResponse) -> ArchiveIntel
             entry = tags_by_slug.setdefault(tag.slug, _TagFacet(tag=tag))
             entry.count += 1
 
+    topic_slugs = list(dict.fromkeys(topic.slug for topic in response.topic_cards if topic.slug))
+    catalog_people, catalog_tags = _topic_catalog_facets(db, topic_slugs)
+    for person in catalog_people:
+        people_by_slug.setdefault(person.slug, _PersonFacet(person=person, count=1))
+    for tag in catalog_tags:
+        tags_by_slug.setdefault(tag.slug, _TagFacet(tag=tag, count=1))
+
     people = []
-    for slug, entry in sorted(
+    for _slug, entry in sorted(
         people_by_slug.items(),
         key=lambda item: (
             -item[1].count,

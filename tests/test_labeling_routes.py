@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -7,8 +8,10 @@ from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app.csrf import csrf_token
 from app.routes import archive as archive_routes
 from app.schemas import ArchiveLabelReviewAction
+from app.settings import settings
 
 
 class FakeResult:
@@ -49,8 +52,8 @@ def _create_user_session(db_session, *, email: str = "user@example.com") -> str:
         {"id": str(user_id), "email": email, "subject": f"{email}-subject"},
     )
     db_session.execute(
-        text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-        {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+        text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+        {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
     )
     db_session.commit()
     return session_token
@@ -125,15 +128,16 @@ def test_labeling_admin_routes_require_auth(client: TestClient):
 def test_labeling_admin_routes_require_admin(client: TestClient, db_session):
     session_token = _create_user_session(db_session, email="not-admin@example.com")
     cookies = {"tc_session": session_token}
+    headers = {"Origin": settings.FRONTEND_ORIGIN, "X-CSRF-Token": csrf_token(session_token)}
     label_id = uuid.uuid4()
     assignment_id = uuid.uuid4()
     video_id = uuid.uuid4()
 
     assert client.get("/admin/archive/labels", cookies=cookies).status_code == 403
     assert client.get(f"/admin/archive/labels/{label_id}/assignments", cookies=cookies).status_code == 403
-    assert client.post(f"/admin/archive/labels/{label_id}/review", json={"action": "approve"}, cookies=cookies).status_code == 403
-    assert client.post(f"/admin/archive/label-assignments/{assignment_id}/review", json={"action": "approve"}, cookies=cookies).status_code == 403
-    assert client.post(f"/admin/archive/labels/extract-video/{video_id}", cookies=cookies).status_code == 403
+    assert client.post(f"/admin/archive/labels/{label_id}/review", json={"action": "approve"}, cookies=cookies, headers=headers).status_code == 403
+    assert client.post(f"/admin/archive/label-assignments/{assignment_id}/review", json={"action": "approve"}, cookies=cookies, headers=headers).status_code == 403
+    assert client.post(f"/admin/archive/labels/extract-video/{video_id}", cookies=cookies, headers=headers).status_code == 403
 
 
 def test_review_label_action_updates_status_and_feedback():

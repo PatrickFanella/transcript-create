@@ -1,91 +1,203 @@
-import { StrictMode } from 'react';
+import { lazy, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
 import AppLayout from './routes/AppLayout';
-import HomePage from './routes/HomePage';
-import SearchPage from './routes/SearchPage';
-import StreamsPage from './routes/StreamsPage';
-import VideoPage from './routes/VideoPage';
-import LoginPage from './routes/LoginPage';
-import FavoritesPage from './routes/FavoritesPage';
-import Protected from './routes/Protected';
-import AdminLayout from './routes/admin/AdminLayout';
-import AdminDashboard from './routes/admin/AdminDashboard';
-import AdminEvents from './routes/admin/AdminEvents';
-import AdminArchivePeriods from './routes/admin/AdminArchivePeriods';
-import AdminUsers from './routes/admin/AdminUsers';
-import AdminVideoMetadata from './routes/admin/AdminVideoMetadata';
-import AdminLabelIntelligence from './routes/admin/AdminLabelIntelligence';
-import { AuthProvider, ThemeProvider } from './services';
-import TopicPage from './routes/TopicPage';
-import TimelinePage from './routes/TimelinePage';
-import ExplorePage from './routes/ExplorePage';
+import { AuthProvider, queryClient, ThemeProvider } from './services';
+import { NotFoundPage, PageSuspense as Page, RouteErrorPage } from './routes/RouteStates';
+
+const HomePage = lazy(() => import('./routes/HomePage'));
+const SearchPage = lazy(() => import('./routes/SearchPage'));
+const ExplorePage = lazy(() => import('./routes/ExplorePage'));
+const StreamsPage = lazy(() => import('./routes/StreamsPage'));
+const TimelinePage = lazy(() => import('./routes/TimelinePage'));
+const TopicPage = lazy(() => import('./routes/TopicPage'));
+const VideoPage = lazy(() => import('./routes/VideoPage'));
+const LoginPage = lazy(() => import('./routes/LoginPage'));
+const AccountPage = lazy(() => import('./routes/AccountPage'));
+const FavoritesPage = lazy(() => import('./routes/FavoritesPage'));
+const AdminLayout = lazy(() => import('./routes/admin/AdminLayout'));
+const AdminDashboard = lazy(() => import('./routes/admin/AdminDashboard'));
+const AdminEvents = lazy(() => import('./routes/admin/AdminEvents'));
+const AdminArchivePeriods = lazy(() => import('./routes/admin/AdminArchivePeriods'));
+const AdminUsers = lazy(() => import('./routes/admin/AdminUsers'));
+const AdminVideoMetadata = lazy(() => import('./routes/admin/AdminVideoMetadata'));
+const AdminLabelIntelligence = lazy(() => import('./routes/admin/AdminLabelIntelligence'));
 
 const router = createBrowserRouter([
   {
     path: '/',
     element: <AppLayout />,
+    errorElement: <RouteErrorPage />,
     children: [
-      { index: true, element: <HomePage /> },
-      { path: 'search', element: <SearchPage /> },
-      { path: 'explore', element: <ExplorePage /> },
-      { path: 'episodes', element: <StreamsPage /> },
-      { path: 'streams', element: <StreamsPage /> },
-      { path: 'timeline', element: <TimelinePage /> },
-      { path: 'topics/:query', element: <TopicPage /> },
-      { path: 'v/:videoId', element: <VideoPage /> },
-      { path: 'login', element: <LoginPage /> },
+      {
+        index: true,
+        element: (
+          <Page>
+            <HomePage />
+          </Page>
+        ),
+      },
+      {
+        path: 'search',
+        element: (
+          <Page>
+            <SearchPage />
+          </Page>
+        ),
+      },
+      {
+        path: 'explore',
+        element: (
+          <Page>
+            <ExplorePage />
+          </Page>
+        ),
+      },
+      {
+        path: 'episodes',
+        element: (
+          <Page>
+            <StreamsPage />
+          </Page>
+        ),
+      },
+      {
+        path: 'streams',
+        element: (
+          <Page>
+            <StreamsPage />
+          </Page>
+        ),
+      },
+      {
+        path: 'timeline',
+        element: (
+          <Page>
+            <TimelinePage />
+          </Page>
+        ),
+      },
+      {
+        path: 'topics/:query',
+        element: (
+          <Page>
+            <TopicPage />
+          </Page>
+        ),
+      },
+      {
+        path: 'v/:videoId',
+        element: (
+          <Page>
+            <VideoPage />
+          </Page>
+        ),
+      },
+      {
+        path: 'login',
+        element: (
+          <Page>
+            <LoginPage />
+          </Page>
+        ),
+      },
+      {
+        path: 'account',
+        element: (
+          <Page>
+            <AccountPage />
+          </Page>
+        ),
+      },
       {
         path: 'saved',
         element: (
-          <Protected>
+          <Page>
             <FavoritesPage />
-          </Protected>
+          </Page>
         ),
       },
       {
         path: 'favorites',
         element: (
-          <Protected>
+          <Page>
             <FavoritesPage />
-          </Protected>
+          </Page>
         ),
       },
       {
         path: 'admin',
-        element: <AdminLayout />,
+        element: (
+          <Page>
+            <AdminLayout />
+          </Page>
+        ),
         children: [
-          { path: 'dashboard', element: <AdminDashboard /> },
-          { path: 'events', element: <AdminEvents /> },
-          { path: 'periods', element: <AdminArchivePeriods /> },
-          { path: 'metadata', element: <AdminVideoMetadata /> },
-          { path: 'labels', element: <AdminLabelIntelligence /> },
-          { path: 'users', element: <AdminUsers /> },
+          {
+            path: 'dashboard',
+            element: (
+              <Page>
+                <AdminDashboard />
+              </Page>
+            ),
+          },
+          {
+            path: 'events',
+            element: (
+              <Page>
+                <AdminEvents />
+              </Page>
+            ),
+          },
+          {
+            path: 'periods',
+            element: (
+              <Page>
+                <AdminArchivePeriods />
+              </Page>
+            ),
+          },
+          {
+            path: 'metadata',
+            element: (
+              <Page>
+                <AdminVideoMetadata />
+              </Page>
+            ),
+          },
+          {
+            path: 'labels',
+            element: (
+              <Page>
+                <AdminLabelIntelligence />
+              </Page>
+            ),
+          },
+          {
+            path: 'users',
+            element: (
+              <Page>
+                <AdminUsers />
+              </Page>
+            ),
+          },
         ],
       },
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ]);
 
-// Clear older PWA caches/service workers so stale pre-HasAnAra shells cannot reappear.
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      registrations.forEach((registration) => void registration.unregister());
-    });
-    if ('caches' in window) {
-      caches.keys().then((keys) => keys.forEach((key) => void caches.delete(key)));
-    }
-  });
-}
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   </StrictMode>
 );

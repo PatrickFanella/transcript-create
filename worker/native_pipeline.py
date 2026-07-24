@@ -9,6 +9,7 @@ from typing import Any, Callable
 from sqlalchemy import text
 
 from app import crud
+from app.cache import invalidate_video_data
 from app.logging_config import get_logger
 from app.settings import settings
 from app.transcripts.blocks import build_transcript_blocks
@@ -18,7 +19,6 @@ from worker.diarize import diarize_and_align
 from worker.whisper_runner import transcribe_chunk
 from worker.youtube.service import get_youtube_service
 
-
 WORKDIR = Path("/data")
 
 logger = get_logger(__name__)
@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class NativePipelineDependencies:
-    settings: Any = settings
+    settings: Any = field(default_factory=lambda: settings)
     logger: Any = logger
     download_audio: Callable[[str, Path], Path] = download_audio
     ensure_wav_16k: Callable[[Path], Path] = ensure_wav_16k
@@ -46,6 +46,7 @@ class VideoPipelineContext:
     wav_path: Path | None = None
     chunks: list[Chunk] = field(default_factory=list)
     job_meta: dict[str, Any] | str | None = None
+    job_owner_user_id: str | None = None
     quality_settings: dict[str, Any] = field(default_factory=dict)
     all_segments: list[dict[str, Any]] = field(default_factory=list)
     diar_segments: list[dict[str, Any]] = field(default_factory=list)
@@ -80,7 +81,9 @@ def _parse_job_meta(job_meta: Any) -> dict[str, Any] | None:
     return None
 
 
-def _load_video_context(engine, video_id: Any, *, workdir: Path, deps: NativePipelineDependencies) -> VideoPipelineContext:
+def _load_video_context(
+    engine, video_id: Any, *, workdir: Path, deps: NativePipelineDependencies
+) -> VideoPipelineContext:
     with engine.begin() as conn:
         video = (
             conn.execute(
@@ -111,8 +114,7 @@ def _enrich_source_metadata(ctx: VideoPipelineContext, deps: NativePipelineDepen
             duration = metadata.get("duration") or ctx.video.get("duration_seconds")
             with ctx.engine.begin() as conn:
                 conn.execute(
-                    text(
-                        """
+                    text("""
                         UPDATE videos
                         SET uploaded_at = COALESCE(uploaded_at, :uploaded_at),
                             channel_name = COALESCE(NULLIF(channel_name, ''), :channel_name),
@@ -120,8 +122,7 @@ def _enrich_source_metadata(ctx: VideoPipelineContext, deps: NativePipelineDepen
                             duration_seconds = COALESCE(duration_seconds, :duration),
                             updated_at = now()
                         WHERE id = :id
-                        """
-                    ),
+                        """),
                     {
                         "id": ctx.video_id,
                         "uploaded_at": uploaded_at,
@@ -148,7 +149,9 @@ def _enrich_source_metadata(ctx: VideoPipelineContext, deps: NativePipelineDepen
 
 def _load_job_meta_and_quality_settings(ctx: VideoPipelineContext, deps: NativePipelineDependencies) -> None:
     with ctx.engine.begin() as conn:
-        job_meta = conn.execute(text("SELECT meta FROM jobs WHERE id=:j"), {"j": ctx.job_id}).scalar()
+        job = conn.execute(text("SELECT meta, owner_user_id FROM jobs WHERE id=:j"), {"j": ctx.job_id}).mappings().one()
+        job_meta = job["meta"]
+        ctx.job_owner_user_id = str(job["owner_user_id"]) if job["owner_user_id"] is not None else None
 
     parsed_job_meta = _parse_job_meta(job_meta)
     if isinstance(job_meta, str) and job_meta and parsed_job_meta is None:
@@ -293,23 +296,29 @@ def _apply_custom_vocabulary(ctx: VideoPipelineContext, deps: NativePipelineDepe
     if not getattr(deps.settings, "ENABLE_CUSTOM_VOCABULARY", True):
         return
 
+    vocabulary_ids: list[str] = []
     try:
         from worker.vocabulary import apply_vocabulary_corrections
 
-        user_id = ctx.job_meta.get("user_id") if isinstance(ctx.job_meta, dict) else None
+        user_id = ctx.job_owner_user_id
+        vocabulary_ids = ctx.job_meta.get("vocabulary_ids", []) if isinstance(ctx.job_meta, dict) else []
+        if not isinstance(vocabulary_ids, list):
+            vocabulary_ids = []
         with ctx.engine.begin() as conn:
-            ctx.diar_segments = apply_vocabulary_corrections(conn, ctx.diar_segments, user_id)
+            ctx.diar_segments = apply_vocabulary_corrections(conn, ctx.diar_segments, user_id, vocabulary_ids)
             deps.logger.info("Applied custom vocabulary corrections")
     except Exception as e:
         deps.logger.warning("Failed to apply vocabulary corrections", extra={"error": str(e)})
+        if vocabulary_ids:
+            raise
 
 
 def _refresh_job_state(conn, job_id, *, error: str | None = None) -> None:
     from worker.pipeline import ACTIVE_VIDEO_STATES_SQL
 
-    counts = conn.execute(
-        text(
-            f"""
+    counts = (
+        conn.execute(
+            text(f"""
             SELECT
               COUNT(*) AS total,
               COUNT(*) FILTER (WHERE state = 'completed') AS completed,
@@ -317,10 +326,12 @@ def _refresh_job_state(conn, job_id, *, error: str | None = None) -> None:
               COUNT(*) FILTER (WHERE state IN ({ACTIVE_VIDEO_STATES_SQL})) AS active
             FROM videos
             WHERE job_id = :j
-            """
-        ),
-        {"j": job_id},
-    ).mappings().first()
+            """),
+            {"j": job_id},
+        )
+        .mappings()
+        .first()
+    )
 
     if not counts or int(counts["total"] or 0) == 0:
         return
@@ -359,12 +370,10 @@ def _persist_transcript(ctx: VideoPipelineContext, deps: NativePipelineDependenc
             deps.logger.warning("Failed to clear existing rows (continuing)", extra={"error": str(e)})
 
         conn.execute(
-            text(
-                """
+            text("""
             INSERT INTO transcripts (video_id, full_text, language, model, detected_language, language_probability)
             VALUES (:v,:t,:lang,:m,:dlang,:lprob)
-        """
-            ),
+        """),
             {
                 "v": ctx.video_id,
                 "t": full_text,
@@ -382,15 +391,13 @@ def _persist_transcript(ctx: VideoPipelineContext, deps: NativePipelineDependenc
                 word_ts_json = json.dumps(s["words"])
 
             conn.execute(
-                text(
-                    """
+                text("""
                 INSERT INTO segments (
                     video_id,start_ms,end_ms,text,speaker_label,confidence,
                     avg_logprob,temperature,token_count,word_timestamps
                 )
                 VALUES (:v,:s,:e,:txt,:spk,:conf,:lp,:temp,:tc,:wts)
-            """
-                ),
+            """),
                 {
                     "v": ctx.video_id,
                     "s": int(s["start"] * 1000),
@@ -419,16 +426,15 @@ def _persist_transcript(ctx: VideoPipelineContext, deps: NativePipelineDependenc
         deps.replace_transcript_blocks(conn, ctx.video_id, blocks)
         deps.logger.info("Marking video as completed")
         conn.execute(
-            text(
-                """
+            text("""
                 UPDATE videos
                 SET state='completed', error=NULL, diarization_state=:ds, updated_at=now()
                 WHERE id=:i
-                """
-            ),
+                """),
             {"i": ctx.video_id, "ds": ctx.diarization_state},
         )
         refresh_job_state(conn, ctx.job_id)
+    invalidate_video_data(ctx.video_id)
 
 
 def _cleanup(ctx: VideoPipelineContext, deps: NativePipelineDependencies) -> None:
@@ -438,13 +444,20 @@ def _cleanup(ctx: VideoPipelineContext, deps: NativePipelineDependencies) -> Non
     try:
         removed: list[str] = []
         preserve_wav_for_diarization = (
-            deps.settings.ENABLE_DIARIZATION and not deps.settings.DIARIZATION_INLINE and ctx.diarization_state == "pending"
+            deps.settings.ENABLE_DIARIZATION
+            and not deps.settings.DIARIZATION_INLINE
+            and ctx.diarization_state == "pending"
         )
         if getattr(deps.settings, "CLEANUP_DELETE_CHUNKS", False):
             for p in ctx.work_dir.glob("chunk_*.wav"):
                 p.unlink(missing_ok=True)
                 removed.append(p.name)
-        if getattr(deps.settings, "CLEANUP_DELETE_WAV", False) and not preserve_wav_for_diarization and ctx.wav_path and ctx.wav_path.exists():
+        if (
+            getattr(deps.settings, "CLEANUP_DELETE_WAV", False)
+            and not preserve_wav_for_diarization
+            and ctx.wav_path
+            and ctx.wav_path.exists()
+        ):
             ctx.wav_path.unlink(missing_ok=True)
             removed.append(Path(ctx.wav_path).name)
         if getattr(deps.settings, "CLEANUP_DELETE_RAW", False) and ctx.raw_path and ctx.raw_path.exists():
@@ -509,7 +522,13 @@ def _parse_iso_date(value: Any) -> Any:
 
 
 def _metadata_channel_name(metadata: dict[str, Any], fallback: str | None = None) -> str | None:
-    value = metadata.get("uploader") or metadata.get("channel") or metadata.get("channel_name") or metadata.get("uploader_id") or fallback
+    value = (
+        metadata.get("uploader")
+        or metadata.get("channel")
+        or metadata.get("channel_name")
+        or metadata.get("uploader_id")
+        or fallback
+    )
     if not value:
         return None
     title = str(value).strip()

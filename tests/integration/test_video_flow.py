@@ -45,12 +45,11 @@ class TestVideoTranscriptFlow:
         )
         integration_db.commit()
 
-        # Try to get transcript (should return empty segments)
+        # A known video without a transcript has an explicit not-ready state.
         response = integration_client.get(f"/videos/{video_id}/transcript")
 
-        # This might return 404 if no transcript exists, or 200 with empty segments
-        # depending on the API implementation
-        assert response.status_code in [200, 404]
+        assert response.status_code == 409
+        assert response.json()["error"] == "transcript_not_ready"
 
     @pytest.mark.timeout(60)
     def test_get_video_transcript_with_segments(
@@ -97,8 +96,8 @@ class TestVideoTranscriptFlow:
             integration_db.execute(
                 text(
                     """
-                    INSERT INTO segments (transcript_id, idx, start_ms, end_ms, text, speaker, speaker_label)
-                    VALUES (:transcript_id, :idx, :start_ms, :end_ms, :text, :speaker, :speaker_label)
+                    INSERT INTO segments (transcript_id, idx, start_ms, end_ms, text, speaker_label)
+                    VALUES (:transcript_id, :idx, :start_ms, :end_ms, :text, :speaker_label)
                 """
                 ),
                 {
@@ -107,7 +106,6 @@ class TestVideoTranscriptFlow:
                     "start_ms": seg["start_ms"],
                     "end_ms": seg["end_ms"],
                     "text": seg["text"],
-                    "speaker": None,
                     "speaker_label": seg.get("speaker_label"),
                 },
             )

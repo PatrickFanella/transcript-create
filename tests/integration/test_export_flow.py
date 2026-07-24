@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 try:
-    from PyPDF2 import PdfReader
+    from pypdf import PdfReader
 except ImportError:
     PdfReader = None
 
@@ -18,15 +18,15 @@ class TestExportSRT:
     """Integration tests for SRT export."""
 
     @pytest.mark.timeout(60)
-    def test_export_srt_not_found(self, integration_client: TestClient, clean_test_data):
+    def test_export_srt_not_found(self, authenticated_client: TestClient, clean_test_data):
         """Test exporting SRT for non-existent video."""
         fake_video_id = str(uuid.uuid4())
-        response = integration_client.get(f"/videos/{fake_video_id}/transcript.srt")
+        response = authenticated_client.get(f"/videos/{fake_video_id}/transcript.srt")
         assert response.status_code == 404
 
     @pytest.mark.timeout(60)
     def test_export_srt_with_segments(
-        self, integration_client: TestClient, integration_db, clean_test_data, sample_transcript_segments
+        self, authenticated_client: TestClient, integration_db, clean_test_data, sample_transcript_segments
     ):
         """Test exporting SRT format with segments."""
         # Create job, video, transcript, and segments
@@ -86,7 +86,7 @@ class TestExportSRT:
         integration_db.commit()
 
         # Export SRT
-        response = integration_client.get(f"/videos/{video_id}/transcript.srt")
+        response = authenticated_client.get(f"/videos/{video_id}/transcript.srt")
         assert response.status_code == 200
         assert response.headers["content-type"] == "text/plain; charset=utf-8"
 
@@ -104,7 +104,7 @@ class TestExportSRT:
 
     @pytest.mark.timeout(60)
     def test_srt_timestamp_format(
-        self, integration_client: TestClient, integration_db, clean_test_data, sample_transcript_segments
+        self, authenticated_client: TestClient, integration_db, clean_test_data, sample_transcript_segments
     ):
         """Test that SRT timestamps are in correct format."""
         # Create test data
@@ -155,7 +155,7 @@ class TestExportSRT:
         integration_db.commit()
 
         # Export SRT
-        response = integration_client.get(f"/videos/{video_id}/transcript.srt")
+        response = authenticated_client.get(f"/videos/{video_id}/transcript.srt")
         if response.status_code == 200:
             srt_content = response.text
 
@@ -169,16 +169,16 @@ class TestExportPDF:
     """Integration tests for PDF export."""
 
     @pytest.mark.timeout(60)
-    def test_export_pdf_not_found(self, integration_client: TestClient, clean_test_data):
+    def test_export_pdf_not_found(self, authenticated_client: TestClient, clean_test_data):
         """Test exporting PDF for non-existent video."""
         fake_video_id = str(uuid.uuid4())
-        response = integration_client.get(f"/videos/{fake_video_id}/transcript.pdf")
+        response = authenticated_client.get(f"/videos/{fake_video_id}/transcript.pdf")
         assert response.status_code == 404
 
     @pytest.mark.timeout(60)
-    @pytest.mark.skipif(PdfReader is None, reason="PyPDF2 not installed")
+    @pytest.mark.skipif(PdfReader is None, reason="pypdf not installed")
     def test_export_pdf_with_segments(
-        self, integration_client: TestClient, integration_db, clean_test_data, sample_transcript_segments
+        self, authenticated_client: TestClient, integration_db, clean_test_data, sample_transcript_segments
     ):
         """Test exporting PDF format with segments."""
         # Create job, video, transcript, and segments
@@ -238,7 +238,7 @@ class TestExportPDF:
         integration_db.commit()
 
         # Export PDF
-        response = integration_client.get(f"/videos/{video_id}/transcript.pdf")
+        response = authenticated_client.get(f"/videos/{video_id}/transcript.pdf")
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/pdf"
 
@@ -263,7 +263,7 @@ class TestExportFormats:
     """Tests for various export format edge cases."""
 
     @pytest.mark.timeout(60)
-    def test_export_empty_transcript(self, integration_client: TestClient, integration_db, clean_test_data):
+    def test_export_empty_transcript(self, authenticated_client: TestClient, integration_db, clean_test_data):
         """Test exporting when transcript has no segments."""
         # Create job, video, and transcript but no segments
         job_id = uuid.uuid4()
@@ -303,6 +303,6 @@ class TestExportFormats:
         integration_db.commit()
 
         # Try to export (should handle empty gracefully)
-        response = integration_client.get(f"/videos/{video_id}/transcript.srt")
+        response = authenticated_client.get(f"/videos/{video_id}/transcript.srt")
         # Might return 200 with empty content or 404
         assert response.status_code in [200, 404]

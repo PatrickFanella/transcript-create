@@ -4,8 +4,7 @@ from app.search.types import SearchRequest, SearchResult
 
 
 class SearchBackend(Protocol):
-    def search(self, request: SearchRequest) -> list[SearchResult]:
-        ...
+    def search(self, request: SearchRequest) -> list[SearchResult]: ...
 
 
 class SearchService:

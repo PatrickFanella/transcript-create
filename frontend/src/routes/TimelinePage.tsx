@@ -53,44 +53,53 @@ export default function TimelinePage() {
           {buckets.map((bucket) => {
             const range = bucketRange(bucket.period);
             return (
-            <section key={bucket.period} className="surface-card space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="section-title">{bucket.label}</h2>
-                <div className="text-sm text-muted">{formatNumber(bucket.video_count)} VODs · {formatDuration(bucket.total_duration_seconds)}</div>
-              </div>
-
-              <article className="rounded-2xl border border-border bg-surface-muted p-4">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                  <p className="text-sm text-muted">{bucket.video_count} VODs in this archive period.</p>
-                  {range && (
-                        <Link
-                          to={`/episodes?date_from=${range.date_from}&date_to=${range.date_to}`}
-                          className="action-link text-sm"
-                        >
-                          Browse this period
-                        </Link>
-                  )}
+              <section key={bucket.period} className="surface-card space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="section-title">{bucket.label}</h2>
+                  <div className="text-sm text-muted">
+                    {formatNumber(bucket.video_count)} VODs ·{' '}
+                    {formatDuration(bucket.total_duration_seconds)}
+                  </div>
                 </div>
 
-                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        {bucket.videos.map((video) => (
-                          <Link
-                            key={video.id}
-                            to={`/v/${video.id}`}
-                            className="rounded-xl border border-border bg-surface p-4 transition-colors hover:border-accent hover:bg-surface"
-                          >
-                            <div className="line-clamp-2 font-medium text-ink">{video.title || 'Untitled VOD'}</div>
-                            <div className="mt-2 text-sm text-muted">{video.channel_name || 'Unknown channel'}</div>
-                            <div className="mt-3 flex flex-wrap gap-3 text-xs text-subtle">
-                              <span>{formatDate(video.uploaded_at ?? null)}</span>
-                              <span>{formatDuration(video.duration_seconds)}</span>
-                            </div>
-                          </Link>
-                        ))}
-                </div>
-              </article>
-            </section>
-          );
+                <article className="rounded-2xl border border-border bg-surface-muted p-4">
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <p className="text-sm text-muted">
+                      {bucket.video_count} VODs in this archive period.
+                    </p>
+                    {range && (
+                      <Link
+                        to={`/episodes?date_from=${range.date_from}&date_to=${range.date_to}`}
+                        className="action-link text-sm"
+                      >
+                        Browse this period
+                      </Link>
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {bucket.videos.map((video) => (
+                      <Link
+                        key={video.id}
+                        to={`/v/${video.id}`}
+                        className="rounded-xl border border-border bg-surface p-4 transition-colors hover:border-accent hover:bg-surface"
+                      >
+                        <div className="line-clamp-2 font-medium text-ink">
+                          {video.title || 'Untitled VOD'}
+                        </div>
+                        <div className="mt-2 text-sm text-muted">
+                          {video.channel_name || 'Unknown channel'}
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-3 text-xs text-subtle">
+                          <span>{formatDate(video.uploaded_at ?? null)}</span>
+                          <span>{formatDuration(video.duration_seconds)}</span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </article>
+              </section>
+            );
           })}
         </div>
       )}

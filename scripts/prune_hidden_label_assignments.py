@@ -16,12 +16,10 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.db import SessionLocal, engine
 
-
 CONFIRMATION = "DELETE HIDDEN TOPIC ASSIGNMENTS"
 
 
-TARGET_STATS_SQL = text(
-    """
+TARGET_STATS_SQL = text("""
     SELECT
         COUNT(*) AS assignments_to_delete,
         COUNT(DISTINCT a.label_id) AS labels_touched,
@@ -32,32 +30,26 @@ TARGET_STATS_SQL = text(
     JOIN archive_labels AS l ON l.id = a.label_id
     WHERE l.kind = 'topic'
       AND l.status = 'hidden'
-    """
-)
+    """)
 
-QUICK_LABEL_STATS_SQL = text(
-    """
+QUICK_LABEL_STATS_SQL = text("""
     SELECT
         COUNT(*) AS hidden_topic_labels
     FROM archive_labels AS l
     WHERE l.kind = 'topic'
       AND l.status = 'hidden'
-    """
-)
+    """)
 
-FEEDBACK_COUNT_SQL = text(
-    """
+FEEDBACK_COUNT_SQL = text("""
     SELECT COUNT(*) AS feedback_rows_touching_target
     FROM archive_label_feedback AS f
     JOIN archive_label_assignments AS a ON a.id = f.assignment_id
     JOIN archive_labels AS l ON l.id = a.label_id
     WHERE l.kind = 'topic'
       AND l.status = 'hidden'
-    """
-)
+    """)
 
-ORPHAN_WINDOW_COUNT_SQL = text(
-    """
+ORPHAN_WINDOW_COUNT_SQL = text("""
     SELECT COUNT(*) AS orphan_windows_before_prune
     FROM archive_transcript_windows AS w
     WHERE NOT EXISTS (
@@ -65,11 +57,9 @@ ORPHAN_WINDOW_COUNT_SQL = text(
         FROM archive_label_assignments AS a
         WHERE a.window_id = w.id
     )
-    """
-)
+    """)
 
-TARGET_DISTRIBUTION_SQL = text(
-    """
+TARGET_DISTRIBUTION_SQL = text("""
     SELECT
         a.status AS assignment_status,
         a.publish_tier,
@@ -83,11 +73,9 @@ TARGET_DISTRIBUTION_SQL = text(
     GROUP BY a.status, a.publish_tier, a.unit_type, a.source
     ORDER BY assignments DESC
     LIMIT 20
-    """
-)
+    """)
 
-TOP_LABELS_SQL = text(
-    """
+TOP_LABELS_SQL = text("""
     SELECT
         l.id,
         l.slug,
@@ -100,11 +88,9 @@ TOP_LABELS_SQL = text(
     GROUP BY l.id, l.slug, l.label
     ORDER BY assignments DESC
     LIMIT 25
-    """
-)
+    """)
 
-RUNNING_RUNS_SQL = text(
-    """
+RUNNING_RUNS_SQL = text("""
     SELECT
         id,
         scope,
@@ -117,11 +103,9 @@ RUNNING_RUNS_SQL = text(
     FROM archive_extraction_runs
     WHERE status = 'running'
     ORDER BY started_at
-    """
-)
+    """)
 
-STALE_RUNS_SQL = text(
-    """
+STALE_RUNS_SQL = text("""
     SELECT
         id,
         scope,
@@ -135,11 +119,9 @@ STALE_RUNS_SQL = text(
     WHERE status = 'running'
       AND started_at < now() - (:stale_hours || ' hours')::interval
     ORDER BY started_at
-    """
-)
+    """)
 
-CANCEL_STALE_RUNS_SQL = text(
-    """
+CANCEL_STALE_RUNS_SQL = text("""
     UPDATE archive_extraction_runs
     SET
         status = 'cancelled',
@@ -151,11 +133,9 @@ CANCEL_STALE_RUNS_SQL = text(
     WHERE status = 'running'
       AND started_at < now() - (:stale_hours || ' hours')::interval
     RETURNING id, scope, extraction_tier, video_id, started_at, status
-    """
-)
+    """)
 
-DELETE_BATCH_SQL = text(
-    """
+DELETE_BATCH_SQL = text("""
     WITH deleted AS (
         DELETE FROM archive_label_assignments AS a
         USING archive_labels AS l
@@ -167,18 +147,15 @@ DELETE_BATCH_SQL = text(
     )
     SELECT COUNT(*) AS deleted_rows
     FROM deleted
-    """
-)
+    """)
 
-HIDDEN_TOPIC_LABELS_WITH_ASSIGNMENTS_SQL = text(
-    """
+HIDDEN_TOPIC_LABELS_WITH_ASSIGNMENTS_SQL = text("""
     SELECT l.id, l.slug, l.label
     FROM archive_labels AS l
     WHERE l.kind = 'topic'
       AND l.status = 'hidden'
     ORDER BY l.id
-    """
-)
+    """)
 
 
 def _session():
@@ -357,8 +334,7 @@ def delete_batches(batch_size: int, max_batches: int | None, sleep_seconds: floa
 def delete_batches_by_assignment_id(batch_size: int, max_batches: int | None, sleep_seconds: float) -> int:
     total_deleted = 0
     batch_number = 0
-    old_delete_sql = text(
-        """
+    old_delete_sql = text("""
         WITH doomed AS (
             SELECT a.id
             FROM archive_label_assignments AS a
@@ -377,8 +353,7 @@ def delete_batches_by_assignment_id(batch_size: int, max_batches: int | None, sl
         )
         SELECT COUNT(*) AS deleted_rows
         FROM deleted
-        """
-    )
+        """)
     while True:
         db = _session()
         try:
@@ -397,7 +372,10 @@ def delete_batches_by_assignment_id(batch_size: int, max_batches: int | None, sl
 
         batch_number += 1
         total_deleted += deleted
-        print(f"delete batch complete: batch={batch_number} deleted_rows={deleted} total_deleted={total_deleted}", flush=True)
+        print(
+            f"delete batch complete: batch={batch_number} deleted_rows={deleted} total_deleted={total_deleted}",
+            flush=True,
+        )
 
         if max_batches is not None and batch_number >= max_batches:
             print(f"stopping after max_batches={max_batches}")
@@ -421,13 +399,17 @@ def main() -> None:
         description="Safely prune assignments for hidden topic labels without deleting the labels themselves.",
         epilog=(
             "Default mode is read-only. Example execute command: "
-            f'python scripts/prune_hidden_label_assignments.py --execute --i-have-backup '
+            f"python scripts/prune_hidden_label_assignments.py --execute --i-have-backup "
             f'--cancel-stale-runs --confirm "{CONFIRMATION}"'
         ),
     )
-    parser.add_argument("--execute", action="store_true", help="Actually delete target assignments. Default is read-only.")
+    parser.add_argument(
+        "--execute", action="store_true", help="Actually delete target assignments. Default is read-only."
+    )
     parser.add_argument("--confirm", default="", help="Required exact confirmation phrase for --execute.")
-    parser.add_argument("--i-have-backup", action="store_true", help="Required for --execute after taking a current DB backup.")
+    parser.add_argument(
+        "--i-have-backup", action="store_true", help="Required for --execute after taking a current DB backup."
+    )
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -436,8 +418,15 @@ def main() -> None:
     )
     parser.add_argument("--max-batches", type=int, default=None, help="Optional safety cap for delete batches.")
     parser.add_argument("--sleep-seconds", type=float, default=0.25, help="Delay between delete batches.")
-    parser.add_argument("--commit-labels", type=int, default=250, help="Commit after this many hidden labels even if --batch-size is not reached.")
-    parser.add_argument("--exact-preflight", action="store_true", help="Run slower exact counts/distribution before and after pruning.")
+    parser.add_argument(
+        "--commit-labels",
+        type=int,
+        default=250,
+        help="Commit after this many hidden labels even if --batch-size is not reached.",
+    )
+    parser.add_argument(
+        "--exact-preflight", action="store_true", help="Run slower exact counts/distribution before and after pruning."
+    )
     parser.add_argument(
         "--legacy-assignment-id-loop",
         action="store_true",

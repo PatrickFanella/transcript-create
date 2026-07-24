@@ -1,6 +1,16 @@
 # Upgrade Guide
 
-Guide for upgrading transcript-create to newer versions with zero-downtime strategies and rollback procedures.
+**Status:** superseded for HasanAra production (2026-07-23).
+
+> The direct Compose, mutable-tag, rebuild, Watchtower, and rollback examples in
+> this document are retained only as generic or historical reference. **Do not
+> use them on the HasanAra production host.** The authoritative path is the
+> [private-beta deployment runbook](private-beta.md), its immutable manifest,
+> and `scripts/compose_prod.sh`. Kubernetes examples remain separate from that
+> host-specific Compose path.
+
+Generic reference for upgrading transcript-create deployments with
+zero-downtime strategies and rollback procedures.
 
 ## Table of Contents
 
@@ -303,12 +313,30 @@ kubectl delete deployment transcript-api-canary -n transcript-create
 
 ## Database Migrations
 
+### 20260714_0200 hash-only session migration: required maintenance cutover
+
+This destructive migration is not compatible with a rolling upgrade. The
+ordinary Helm pre-upgrade hook blocks **before cutover** because
+`ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION` defaults to `false`; once the database
+is at 0200, it safely skips this migration with that flag false.
+
+Follow the executable [0200 maintenance runbook](../MIGRATIONS.md#20260714_0200-hash-only-session-contract-maintenance-only). The HasanAra Compose path uses only the guarded production helper: it validates the source/manifest, records the running set and immutable images, exposes named drain/inspection/migration/verification actions, then restores through strict digest-pinned deployment. Its Kubernetes sequence saves exact replica counts and CronJob suspend states; classifies every active namespace Job; uses an operator-selected in-cluster or trusted external `psql` command for both checks; runs the isolated opted-in Job from the exact 0200-aware target image; fails closed on head/hash-only verification; pauses for human approval; restores only chart-owned API/worker HPA/PDB resources through Helm; and pins the application and ordinary safe-false migration hook to that same image.
+
+Leave the production migration flag false/unset on the subsequent ordinary Helm
+upgrade. A downgrade invalidates all sessions, because plaintext tokens cannot
+be reconstructed from their hashes. Do not attempt a rolling rollback to an old
+session consumer.
+
 ### Check Migration Status
 
 ```bash
-# Docker Compose
+# Local or generic Compose only; never use these direct commands on the
+# guarded HasanAra production stack.
 docker compose exec api alembic current
 docker compose exec api alembic history
+
+# HasanAra production verification for the 0200 maintenance boundary
+scripts/compose_prod.sh maintenance session-token-contract-verify --approved
 
 # Kubernetes
 kubectl exec -n transcript-create deployment/transcript-api -- alembic current

@@ -15,9 +15,6 @@ on:
         description: 'Image tag/version to deploy'
         required: true
         default: 'latest'
-  push:
-    tags:
-      - 'v*.*.*'
 
 # Restrict default permissions
 permissions:
@@ -26,6 +23,7 @@ permissions:
 env:
   HELM_VERSION: '3.12.0'
   KUBECTL_VERSION: '1.27.0'
+  REGISTRY: ghcr.io
 
 jobs:
   validate:
@@ -91,11 +89,60 @@ jobs:
 
           echo "All validation checks passed!"
 
+  verify-image:
+    name: Resolve and Verify Deployment Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      digest: ${{ steps.resolve.outputs.digest }}
+      repository: ${{ steps.resolve.outputs.repository }}
+      image_ref: ${{ steps.resolve.outputs.image_ref }}
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve tag to immutable digest
+        id: resolve
+        run: |
+          set -euo pipefail
+          repository="${REGISTRY}/${GITHUB_REPOSITORY}"
+          tagged_ref="${repository}:${{ inputs.version }}"
+          docker pull "$tagged_ref"
+          repo_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$tagged_ref")
+          digest="${repo_digest#*@}"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not resolve an immutable image digest"
+            exit 1
+          fi
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${repository}@${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify build provenance for the exact digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh attestation verify "oci://${{ steps.resolve.outputs.image_ref }}" --repo "$GITHUB_REPOSITORY"
+
+      - name: Recheck high and critical application-library vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.resolve.outputs.image_ref }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          pkg-types: 'library'
+          exit-code: '1'
+
   deploy-dev:
     name: Deploy to Development
     runs-on: ubuntu-latest
-    needs: validate
-    if: github.event.inputs.environment == 'dev' || github.ref == 'refs/heads/main'
+    needs: [validate, verify-image]
+    if: inputs.environment == 'dev'
     environment: dev
     permissions:
       contents: read
@@ -114,11 +161,33 @@ jobs:
           echo "${{ secrets.KUBECONFIG_DEV }}" | base64 -d > /tmp/kubeconfig
           echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
 
+      - name: Validate OAuth callback overrides
+        env:
+          OAUTH_GOOGLE_REDIRECT_URI: ${{ vars.OAUTH_GOOGLE_REDIRECT_URI }}
+          OAUTH_TWITCH_REDIRECT_URI: ${{ vars.OAUTH_TWITCH_REDIRECT_URI }}
+        run: |
+          set -euo pipefail
+          for callback in "$OAUTH_GOOGLE_REDIRECT_URI" "$OAUTH_TWITCH_REDIRECT_URI"; do
+            lower_callback="${callback,,}"
+            if [[ -z "$callback" || "$lower_callback" == *"required_oauth_"* || "$lower_callback" == *"your-"* || "$lower_callback" == *"example.com"* ]]; then
+              echo "::error::OAuth callback variables must be nonempty, non-placeholder environment-scoped values"
+              exit 1
+            fi
+          done
+
       - name: Deploy with Helm
+        env:
+          OAUTH_GOOGLE_REDIRECT_URI: ${{ vars.OAUTH_GOOGLE_REDIRECT_URI }}
+          OAUTH_TWITCH_REDIRECT_URI: ${{ vars.OAUTH_TWITCH_REDIRECT_URI }}
         run: |
           helm upgrade --install transcript-create charts/transcript-create \
             -f charts/transcript-create/values-dev.yaml \
-            --set image.tag="${{ github.event.inputs.version || 'latest' }}" \
+            --set image.repository="${{ needs.verify-image.outputs.repository }}" \
+            --set image.digest="${{ needs.verify-image.outputs.digest }}" \
+            --set migrations.image.repository="${{ needs.verify-image.outputs.repository }}" \
+            --set migrations.image.digest="${{ needs.verify-image.outputs.digest }}" \
+            --set-string config.oauth.googleRedirectUri="$OAUTH_GOOGLE_REDIRECT_URI" \
+            --set-string config.oauth.twitchRedirectUri="$OAUTH_TWITCH_REDIRECT_URI" \
             --namespace transcript-create \
             --create-namespace \
             --wait \
@@ -133,8 +202,8 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: validate
-    if: github.event.inputs.environment == 'staging'
+    needs: [validate, verify-image]
+    if: inputs.environment == 'staging'
     environment: staging
     permissions:
       contents: read
@@ -153,12 +222,34 @@ jobs:
           echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > /tmp/kubeconfig
           echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
 
+      - name: Validate OAuth callback overrides
+        env:
+          OAUTH_GOOGLE_REDIRECT_URI: ${{ vars.OAUTH_GOOGLE_REDIRECT_URI }}
+          OAUTH_TWITCH_REDIRECT_URI: ${{ vars.OAUTH_TWITCH_REDIRECT_URI }}
+        run: |
+          set -euo pipefail
+          for callback in "$OAUTH_GOOGLE_REDIRECT_URI" "$OAUTH_TWITCH_REDIRECT_URI"; do
+            lower_callback="${callback,,}"
+            if [[ -z "$callback" || "$lower_callback" == *"required_oauth_"* || "$lower_callback" == *"your-"* || "$lower_callback" == *"example.com"* ]]; then
+              echo "::error::OAuth callback variables must be nonempty, non-placeholder environment-scoped values"
+              exit 1
+            fi
+          done
+
       - name: Deploy with Helm
+        env:
+          OAUTH_GOOGLE_REDIRECT_URI: ${{ vars.OAUTH_GOOGLE_REDIRECT_URI }}
+          OAUTH_TWITCH_REDIRECT_URI: ${{ vars.OAUTH_TWITCH_REDIRECT_URI }}
         run: |
           helm upgrade --install transcript-create charts/transcript-create \
             -f charts/transcript-create/values-prod.yaml \
             --set global.environment=staging \
-            --set image.tag="${{ github.event.inputs.version }}" \
+            --set image.repository="${{ needs.verify-image.outputs.repository }}" \
+            --set image.digest="${{ needs.verify-image.outputs.digest }}" \
+            --set migrations.image.repository="${{ needs.verify-image.outputs.repository }}" \
+            --set migrations.image.digest="${{ needs.verify-image.outputs.digest }}" \
+            --set-string config.oauth.googleRedirectUri="$OAUTH_GOOGLE_REDIRECT_URI" \
+            --set-string config.oauth.twitchRedirectUri="$OAUTH_TWITCH_REDIRECT_URI" \
             --namespace transcript-create \
             --create-namespace \
             --wait \
@@ -181,8 +272,8 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: validate
-    if: github.event.inputs.environment == 'production' || startsWith(github.ref, 'refs/tags/v')
+    needs: [validate, verify-image]
+    if: inputs.environment == 'production'
     environment: production
     permissions:
       contents: read
@@ -201,11 +292,19 @@ jobs:
           echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > /tmp/kubeconfig
           echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
 
-      - name: Extract version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Validate OAuth callback overrides
+        env:
+          OAUTH_GOOGLE_REDIRECT_URI: ${{ vars.OAUTH_GOOGLE_REDIRECT_URI }}
+          OAUTH_TWITCH_REDIRECT_URI: ${{ vars.OAUTH_TWITCH_REDIRECT_URI }}
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          set -euo pipefail
+          for callback in "$OAUTH_GOOGLE_REDIRECT_URI" "$OAUTH_TWITCH_REDIRECT_URI"; do
+            lower_callback="${callback,,}"
+            if [[ -z "$callback" || "$lower_callback" == *"required_oauth_"* || "$lower_callback" == *"your-"* || "$lower_callback" == *"example.com"* ]]; then
+              echo "::error::OAuth callback variables must be nonempty, non-placeholder environment-scoped values"
+              exit 1
+            fi
+          done
 
       - name: Backup current deployment
         run: |
@@ -213,10 +312,18 @@ jobs:
           kubectl get all -n transcript-create -o yaml > /tmp/backup-resources.yaml
 
       - name: Deploy with Helm
+        env:
+          OAUTH_GOOGLE_REDIRECT_URI: ${{ vars.OAUTH_GOOGLE_REDIRECT_URI }}
+          OAUTH_TWITCH_REDIRECT_URI: ${{ vars.OAUTH_TWITCH_REDIRECT_URI }}
         run: |
           helm upgrade --install transcript-create charts/transcript-create \
             -f charts/transcript-create/values-prod.yaml \
-            --set image.tag="${{ github.event.inputs.version || env.VERSION }}" \
+            --set image.repository="${{ needs.verify-image.outputs.repository }}" \
+            --set image.digest="${{ needs.verify-image.outputs.digest }}" \
+            --set migrations.image.repository="${{ needs.verify-image.outputs.repository }}" \
+            --set migrations.image.digest="${{ needs.verify-image.outputs.digest }}" \
+            --set-string config.oauth.googleRedirectUri="$OAUTH_GOOGLE_REDIRECT_URI" \
+            --set-string config.oauth.twitchRedirectUri="$OAUTH_TWITCH_REDIRECT_URI" \
             --namespace transcript-create \
             --create-namespace \
             --wait \
@@ -256,49 +363,5 @@ jobs:
         if: success()
         run: |
           echo "✅ Production deployment successful!"
-          echo "Version: ${{ github.event.inputs.version || env.VERSION }}"
+          echo "Image: ${{ needs.verify-image.outputs.image_ref }}"
           kubectl get pods -n transcript-create
-
-  helm-package:
-    name: Package and Publish Helm Chart
-    runs-on: ubuntu-latest
-    needs: validate
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write  # For creating GitHub releases
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: ${{ env.HELM_VERSION }}
-
-      - name: Extract version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Update Chart version
-        run: |
-          sed -i "s/^version:.*/version: ${VERSION}/" charts/transcript-create/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/transcript-create/Chart.yaml
-
-      - name: Package Helm chart
-        run: |
-          helm package charts/transcript-create -d /tmp/charts
-
-      - name: Upload chart artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: helm-chart
-          path: /tmp/charts/*.tgz
-
-      # Optional: Publish to Helm repository or GitHub Releases
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: /tmp/charts/*.tgz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

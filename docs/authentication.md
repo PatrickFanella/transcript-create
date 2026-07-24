@@ -1,320 +1,106 @@
-# Authentication Guide
+# Authentication and accounts
 
-This guide explains how authentication works in the Transcript Create API.
+HasanAra supports Google and Twitch OAuth sign-in. There is no password registration, password reset, automatic email-based account merging, or provider access-token persistence. A HasanAra account may link one Google and one Twitch identity; the immutable provider subject, not email, identifies an external account.
 
-## Overview
+## Provider setup
 
-Transcript Create uses OAuth 2.0 for user authentication with support for:
+### Google
 
-- Google OAuth
-- Twitch OAuth
+Create an OAuth 2.0 **Web application** client in Google Cloud Console. Configure exactly one callback for each deployment:
 
-After successful authentication, the API uses session cookies to maintain user state.
+- Local: `http://localhost:8000/auth/callback/google`
+- Production: `https://api.example.com/auth/callback/google` (replace `api.example.com` before deploy)
 
-## OAuth Flow
+Google uses OpenID Connect scopes `openid email profile`. HasanAra uses the verified OIDC `sub` claim as the identity key; email is profile metadata only. Do not enable the obsolete Google+ API instruction.
 
-### Google OAuth
+### Twitch
 
-#### 1. Initiate Login
+Register an application in the Twitch Developer Console and configure its OAuth redirect URL:
 
-Redirect users to the Google login endpoint:
+- Local: `http://localhost:8000/auth/callback/twitch`
+- Production: `https://api.example.com/auth/callback/twitch` (replace `api.example.com` before deploy)
 
-```
-GET /auth/login/google
-```
+Twitch requests the `user:read:email` scope and uses the Twitch user ID as its identity key.
 
-This redirects to Google's OAuth consent screen where users authorize your application.
+Set the matching client ID, client secret, and redirect URI for each enabled provider. Keep client secrets outside tracked files.
+Generate independent session and analytics secrets with `openssl rand -hex 32` for
+each value; do not reuse either secret.
 
-#### 2. OAuth Callback
-
-After user consent, Google redirects back to:
-
-```
-GET /auth/callback/google?code=...&state=...
-```
-
-The API automatically:
-
-1. Exchanges the authorization code for an access token
-2. Fetches user profile information
-3. Creates or updates the user in the database
-4. Creates a session and sets a cookie
-5. Redirects to the frontend application
-
-#### 3. Session Cookie
-
-The response sets a secure HTTP-only cookie:
-
-```
-Set-Cookie: tc_session=<token>; HttpOnly; Secure; SameSite=Lax; Max-Age=604800
-```
-
-This cookie is automatically sent with subsequent requests to authenticate the user.
-
-### Twitch OAuth
-
-The Twitch OAuth flow works identically to Google:
-
-#### 1. Initiate Login
-
-```
-GET /auth/login/twitch
-```
-
-#### 2. OAuth Callback
-
-```
-GET /auth/callback/twitch?code=...&state=...
-```
-
-Same automatic processing as Google OAuth.
-
-## Session Management
-
-### Check Authentication Status
-
-Get information about the currently authenticated user:
-
-```bash
-curl https://api.example.com/auth/me \
-  -H "Cookie: tc_session=your_session_token"
-```
-
-Response when authenticated:
-
-```json
-{
-  "user": {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "email": "user@example.com",
-    "name": "John Doe",
-    "avatar_url": "https://example.com/avatar.jpg",
-    "plan": "free",
-    "searches_used_today": 5,
-    "search_limit": 100
-  }
-}
-```
-
-Response when not authenticated:
-
-```json
-{
-  "user": null
-}
-```
-
-### Logout
-
-Invalidate the current session:
-
-```bash
-curl -X POST https://api.example.com/auth/logout \
-  -H "Cookie: tc_session=your_session_token"
-```
-
-Response:
-
-```json
-{
-  "ok": true
-}
-```
-
-This clears the session cookie and removes the session from the database.
-
-## User Plans
-
-Users have one of two plans:
-
-### Free Plan
-
-- Limited daily searches (100 by default)
-- Limited daily exports
-- Full transcription access
-
-### Pro Plan
-
-- Unlimited searches
-- Unlimited exports
-- Priority processing
-- Managed via Stripe subscription
-
-Check plan details:
-
-```bash
-curl https://api.example.com/auth/me
-```
-
-The response includes:
-
-- `plan`: "free" or "pro"
-- `searches_used_today`: Current daily usage (free only)
-- `search_limit`: Daily quota (free only)
-
-## Configuration
-
-### Environment Variables
-
-Configure OAuth providers with these environment variables:
-
-```bash
-# Google OAuth
-OAUTH_GOOGLE_CLIENT_ID=your_google_client_id
-OAUTH_GOOGLE_CLIENT_SECRET=your_google_client_secret
-OAUTH_GOOGLE_REDIRECT_URI=https://api.example.com/auth/callback/google
-
-# Twitch OAuth
-OAUTH_TWITCH_CLIENT_ID=your_twitch_client_id
-OAUTH_TWITCH_CLIENT_SECRET=your_twitch_client_secret
-OAUTH_TWITCH_REDIRECT_URI=https://api.example.com/auth/callback/twitch
-
-# Frontend
+```dotenv
+# Replace both documented placeholders with separate `openssl rand -hex 32` values.
+# These placeholders are rejected in production.
+SESSION_SECRET=SESSION_SECRET_PLACEHOLDER_REJECTED
+ANALYTICS_HMAC_SECRET=YOUR_ANALYTICS_HMAC_SECRET_HERE
 FRONTEND_ORIGIN=https://app.example.com
+CORS_ALLOW_ORIGINS=https://app.example.com
+OAUTH_GOOGLE_CLIENT_ID=
+OAUTH_GOOGLE_CLIENT_SECRET=
+OAUTH_GOOGLE_REDIRECT_URI=https://api.example.com/auth/callback/google
+OAUTH_TWITCH_CLIENT_ID=
+OAUTH_TWITCH_CLIENT_SECRET=
+OAUTH_TWITCH_REDIRECT_URI=https://api.example.com/auth/callback/twitch
+BOOTSTRAP_ADMIN_IDENTITIES=
 ```
 
-### OAuth Setup
+Production requires HTTPS frontend origins and HTTPS provider callbacks. `FRONTEND_ORIGIN` is the default allowed CORS origin; `CORS_ALLOW_ORIGINS` can add explicit origins but must not use wildcards or local origins in production. Session cookies are HttpOnly and Secure in production, with `SameSite=Lax`.
 
-#### Google OAuth Setup
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing
-3. Enable Google+ API
-4. Create OAuth 2.0 credentials
-5. Add authorized redirect URI: `https://api.example.com/auth/callback/google`
-6. Copy Client ID and Client Secret to environment variables
-
-#### Twitch OAuth Setup
-
-1. Go to [Twitch Developer Console](https://dev.twitch.tv/console)
-2. Register a new application
-3. Add OAuth redirect URL: `https://api.example.com/auth/callback/twitch`
-4. Set category to "Website Integration"
-5. Copy Client ID and Client Secret to environment variables
-
-## Security Considerations
-
-### Session Tokens
-
-Session tokens are:
-
-- 32-byte URL-safe random strings
-- Stored securely in the database
-- Expire after 7 days of inactivity
-- HTTP-only cookies (not accessible via JavaScript)
-- Secure flag (HTTPS only in production)
-- SameSite=Lax to prevent CSRF
-
-### User Data
-
-User information stored includes:
-
-- OAuth provider (Google/Twitch)
-- OAuth subject ID (unique user identifier from provider)
-- Email address
-- Display name
-- Avatar URL
-
-Sensitive data like OAuth tokens are not stored permanently.
-
-### CORS Configuration
-
-The API restricts cross-origin requests to the configured frontend origin:
-
-```python
-CORS_ORIGINS = [settings.FRONTEND_ORIGIN]
-```
-
-## Error Handling
-
-### Authentication Errors
-
-**401 Unauthorized** - Authentication required
-
-```json
-{
-  "error": "authentication_required",
-  "message": "You must be logged in to access this resource",
-  "details": {}
-}
-```
-
-**403 Forbidden** - Insufficient permissions
-
-```json
-{
-  "error": "authorization_error",
-  "message": "You do not have permission to access this resource",
-  "details": {}
-}
-```
-
-### OAuth Errors
-
-**503 Service Unavailable** - OAuth library not configured
-
-```json
-{
-  "error": "external_service_error",
-  "message": "OAuth authentication is not available",
-  "details": {
-    "service": "OAuth"
-  }
-}
-```
-
-**500 Internal Server Error** - OAuth flow failed
-
-```json
-{
-  "error": "external_service_error",
-  "message": "Authentication failed with Google/Twitch",
-  "details": {
-    "service": "Google OAuth"
-  }
-}
-```
-
-## Testing Authentication
-
-### Development Testing
-
-In development, you can manually set session cookies:
+For the HasanAra production host, put the redirect URIs in the deployment-only
+`.env.prod` and use only the guarded immutable release helper described in the
+[private-beta deployment runbook](deployment/private-beta.md):
 
 ```bash
-# Create a session in the database manually
-# Then use the token in requests:
-curl https://api.example.com/auth/me \
-  -H "Cookie: tc_session=your_test_token"
+scripts/compose_prod.sh preflight
+scripts/compose_prod.sh deploy
 ```
 
-### Integration Testing
+Do not substitute raw Compose commands or the generic
+`docker-compose.prod.yml`/Watchtower path on that host. The helper clears
+inherited shell variables before loading `.env.prod`. The release overlays
+require both `OAUTH_GOOGLE_REDIRECT_URI` and `OAUTH_TWITCH_REDIRECT_URI`; they
+intentionally have no callback defaults. `BOOTSTRAP_ADMIN_IDENTITIES` remains
+optional and may be empty.
 
-Use the test client with cookie support:
+## OAuth and session security
 
-```python
-from fastapi.testclient import TestClient
+Start sign-in with `GET /auth/login/google` or `GET /auth/login/twitch`. Each redirect creates a server-side PostgreSQL OAuth-request record. State and, for Google, nonce bindings are provider- and intent-bound, expire after ten minutes, and are consumed once. The Authlib cookie only supports protocol compatibility; it is not authoritative state.
 
-client = TestClient(app)
-response = client.post("/auth/login/google")
-# Follow redirect, handle OAuth mock
-response = client.get("/auth/me")
-assert response.json()["user"] is not None
-```
+Successful sign-in creates or reuses the account for that provider subject. HasanAra never merges accounts by matching email. Provider tokens are used only for the exchange and are not persisted.
 
-## Admin Access
+Session cookies contain an opaque raw token, but the database stores only its SHA-256 hash. `GET /auth/me` keeps the compatibility envelope and also returns the resolved `role` and `capabilities`; `GET /auth/csrf` returns a token bound to the active session.
 
-Admin users have additional privileges:
+Cookie-authenticated unsafe requests (`POST`, `PUT`, `PATCH`, and `DELETE`) require an allowed `Origin` and `X-CSRF-Token` header. In production, a missing Origin is rejected. API-key-only requests remain usable without a browser cookie. `POST /auth/logout` also enforces the allowed Origin and clears the current cookie.
 
-- Access to `/admin/*` endpoints
-- View event analytics
-- Manage user plans
-- Export event data
+## Account APIs
 
-Admin status is set via the `is_admin` flag in the users table.
+All account endpoints require authentication. Cookie-authenticated mutations also require the CSRF checks above.
 
-## Related Documentation
+- `GET /account` returns the profile, linked identities, and active sessions.
+- `PATCH /account` updates the display name (1–100 trimmed characters) and optional absolute HTTPS avatar URL.
+- `GET /account/identities` lists linked provider metadata; subjects and tokens are never returned.
+- `POST /account/identities/{provider}/link` starts a link flow and returns an `authorization_url`; the callback returns to the account page.
+- `DELETE /account/identities/{provider}` removes a linked identity, except the final login identity cannot be unlinked.
+- `GET /account/sessions` lists active sessions without tokens or token hashes.
+- `DELETE /account/sessions/{session_id}` revokes one session; `DELETE /account/sessions?keep_current=true` revokes other sessions, and `keep_current=false` revokes all sessions and clears the cookie.
+- `DELETE /account` requires JSON `{ "confirmation": "DELETE" }`, revokes account sessions and API keys, deletes private account data, and clears the cookie.
 
-- [Getting Started](getting-started.md) - Basic API usage
-- [Webhooks](webhooks.md) - Stripe webhook authentication
-- [Examples](examples.md) - Code examples with authentication
+Linking requires an authenticated session both before redirect and at callback. If an identity is already linked to another account, the callback redirects to `/account?error=identity_conflict`; neither account is merged or changed.
+
+## Roles and administration
+
+Authorization roles are `user`, `moderator`, and `admin`. Plans (including `pro`) are entitlements and are not roles. `PUT /admin/users/{user_id}/role` is admin-only and accepts one of those role values. The final active admin cannot be demoted or deleted.
+
+Administrators may be bootstrapped with `BOOTSTRAP_ADMIN_IDENTITIES`, a comma-separated list of immutable `provider:subject` values such as `google:1234567890`. While an identity remains configured, every verified sign-in for that provider subject reasserts its `admin` role. Remove the identity from configuration before demoting it. `ADMIN_EMAILS` is retired, and email never grants runtime privileges.
+
+## Deletion and retention
+
+Deleting an account removes private account data, linked identities, sessions, and API keys. Archive records remain. Operational audit and event history is retained with account references anonymized (`user_id` becomes null), so retained records cannot identify the deleted account.
+
+## Secret rotation and rollout
+
+To rotate a provider secret: create a new secret at the provider, deploy it through the secret store, validate sign-in, then revoke the old secret. Rotating `SESSION_SECRET` does not invalidate opaque database sessions, because session lookup uses the raw token's database hash independently of that secret. It invalidates session-bound CSRF tokens and can disrupt in-progress OAuth compatibility cookies, so users may need to reacquire CSRF tokens or restart sign-in. To force a global logout, revoke or delete the session records.
+
+The expand identity/session schema and the later plaintext-session removal require an atomic maintenance rollout. Do not run old and hash-only session consumers concurrently; drain old API writers, migrate and validate, deploy the converted consumers, complete the contract migration, then reopen traffic. Rolling back after hash-only sessions requires invalidating sessions because raw tokens cannot be reconstructed from hashes.
+
+## Errors
+
+Unauthenticated endpoints return `401`; insufficient authorization returns `403`. OAuth link identity collisions redirect to `/account?error=identity_conflict` rather than returning `409` from the callback. `409` applies to direct account mutation and domain conflicts where applicable, such as trying to unlink the final login identity or remove the final active admin. OAuth state, nonce, provider, or link-session failures are rejected without exposing provider credentials or tokens.

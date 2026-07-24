@@ -6,6 +6,7 @@ from typing import Any, Callable
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.cache import invalidate_video_data
 from app.logging_config import get_logger
 from app.settings import settings
 from worker.repositories import VideoRepository
@@ -50,8 +51,7 @@ def _ingest_available_captions_impl(
         params["batch_id"] = batch_id
 
     rows = db.execute(
-        text(
-            f"""
+        text(f"""
         SELECT v.id, v.youtube_id
         FROM videos v
         JOIN jobs j ON j.id = v.job_id
@@ -59,8 +59,7 @@ def _ingest_available_captions_impl(
         ORDER BY v.idx ASC NULLS LAST, v.created_at DESC
         FOR UPDATE SKIP LOCKED
         LIMIT :lim
-        """
-        ),
+        """),
         params,
     ).all()
 
@@ -96,40 +95,35 @@ def _ingest_available_captions_impl(
             yt_full_text = " ".join(s.text for s in segs)
 
             db.execute(
-                text(
-                    """
+                text("""
                     DELETE FROM youtube_segments
                     WHERE youtube_transcript_id IN (
                         SELECT id FROM youtube_transcripts WHERE video_id=:v
                     )
-                    """
-                ),
+                    """),
                 {"v": str(vid)},
             )
             db.execute(text("DELETE FROM youtube_transcripts WHERE video_id=:v"), {"v": str(vid)})
             row = db.execute(
-                text(
-                    """
+                text("""
                 INSERT INTO youtube_transcripts (video_id, language, kind, source_url, full_text)
                 VALUES (:v,:lang,:kind,:url,:full)
                 RETURNING id
-            """
-                ),
+            """),
                 {"v": str(vid), "lang": track.language, "kind": track.kind, "url": track.url, "full": yt_full_text},
             ).first()
             yt_tr_id = row[0]
             for s in segs:
                 db.execute(
-                    text(
-                        """
+                    text("""
                     INSERT INTO youtube_segments (youtube_transcript_id, start_ms, end_ms, text)
                     VALUES (:t, :s, :e, :txt)
-                """
-                    ),
+                """),
                     {"t": yt_tr_id, "s": int(s.start * 1000), "e": int(s.end * 1000), "txt": s.text},
                 )
             logger.info("Persisted %d YouTube caption segments for %s", len(segs), yid)
             video_repo.mark_caption_completed(str(vid))
+            invalidate_video_data(vid)
             completed += 1
         except (YouTubeCaptionRateLimitError, YouTubeRateLimitError) as e:
             logger.warning("YouTube rate limit hit during caption ingest; leaving video pending and pausing batch")

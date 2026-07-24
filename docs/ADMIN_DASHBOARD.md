@@ -8,7 +8,7 @@ The admin analytics dashboard provides comprehensive monitoring and insights int
 
 ## Accessing the Dashboard
 
-1. **Authentication Required**: You must be logged in as an admin user (email in `ADMIN_EMAILS` environment variable)
+1. **Authentication Required**: You must be logged in with the durable `admin` role. Email is mutable account metadata and never grants admin access.
 2. **URL**: Navigate to `/admin/dashboard` in the web interface
 3. **Navigation**: Click "Dashboard" in the admin navigation menu
 
@@ -98,7 +98,7 @@ The dashboard consumes these API endpoints (all require admin authentication):
 
 **Dashboard won't load:**
 - Ensure you're logged in as an admin user
-- Check that your email is in the `ADMIN_EMAILS` environment variable
+- Verify that your durable database role is `admin`; an existing admin can manage roles through the admin API/UI
 - Verify the API server is running and accessible
 
 **Missing data in charts:**
@@ -123,7 +123,6 @@ The dashboard consumes these API endpoints (all require admin authentication):
 Potential additions (not currently implemented):
 - WebSocket/SSE for real-time updates
 - Alerts for critical thresholds
-- Billing and revenue analytics
 - Error tracking integration
 - User activity drill-down
 - Bulk job management actions

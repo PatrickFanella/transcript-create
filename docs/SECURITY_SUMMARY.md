@@ -23,10 +23,12 @@ This implementation adds comprehensive security hardening to the transcript-crea
 **Implementation**: `app/routes/auth.py`, `app/security.py`
 
 ### ✅ Role-Based Access Control (RBAC)
-- **Roles**: user, pro, admin with hierarchy
+- **Roles**: user, moderator, admin
 - **Permission decorators**: `require_role()`, `require_auth()`, `get_user_optional()`
 - **Admin protection**: Admin endpoints use `require_role(ROLE_ADMIN)`
 - **Role column**: Added to users table via migration
+
+Roles are stored durably in the database and are the source of authorization. Plans (including `pro`) are entitlements, not roles. Email is mutable account metadata and never grants privileges. `BOOTSTRAP_ADMIN_IDENTITIES` uses immutable verified `provider:subject` values and reasserts admin at every verified sign-in while configured; remove an identity from configuration before demoting it.
 
 **Implementation**: `app/security.py`, `app/routes/admin.py`
 
@@ -165,8 +167,10 @@ OAUTH_STATE_VALIDATION=true
 FRONTEND_ORIGIN=https://app.example.com
 CORS_ALLOW_ORIGINS=https://admin.example.com
 
-# Admin Access
-ADMIN_EMAILS=admin@example.com,security@example.com
+# Optional bootstrap admin identities: immutable provider:subject values only.
+# Each configured identity is reasserted as admin on every verified sign-in; remove it before demotion.
+# Use no real provider subjects in tracked configuration.
+BOOTSTRAP_ADMIN_IDENTITIES=
 
 # Rate Limiting
 MAX_LOGIN_ATTEMPTS=5
@@ -188,7 +192,7 @@ LOGIN_ATTEMPT_WINDOW_MINUTES=15
 3. **Update configuration**:
    - Copy security settings to `.env`
    - Generate secure `SESSION_SECRET`
-   - Configure `ADMIN_EMAILS`
+   - If needed, configure `BOOTSTRAP_ADMIN_IDENTITIES` with immutable verified `provider:subject` values; remove an identity from configuration before demoting it
 
 4. **Test in development**:
    ```bash

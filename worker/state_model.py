@@ -84,6 +84,24 @@ def sql_string_list(values: Iterable[str]) -> str:
     return ",".join(f"'{value}'" for value in values)
 
 
+def pending_video_eligibility_sql() -> str:
+    """Shared FROM/WHERE clause for pending native-transcription work."""
+    terminal_caption_states = sql_string_list(TERMINAL_CAPTION_INGEST_STATES)
+    return f"""
+        FROM videos v
+        JOIN jobs j ON j.id = v.job_id
+        WHERE v.state = :pending_state
+          AND (
+            j.meta->>'staged' IS DISTINCT FROM 'true'
+            OR v.caption_ingest_state IN ({terminal_caption_states})
+          )
+          AND j.cancellation_requested_at IS NULL
+          AND j.quarantined_at IS NULL
+          AND j.state <> 'needs_attention'
+          AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= now())
+    """
+
+
 def job_state_from_video_states(video_states: Iterable[VideoState]) -> JobState:
     states = list(video_states)
     if not states:
@@ -115,4 +133,10 @@ def can_start_native_transcription(
 ) -> bool:
     if not staged:
         return True
-    return own_caption_state.value in TERMINAL_CAPTION_INGEST_STATES
+    if own_caption_state.value not in TERMINAL_CAPTION_INGEST_STATES:
+        return False
+    if batch_job_count < expected_batch_jobs:
+        return False
+    if batch_has_open_caption_work:
+        return False
+    return True

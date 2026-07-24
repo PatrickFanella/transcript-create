@@ -21,7 +21,26 @@ Day-to-day backup operations guide including:
 - Maintenance tasks (weekly, monthly, quarterly)
 - Cloud storage operations
 
-## Quick Links
+### [Analytics Privacy and Credential Removal](analytics-privacy.md)
+Deployment order, credential scrub/session rotation, the temporary legacy-write
+guard, 90-day raw-event retention, and the roll-forward-only boundary.
+
+### [Blocking Dependency and SAST Gates](security-gates.md)
+Canonical pip-audit, Bandit, and npm-audit commands plus the expiring exception
+contract.
+
+### [Private Beta Deployment](../deployment/private-beta.md)
+Digest-pinned deployment, ingress isolation, WAL-G restore rehearsal,
+migration ordering, release evidence, and operator approval gates.
+
+## Local and generic-stack quick links
+
+> **Do not run the direct Compose examples below on the HasanAra production
+> host.** They are retained for local or generic stacks that do not use the
+> guarded release helper. HasanAra production changes must follow the
+> [private-beta deployment runbook](../deployment/private-beta.md) and use only
+> the named, preflighted actions exposed by `scripts/compose_prod.sh`. Restore
+> rehearsals run on the isolated staging host described by that runbook.
 
 ### Running Backups
 

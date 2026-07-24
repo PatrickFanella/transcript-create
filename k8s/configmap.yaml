@@ -7,7 +7,6 @@ metadata:
 data:
   # Database and cache endpoints
   redis-url: "redis://redis:6379/0"
-  opensearch-url: "http://opensearch:9200"
   
   # Whisper configuration
   whisper-model: "large-v3"
@@ -19,10 +18,19 @@ data:
   
   # Search backend
   search-backend: "opensearch"
+  opensearch-url: "http://opensearch:9200"
+  opensearch-index-native: "segments"
+  opensearch-index-youtube: "youtube_segments"
+  opensearch-verify-ssl: "true"
   
   # Frontend and environment
   frontend-origin: "https://your-domain.com"
   environment: "production"
+  # Replace api.example.com with the deployed API hostname before deployment.
+  oauth-google-redirect-uri: "REQUIRED_OAUTH_GOOGLE_REDIRECT_URI"
+  oauth-twitch-redirect-uri: "REQUIRED_OAUTH_TWITCH_REDIRECT_URI"
+  # Comma-separated immutable provider:subject identities; leave empty by default.
+  bootstrap-admin-identities: ""
   
   # Logging
   log-level: "INFO"
@@ -39,9 +47,7 @@ data:
   cache-transcript-ttl: "3600"
   cache-search-ttl: "600"
   
-  # Quotas
-  free-daily-search-limit: "10"
-  free-daily-export-limit: "2"
+  # Plans (ingestion quotas use JOB_CREATE_* settings)
   pro-plan-name: "pro"
   
   # Security

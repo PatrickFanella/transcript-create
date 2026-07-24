@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +18,10 @@ if str(REPO_ROOT) not in sys.path:
 from app.archive.labeling.normalization import is_junk_phrase
 from app.db import SessionLocal, engine
 
-
 CONFIRMATION = "HIDE AUTOMATIC JUNK TOPIC LABELS"
 
 
-BASE_LABELS_SQL = text(
-    """
+BASE_LABELS_SQL = text("""
     SELECT
         l.id::text AS id,
         l.slug,
@@ -59,28 +57,22 @@ BASE_LABELS_SQL = text(
       AND (:created_since = '' OR l.created_at >= CAST(:created_since AS timestamptz))
     GROUP BY l.id, l.slug, l.label, l.created_at, l.canonical_id
     ORDER BY l.id
-    """
-)
+    """)
 
-RUNNING_RUNS_SQL = text(
-    """
+RUNNING_RUNS_SQL = text("""
     SELECT id, scope, extraction_tier, video_id, status, started_at, finished_at, model_name, prompt_version
     FROM archive_extraction_runs
     WHERE status = 'running'
     ORDER BY started_at
-    """
-)
+    """)
 
-DISTINCT_VIDEOS_FOR_LABELS_SQL = text(
-    """
+DISTINCT_VIDEOS_FOR_LABELS_SQL = text("""
     SELECT COUNT(DISTINCT video_id) AS videos_touched
     FROM archive_label_assignments
     WHERE label_id IN :label_ids
-    """
-).bindparams(bindparam("label_ids", expanding=True))
+    """).bindparams(bindparam("label_ids", expanding=True))
 
-ASSIGNMENT_DISTRIBUTION_SQL = text(
-    """
+ASSIGNMENT_DISTRIBUTION_SQL = text("""
     SELECT
         status AS assignment_status,
         source AS assignment_source,
@@ -92,11 +84,9 @@ ASSIGNMENT_DISTRIBUTION_SQL = text(
     GROUP BY status, source, publish_tier, unit_type
     ORDER BY assignments DESC, status, source, publish_tier, unit_type
     LIMIT 40
-    """
-).bindparams(bindparam("label_ids", expanding=True))
+    """).bindparams(bindparam("label_ids", expanding=True))
 
-HIDE_LABEL_SQL = text(
-    """
+HIDE_LABEL_SQL = text("""
     UPDATE archive_labels AS l
     SET status = 'hidden', updated_at = now()
     WHERE l.id = :label_id
@@ -121,11 +111,9 @@ HIDE_LABEL_SQL = text(
             AND ali.source IN ('admin', 'seed', 'hybrid')
       )
     RETURNING l.id::text AS id, l.slug, l.label
-    """
-)
+    """)
 
-DELETE_ASSIGNMENTS_FOR_LABEL_SQL = text(
-    """
+DELETE_ASSIGNMENTS_FOR_LABEL_SQL = text("""
     WITH deleted AS (
         DELETE FROM archive_label_assignments AS a
         WHERE a.label_id = :label_id
@@ -140,8 +128,7 @@ DELETE_ASSIGNMENTS_FOR_LABEL_SQL = text(
     )
     SELECT COUNT(*) AS deleted_rows
     FROM deleted
-    """
-)
+    """)
 
 
 def _session():
@@ -224,7 +211,9 @@ def _load_plan(created_since: str = "") -> dict[str, Any]:
             "label": row["label"],
             "assignments": _int(row.get("assignments")),
         }
-        for row in sorted(eligible_labels, key=lambda item: (-_int(item.get("assignments")), str(item.get("label") or "")))[:25]
+        for row in sorted(
+            eligible_labels, key=lambda item: (-_int(item.get("assignments")), str(item.get("label") or ""))
+        )[:25]
     ]
 
     excluded_rows = [
@@ -249,7 +238,9 @@ def _load_plan(created_since: str = "") -> dict[str, Any]:
 def print_preflight(plan: dict[str, Any] | None = None, *, created_since: str = "") -> dict[str, Any]:
     plan = plan or _load_plan(created_since)
     print("Hide automatic junk topic labels preflight")
-    print("target: archive_labels(kind='topic', status='published', source='automatic') filtered by Python is_junk_phrase(label)")
+    print(
+        "target: archive_labels(kind='topic', status='published', source='automatic') filtered by Python is_junk_phrase(label)"
+    )
     if plan.get("created_since"):
         print(f"created_since: {plan['created_since']}")
     print(f"published_automatic_topic_labels: {len(plan['base_labels'])}")
@@ -284,7 +275,9 @@ def assert_no_running_runs(allow_running_runs: bool) -> None:
     running_runs = _fetch_mappings(RUNNING_RUNS_SQL)
     if running_runs and not allow_running_runs:
         _print_rows("Blocking running extraction runs", running_runs)
-        raise SystemExit("Refusing to execute while extraction runs are marked running. Pass --allow-running-runs to override.")
+        raise SystemExit(
+            "Refusing to execute while extraction runs are marked running. Pass --allow-running-runs to override."
+        )
 
 
 def _set_timeouts(db) -> None:
@@ -292,7 +285,9 @@ def _set_timeouts(db) -> None:
     db.execute(text("SET LOCAL statement_timeout = '5min'"))
 
 
-def hide_labels(eligible_labels: list[dict[str, Any]], commit_labels: int, max_batches: int | None, sleep_seconds: float) -> list[dict[str, Any]]:
+def hide_labels(
+    eligible_labels: list[dict[str, Any]], commit_labels: int, max_batches: int | None, sleep_seconds: float
+) -> list[dict[str, Any]]:
     print(f"queued_eligible_labels={len(eligible_labels)}", flush=True)
     total_hidden: list[dict[str, Any]] = []
     batch_number = 0
@@ -311,7 +306,10 @@ def hide_labels(eligible_labels: list[dict[str, Any]], commit_labels: int, max_b
 
             db.commit()
             batch_number += 1
-            print(f"hide batch complete: batch={batch_number} labels={pending_labels} total_hidden={len(total_hidden)}", flush=True)
+            print(
+                f"hide batch complete: batch={batch_number} labels={pending_labels} total_hidden={len(total_hidden)}",
+                flush=True,
+            )
             if max_batches is not None and batch_number >= max_batches:
                 print(f"stopping after max_batches={max_batches}")
                 return total_hidden
@@ -323,7 +321,10 @@ def hide_labels(eligible_labels: list[dict[str, Any]], commit_labels: int, max_b
         if pending_labels > 0:
             db.commit()
             batch_number += 1
-            print(f"hide batch complete: batch={batch_number} labels={pending_labels} total_hidden={len(total_hidden)}", flush=True)
+            print(
+                f"hide batch complete: batch={batch_number} labels={pending_labels} total_hidden={len(total_hidden)}",
+                flush=True,
+            )
     except Exception:
         db.rollback()
         raise
@@ -335,7 +336,9 @@ def hide_labels(eligible_labels: list[dict[str, Any]], commit_labels: int, max_b
     return total_hidden
 
 
-def prune_assignments_for_labels(label_ids: list[str], batch_size: int, commit_labels: int, max_batches: int | None, sleep_seconds: float) -> int:
+def prune_assignments_for_labels(
+    label_ids: list[str], batch_size: int, commit_labels: int, max_batches: int | None, sleep_seconds: float
+) -> int:
     total_deleted = 0
     batch_number = 0
     pending_deleted = 0
@@ -405,9 +408,16 @@ def main() -> None:
     )
     parser.add_argument("--execute", action="store_true", help="Actually change rows. Default is read-only.")
     parser.add_argument("--confirm", default="", help="Required exact confirmation phrase for --execute.")
-    parser.add_argument("--i-have-backup", action="store_true", help="Required for --execute after taking a current DB backup.")
+    parser.add_argument(
+        "--i-have-backup", action="store_true", help="Required for --execute after taking a current DB backup."
+    )
     parser.add_argument("--batch-size", type=int, default=50_000, help="Assignment rows to prune per batch.")
-    parser.add_argument("--commit-labels", type=int, default=250, help="Commit after this many labels even if --batch-size is not reached.")
+    parser.add_argument(
+        "--commit-labels",
+        type=int,
+        default=250,
+        help="Commit after this many labels even if --batch-size is not reached.",
+    )
     parser.add_argument("--max-batches", type=int, default=None, help="Optional safety cap for hide/prune batches.")
     parser.add_argument("--sleep-seconds", type=float, default=0.25, help="Delay between batches.")
     parser.add_argument(
@@ -415,7 +425,9 @@ def main() -> None:
         default="",
         help="Optional timestamptz lower bound for label created_at, e.g. 2026-06-20T21:00:00+00:00.",
     )
-    parser.add_argument("--allow-running-runs", action="store_true", help="Allow execution even if extraction runs are marked running.")
+    parser.add_argument(
+        "--allow-running-runs", action="store_true", help="Allow execution even if extraction runs are marked running."
+    )
     parser.add_argument("--no-vacuum", action="store_true", help="Skip VACUUM (ANALYZE) after pruning.")
     args = parser.parse_args()
 
@@ -429,7 +441,9 @@ def main() -> None:
     hidden = hide_labels(plan["eligible_labels"], args.commit_labels, args.max_batches, args.sleep_seconds)
     hidden_ids = [str(row["id"]) for row in hidden]
     print(f"hidden_topic_labels={len(hidden_ids)}")
-    deleted = prune_assignments_for_labels(hidden_ids, args.batch_size, args.commit_labels, args.max_batches, args.sleep_seconds)
+    deleted = prune_assignments_for_labels(
+        hidden_ids, args.batch_size, args.commit_labels, args.max_batches, args.sleep_seconds
+    )
     print(f"hidden_topic_assignment_prune complete: deleted_rows={deleted}")
     if not args.no_vacuum and deleted > 0:
         vacuum_after_delete()

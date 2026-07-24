@@ -4,7 +4,7 @@ import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from types import ModuleType, SimpleNamespace
 
@@ -103,6 +103,7 @@ from worker.audio import Chunk
 from worker.native_pipeline import (
     NativePipelineDependencies,
     VideoPipelineContext,
+    _apply_custom_vocabulary,
     _download_and_transcode,
     _persist_transcript,
     _transcribe_chunks,
@@ -225,3 +226,21 @@ def test_persist_stage_finalizes_video_and_refreshes_job(tmp_path: Path):
     assert replace_transcript_blocks.called
     assert refresh_job_state.called
     assert any("UPDATE videos" in str(call.args[0]) for call in conn.execute.call_args_list)
+
+
+def test_custom_vocabulary_uses_authoritative_job_owner_not_metadata(tmp_path: Path):
+    engine, _ = _mock_engine_with_video({})
+    authoritative_owner = str(uuid.uuid4())
+    ctx = VideoPipelineContext(
+        engine=engine,
+        video={"id": uuid.uuid4(), "youtube_id": "abc123", "job_id": uuid.uuid4()},
+        work_dir=tmp_path,
+        job_owner_user_id=authoritative_owner,
+        job_meta={"owner_user_id": str(uuid.uuid4()), "vocabulary_ids": [str(uuid.uuid4())]},
+        diar_segments=[{"text": "hello"}],
+    )
+    settings = _Settings(ENABLE_CUSTOM_VOCABULARY=True)
+    apply = Mock(return_value=ctx.diar_segments)
+    with patch("worker.vocabulary.apply_vocabulary_corrections", apply):
+        _apply_custom_vocabulary(ctx, NativePipelineDependencies(settings=settings, logger=Mock()))
+    assert apply.call_args.args[2] == authoritative_owner

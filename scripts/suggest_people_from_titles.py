@@ -19,19 +19,21 @@ from app.db import session_scope
 
 def main(limit: int, output_format: str) -> None:
     with session_scope() as db:
-        rows = db.execute(
-            text(
-                """
+        rows = (
+            db.execute(
+                text("""
                 SELECT id, title, uploaded_at, channel_name
                 FROM videos
                 WHERE title IS NOT NULL
                   AND title <> ''
                 ORDER BY uploaded_at DESC NULLS LAST, created_at DESC
                 LIMIT :limit
-                """
-            ),
-            {"limit": limit},
-        ).mappings().all()
+                """),
+                {"limit": limit},
+            )
+            .mappings()
+            .all()
+        )
     suggestions = suggest_person_names_from_titles([dict(row) for row in rows])
     if output_format == "json":
         print(json.dumps(suggestions, indent=2, default=str))

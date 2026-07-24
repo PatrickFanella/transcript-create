@@ -1,0 +1,98 @@
+name: Private beta feedback
+description: Internal triage intake for moderator- or beta-channel-reported feedback
+title: "[Beta]: "
+labels:
+  - "status: triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Internal triage only
+        Participants do not need a GitHub account; moderators or the beta channel may relay reports here.
+        **Never paste or attach cookies, passwords, OAuth codes, API keys, session tokens, or personal data.** Redact logs and screenshots before attaching them.
+  - type: dropdown
+    id: scenario
+    attributes:
+      label: Scenario
+      description: Which testing scenario or product flow was involved?
+      options:
+        - Recent VOD availability
+        - Quote or topic citation
+        - Playback verification or no-result recovery
+        - Timeline or opinion-history comparison
+        - Every-mention save or export
+        - Account or session controls
+        - Keyboard or assistive-technology flow
+        - Other beta observation
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: State the expected outcome without including sensitive or personal information.
+      placeholder: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: State what happened and the observed path or recovery. Do not include secrets or personal data.
+      placeholder: What happened instead? What did the participant try next?
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact / proposed severity
+      options:
+        - S0 — security/privacy, data loss/corruption, or unrecoverable deploy
+        - S1 — auth, search, playback, citation, or core ingestion unusable
+        - S2 — major workflow/accessibility degradation with workaround
+        - S3 — polish, wording, or low-impact documentation
+        - Unsure
+    validations:
+      required: true
+  - type: input
+    id: browser-device
+    attributes:
+      label: Browser and device
+      description: Browser/version, operating system, and device class. Do not include account names or identifiers.
+      placeholder: Firefox 128 on Windows 11 desktop
+    validations:
+      required: true
+  - type: textarea
+    id: accessibility
+    attributes:
+      label: Accessibility context
+      description: Optional. Include relevant input method, assistive technology, and version; do not include personal or medical information.
+  - type: input
+    id: request-id
+    attributes:
+      label: Request ID
+      description: Optional correlation ID only. Never paste authorization headers, tokens, cookies, or request bodies.
+      placeholder: Redacted request ID
+  - type: dropdown
+    id: attachment-consent
+    attributes:
+      label: Attachment consent
+      description: Attach only redacted material and only with the participant's consent.
+      options:
+        - No attachment
+        - Participant consented to a redacted attachment
+        - Attachment exists; consent not granted — do not attach
+    validations:
+      required: true
+  - type: textarea
+    id: attachment-notes
+    attributes:
+      label: Redacted attachment or notes
+      description: Optional. Confirm consent and redaction. Never attach secrets or personal data.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I confirmed this report and any attachment contain no cookies, passwords, OAuth codes, API keys, session tokens, or personal data.
+          required: true

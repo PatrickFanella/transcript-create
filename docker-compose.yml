@@ -2,7 +2,7 @@ services:
     db:
         image: postgres:16
         environment:
-            POSTGRES_PASSWORD: postgres
+            POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
             POSTGRES_DB: transcripts
         volumes:
             - dbdata:/var/lib/postgresql/data
@@ -34,10 +34,13 @@ services:
         restart: unless-stopped
 
     migrations:
-        image: hasanara:latest
+        image: hasanara-api:latest
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
+            # Local fresh databases opt in by default. docker-compose.prod.yml
+            # explicitly overrides this to false for fail-closed rolling production.
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: ${ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION:-true}
         depends_on:
             db:
                 condition: service_healthy
@@ -47,18 +50,21 @@ services:
     api:
         build:
             context: .
-            args:
-                # Change to rocm6.1 or rocm6.2 if your host ROCm matches those
-                ROCM_WHEEL_INDEX: https://download.pytorch.org/whl/rocm6.0
-        image: hasanara:latest
+            dockerfile: Dockerfile.api
+        image: hasanara-api:latest
         env_file: .env
         environment:
             # Point app to the compose network Postgres
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             # Point app to Redis cache inside the compose network
             REDIS_URL: redis://redis:6379/0
             # Point app to OpenSearch service inside the compose network
             OPENSEARCH_URL: http://opensearch:9200
+            # Keep OAuth callbacks explicit so an env file cannot silently use
+            # another deployment's URL.
+            OAUTH_GOOGLE_REDIRECT_URI: ${OAUTH_GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/callback/google}
+            OAUTH_TWITCH_REDIRECT_URI: ${OAUTH_TWITCH_REDIRECT_URI:-http://localhost:8000/auth/callback/twitch}
+            BOOTSTRAP_ADMIN_IDENTITIES: ${BOOTSTRAP_ADMIN_IDENTITIES:-}
             # Persist model caches to a mounted volume
             HF_HOME: /root/.cache/hf
             HF_HUB_CACHE: /root/.cache/hf/hub
@@ -79,18 +85,16 @@ services:
                 condition: service_completed_successfully
         volumes:
             - ./data:/data
-            - ./cache:/root/.cache
-        devices:
-            - '/dev/kfd:/dev/kfd'
-            - '/dev/dri:/dev/dri'
-        group_add:
-            - 'video'
 
     worker:
-        image: hasanara:latest
+        build:
+            context: .
+            args:
+                ROCM_WHEEL_INDEX: https://download.pytorch.org/whl/rocm6.0
+        image: hasanara-worker:latest
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             OPENSEARCH_URL: http://opensearch:9200
             # Persist model caches to a mounted volume
             HF_HOME: /root/.cache/hf
@@ -127,6 +131,31 @@ services:
             - '/dev/dri:/dev/dri'
         group_add:
             - 'video'
+
+    analytics-retention:
+        image: hasanara-api:latest
+        env_file: .env
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
+            RETENTION_INTERVAL_SECONDS: ${RETENTION_INTERVAL_SECONDS:-86400}
+        depends_on:
+            migrations:
+                condition: service_completed_successfully
+        # The application image probes the HTTP API by default. This worker has
+        # no HTTP listener, so explicitly disable the inherited image check.
+        healthcheck:
+            disable: true
+        command:
+            - bash
+            # Exit immediately when a maintenance run fails so orchestration
+            # records/restarts a failed run instead of silently sleeping a day.
+            - -euc
+            - |
+                while true; do
+                  python3 /app/scripts/maintain_event_retention.py
+                  sleep "$${RETENTION_INTERVAL_SECONDS:-86400}"
+                done
+        restart: unless-stopped
 
     opensearch:
         image: opensearchproject/opensearch:2.12.0
@@ -196,12 +225,13 @@ services:
         image: postgres:16
         env_file: .env
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             BACKUP_DIR: /backups
+            MEDIA_BACKUP_ENABLED: ${MEDIA_BACKUP_ENABLED:-false}
             PGHOST: db
             PGPORT: 5432
             PGUSER: postgres
-            PGPASSWORD: postgres
+            PGPASSWORD: ${DB_PASSWORD:-postgres}
             PGDATABASE: transcripts
         depends_on:
             db:
@@ -213,20 +243,7 @@ services:
             - ./data:/data:ro
         # Run backup daily at 2 AM UTC
         # Export metrics every 5 minutes for Prometheus
-        command: >
-            sh -c "
-            apt-get update && apt-get install -y cron rsync &&
-            mkdir -p /backups/logs &&
-            echo '0 2 * * * cd /scripts && ./backup_db.sh >> /backups/logs/cron.log 2>&1' > /etc/cron.d/backup &&
-            echo '0 3 * * * cd /scripts && ./backup_media.sh >> /backups/logs/cron.log 2>&1' >> /etc/cron.d/backup &&
-            echo '0 4 * * 0 cd /scripts && ./verify_backup.sh >> /backups/logs/cron.log 2>&1' >> /etc/cron.d/backup &&
-            echo '*/5 * * * * cd /scripts && ./export_backup_metrics.sh --output-file /backups/metrics.prom 2>&1 | logger -t backup-metrics' >> /etc/cron.d/backup &&
-            chmod 0644 /etc/cron.d/backup &&
-            crontab /etc/cron.d/backup &&
-            echo 'Backup service started. Backups scheduled for 2 AM UTC daily.' &&
-            echo 'Metrics export scheduled every 5 minutes.' &&
-            cron -f
-            "
+        command: ["bash", "/scripts/start_backup_scheduler.sh"]
         restart: unless-stopped
 
 volumes:

@@ -19,9 +19,12 @@ data:
   
   # Search backend
   search-backend: {{ .Values.config.search.backend | quote }}
+  opensearch-index-native: {{ .Values.config.search.indexNative | quote }}
+  opensearch-index-youtube: {{ .Values.config.search.indexYoutube | quote }}
+  opensearch-verify-ssl: {{ .Values.config.search.verifySsl | quote }}
   
   # Frontend and environment
-  frontend-origin: "https://{{ .Values.global.domain }}"
+  frontend-origin: {{ .Values.api.frontendOrigin | quote }}
   environment: {{ .Values.global.environment | quote }}
   
   # Logging
@@ -40,9 +43,12 @@ data:
   cache-search-ttl: {{ .Values.config.cache.searchTtl | quote }}
   
   # Quotas
-  free-daily-search-limit: {{ .Values.config.quotas.freeDailySearchLimit | quote }}
-  free-daily-export-limit: {{ .Values.config.quotas.freeDailyExportLimit | quote }}
   pro-plan-name: {{ .Values.config.quotas.proPlanName | quote }}
+
+  # OAuth/account configuration
+  oauth-google-redirect-uri: {{ .Values.config.oauth.googleRedirectUri | quote }}
+  oauth-twitch-redirect-uri: {{ .Values.config.oauth.twitchRedirectUri | quote }}
+  bootstrap-admin-identities: {{ .Values.config.oauth.bootstrapAdminIdentities | quote }}
   
   # Security
   enable-rate-limiting: {{ .Values.config.security.enableRateLimiting | quote }}

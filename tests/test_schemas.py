@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas import (
+    HighlightRange,
     JobCreate,
     JobStatus,
     SearchHit,
@@ -164,11 +165,38 @@ class TestTranscriptSchemas:
 class TestSearchSchemas:
     """Tests for search-related schemas."""
 
+    @pytest.mark.parametrize(("start", "end"), [(3, 3), (4, 3)])
+    def test_highlight_range_requires_positive_width(self, start, end):
+        """Reject empty and reversed half-open highlight ranges."""
+        with pytest.raises(ValidationError, match="greater than start"):
+            HighlightRange(start=start, end=end)
+
+    @pytest.mark.parametrize("snippet", ["A\U0001f600B", "e\u0301"])
+    def test_search_hit_rejects_highlight_beyond_unicode_code_point_length(self, snippet):
+        """Measure highlight bounds in code points, including astral and combining characters."""
+        with pytest.raises(ValidationError, match="snippet length"):
+            SearchHit(
+                id=123,
+                video_id=uuid.uuid4(),
+                start_ms=1000,
+                end_ms=2000,
+                snippet=snippet,
+                highlights=[{"start": 0, "end": len(snippet) + 1}],
+            )
+
     def test_search_hit_valid(self):
         """Test creating a valid SearchHit schema."""
-        hit = SearchHit(id=123, video_id=uuid.uuid4(), start_ms=1000, end_ms=2000, snippet="Search <em>result</em>")
+        hit = SearchHit(
+            id=123,
+            video_id=uuid.uuid4(),
+            start_ms=1000,
+            end_ms=2000,
+            snippet="Search result",
+            highlights=[{"start": 7, "end": 13}],
+        )
         assert hit.id == 123
-        assert "result" in hit.snippet
+        assert hit.snippet == "Search result"
+        assert [item.model_dump() for item in hit.highlights] == [{"start": 7, "end": 13}]
 
     def test_search_response_valid(self):
         """Test creating a valid SearchResponse schema."""
@@ -176,6 +204,7 @@ class TestSearchSchemas:
         response = SearchResponse(total=10, hits=hits)
         assert response.total == 10
         assert len(response.hits) == 1
+        assert response.hits[0].highlights == []
 
     def test_search_response_no_total(self):
         """Test SearchResponse without total count."""
@@ -216,10 +245,9 @@ class TestSchemaValidation:
             VideoInfo(id="not-a-uuid", youtube_id="test")
 
     def test_negative_timestamps(self):
-        """Test that negative timestamps are allowed (could be valid in some cases)."""
-        # Pydantic will accept negative ints unless we add validators
-        segment = Segment(start_ms=-100, end_ms=0, text="Negative start", speaker_label=None)
-        assert segment.start_ms == -100
+        """Test that negative transcript timestamps are rejected."""
+        with pytest.raises(ValidationError):
+            Segment(start_ms=-100, end_ms=0, text="Negative start", speaker_label=None)
 
     def test_empty_text_segment(self):
         """Test segment with empty text."""

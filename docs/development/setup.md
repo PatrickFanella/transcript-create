@@ -118,15 +118,14 @@ HF_TOKEN=hf_your_token_here
 SEARCH_BACKEND=postgres  # or 'opensearch'
 
 # OAuth providers (for authentication features)
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
+OAUTH_GOOGLE_CLIENT_ID=your_google_client_id
+OAUTH_GOOGLE_CLIENT_SECRET=your_google_client_secret
+OAUTH_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback/google
 
-TWITCH_CLIENT_ID=your_twitch_client_id
-TWITCH_CLIENT_SECRET=your_twitch_client_secret
+OAUTH_TWITCH_CLIENT_ID=your_twitch_client_id
+OAUTH_TWITCH_CLIENT_SECRET=your_twitch_client_secret
+OAUTH_TWITCH_REDIRECT_URI=http://localhost:8000/auth/callback/twitch
 
-# Stripe (for billing features)
-STRIPE_API_KEY=sk_test_your_key
-STRIPE_WEBHOOK_SECRET=whsec_your_secret
 ```
 
 ## Installation Methods
@@ -148,8 +147,8 @@ docker compose build --build-arg ROCM_WHEEL_INDEX=https://download.pytorch.org/w
 #### 2. Start Services
 
 ```bash
-# Start all services (database, API, worker)
-docker compose up -d
+# Start a fresh local database, then migrations, API, and worker
+ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION=true docker compose up -d
 
 # View logs
 docker compose logs -f
@@ -251,7 +250,8 @@ npm run dev
 
 ### With Docker Compose
 
-Database is automatically initialized with the schema when you run `docker compose up`.
+The `migrations` service initializes a fresh database through Alembic when you
+run Compose; Compose does not apply `sql/schema.sql`.
 
 ### Without Docker (Local PostgreSQL)
 
@@ -271,12 +271,12 @@ CREATE DATABASE transcripts;
 #### 2. Apply Schema
 
 ```bash
-# Using Alembic migrations (recommended)
-python scripts/run_migrations.py upgrade
-
-# Or apply schema directly (for fresh database)
-psql $DATABASE_URL -f sql/schema.sql
+# Initialize a controlled, empty local database through Alembic
+ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION=true python scripts/run_migrations.py upgrade
 ```
+
+This opt-in is only for a fresh local development database. Do not use it for a
+rolling or production upgrade; follow [the migration maintenance runbook](../MIGRATIONS.md).
 
 #### 3. Verify
 

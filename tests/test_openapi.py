@@ -56,7 +56,6 @@ class TestOpenAPISpec:
             "Search",
             "Exports",
             "Auth",
-            "Billing",
             "Admin",
             "Favorites",
             "Events",
@@ -118,6 +117,15 @@ class TestOpenAPISpec:
             has_description = "description" in schema or "title" in schema
             assert has_description, f"Schema {schema_name} has no description or title"
 
+    def test_search_hit_uses_plain_text_and_structured_highlights(self, client: TestClient):
+        spec = client.get("/openapi.json").json()
+        search_hit = spec["components"]["schemas"]["SearchHit"]
+        properties = search_hit["properties"]
+
+        assert "Plain-text" in properties["snippet"]["description"]
+        assert properties["highlights"]["type"] == "array"
+        assert properties["highlights"]["items"]["$ref"].endswith("/HighlightRange")
+
     def test_error_responses_documented(self, client: TestClient):
         """Test that key endpoints document error responses."""
         response = client.get("/openapi.json")
@@ -128,7 +136,7 @@ class TestOpenAPISpec:
             ("POST", "/jobs", ["401", "409", "422", "429"]),
             ("GET", "/jobs/{job_id}", ["404"]),
             ("GET", "/videos/{video_id}/transcript", ["404", "503"]),
-            ("GET", "/search", ["400", "429"]),
+            ("GET", "/search", ["422", "429"]),
         ]
 
         for method, path, expected_codes in test_cases:
@@ -183,7 +191,6 @@ class TestOpenAPISpec:
 
         post_endpoints = [
             "/jobs",
-            "/billing/checkout-session",
             "/users/me/favorites",
             "/events",
         ]
@@ -194,3 +201,28 @@ class TestOpenAPISpec:
                 assert "requestBody" in operation, f"POST {path} has no requestBody definition"
                 assert "content" in operation["requestBody"]
                 assert "application/json" in operation["requestBody"]["content"]
+
+    def test_auth_and_role_mutation_responses_are_typed(self, client: TestClient):
+        """Auth and role APIs expose concrete response schemas and examples."""
+        spec = client.get("/openapi.json").json()
+
+        auth_me = spec["paths"]["/auth/me"]["get"]["responses"]["200"]
+        csrf = spec["paths"]["/auth/csrf"]["get"]["responses"]["200"]
+        role_update = spec["paths"]["/admin/users/{user_id}/role"]["put"]["responses"]["200"]
+
+        for response in (auth_me, csrf, role_update):
+            schema = response["content"]["application/json"]["schema"]
+            assert "$ref" in schema
+
+        schemas = spec["components"]["schemas"]
+        assert schemas["CsrfTokenResponse"]["properties"]["csrf_token"]["type"] == "string"
+        assert schemas["RoleUpdateResponse"]["properties"]["user_id"]["type"] == "string"
+        assert schemas["RoleUpdateResponse"]["properties"]["role"]["enum"] == ["user", "moderator", "admin"]
+
+        auth_me_schema = schemas["AuthMeResponse"]["properties"]
+        assert auth_me_schema["capabilities"]["items"]["type"] == "string"
+        assert auth_me_schema["role"]["anyOf"][0]["enum"] == ["user", "moderator", "admin"]
+
+        examples = auth_me["content"]["application/json"]["examples"]
+        assert examples["authenticated"]["value"]["role"] == "user"
+        assert examples["authenticated"]["value"]["capabilities"]

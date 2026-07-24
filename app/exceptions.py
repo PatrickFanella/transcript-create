@@ -104,6 +104,18 @@ class DatabaseError(AppError):
         )
 
 
+class ArchiveUnavailableError(AppError):
+    """Raised when archive data cannot be distinguished from an empty result."""
+
+    def __init__(self, operation: str):
+        super().__init__(
+            error_code="archive_unavailable",
+            message="Archive data is temporarily unavailable",
+            status_code=503,
+            details={"operation": operation},
+        )
+
+
 class ExternalServiceError(AppError):
     """Raised when an external service fails."""
 

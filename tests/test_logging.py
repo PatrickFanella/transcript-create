@@ -7,6 +7,7 @@ from io import StringIO
 from app.logging_config import (
     JSONFormatter,
     SensitiveDataFilter,
+    AccessLogRedactionFilter,
     configure_logging,
     get_logger,
     job_id_ctx,
@@ -168,6 +169,22 @@ class TestJSONFormatter:
         assert "token=***" in data["message"]
 
 
+def test_uvicorn_access_log_filter_removes_callback_query_values():
+    code, state = "CODE-SENTINEL", "STATE-SENTINEL"
+    record = logging.LogRecord(
+        name="uvicorn.access", level=logging.INFO, pathname="", lineno=0,
+        msg='%s - "%s %s HTTP/%s" %s',
+        args=("127.0.0.1", "GET", f"/auth/callback/google?code={code}&state={state}", "1.1", 307),
+        exc_info=None,
+    )
+    assert AccessLogRedactionFilter().filter(record)
+    rendered = record.getMessage()
+    assert "/auth/callback/google" in rendered
+    assert "307" in rendered
+    assert code not in rendered
+    assert state not in rendered
+
+
 class TestStructuredLogger:
     """Test structured logger adapter."""
 
@@ -231,6 +248,20 @@ def test_configure_logging():
     # Test plain text format
     configure_logging(service="test2", level="INFO", json_format=False)
     assert root_logger.level == logging.INFO
+
+
+def test_configure_logging_attaches_redaction_filter_to_non_propagating_uvicorn_handler():
+    access_logger = logging.getLogger("uvicorn.access")
+    original_handlers, original_propagate = access_logger.handlers[:], access_logger.propagate
+    handler = logging.StreamHandler()
+    access_logger.handlers = [handler]
+    access_logger.propagate = False
+    try:
+        configure_logging(service="test")
+        assert any(isinstance(item, AccessLogRedactionFilter) for item in handler.filters)
+    finally:
+        access_logger.handlers = original_handlers
+        access_logger.propagate = original_propagate
 
 
 def test_get_logger():

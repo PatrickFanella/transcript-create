@@ -2,19 +2,19 @@
 # These are not needed in production
 
 # Testing framework
-pytest==8.3.4
-pytest-asyncio==0.25.2
+pytest==9.0.3
+pytest-asyncio==1.4.0
 pytest-cov==6.0.0
-httpx==0.27.2
-pytest-httpx==0.30.0
+httpx==0.28.1
+pytest-httpx==0.36.2
 pytest-timeout==2.3.1
 pytest-xdist==3.6.1
-pypdf2==3.0.1
+pypdf==6.14.2
 openapi-spec-validator==0.7.1
 
 # Linting and formatting
 ruff==0.9.1
-black==25.1.0
+black==26.3.1
 isort==6.1.0
 mypy==1.14.1
 

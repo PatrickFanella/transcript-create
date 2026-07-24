@@ -1,17 +1,39 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 from sqlalchemy import text as _text
 
+from ..accounts import FinalAdminError, lock_admin_role_mutation
+from ..audit import ACTION_ADMIN_ACTION, write_audit_from_request
 from ..common.session import get_session_token as _get_session_token
 from ..common.session import get_user_from_session as _get_user_from_session
 from ..common.session import is_admin as _is_admin
+from ..csv_export import render_csv
 from ..db import get_db
-from ..exceptions import AuthorizationError, ValidationError
+from ..exceptions import AuthorizationError, NotFoundError, ValidationError
 from ..security import ROLE_ADMIN, require_role
 
 router = APIRouter(prefix="", tags=["Admin"])
+
+
+class RoleUpdateRequest(BaseModel):
+    role: Literal["user", "moderator", "admin"]
+
+
+class RoleUpdateResponse(BaseModel):
+    user_id: str
+    role: Literal["user", "moderator", "admin"]
+
+
+@router.get("/admin/search/status", summary="Get search indexing freshness (Admin)")
+def admin_search_status(db=Depends(get_db), user=Depends(require_role(ROLE_ADMIN))):
+    del user
+    from app.search.outbox import search_freshness
+
+    return search_freshness(db)
 
 
 @router.get(
@@ -92,7 +114,7 @@ def admin_events(
     if end:
         where.append("created_at <= :end")
         params["end"] = end
-    sql = "SELECT id, created_at, user_id, session_token, type, payload FROM events"
+    sql = "SELECT id, created_at, user_id, analytics_subject_id, type, payload FROM events"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id DESC LIMIT :limit OFFSET :offset"
@@ -144,7 +166,7 @@ def admin_events_csv(
     if end:
         where.append("created_at <= :end")
         params["end"] = end
-    sql = "SELECT id, created_at, user_id, session_token, type, payload FROM events"
+    sql = "SELECT id, created_at, user_id, analytics_subject_id, type, payload FROM events"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id DESC LIMIT :limit OFFSET :offset"
@@ -152,15 +174,8 @@ def admin_events_csv(
     params["offset"] = offset
     rows = db.execute(_text(sql), params).all()
 
-    def esc(x):
-        s = str(x) if x is not None else ""
-        if any(c in s for c in [",", '"', "\n"]):
-            s = '"' + s.replace('"', '""') + '"'
-        return s
-
-    header = "id,created_at,user_id,session_token,type,payload\n"
-    body = "".join([f"{esc(r[0])},{esc(r[1])},{esc(r[2])},{esc(r[3])},{esc(r[4])},{esc(r[5])}\n" for r in rows])
-    return PlainTextResponse(content=header + body, media_type="text/csv")
+    content = render_csv([["id", "created_at", "user_id", "analytics_subject_id", "type", "payload"], *rows])
+    return PlainTextResponse(content=content, media_type="text/csv")
 
 
 @router.get(
@@ -221,7 +236,7 @@ def admin_events_summary(request: Request, db=Depends(get_db), start: str | None
     "/admin/users/{user_id}/plan",
     summary="Set user plan (Admin)",
     description="""
-    Change a user's subscription plan.
+    Change a user's administratively assigned access plan. Billing is disabled.
 
     **Admin Only:** Requires admin privileges
 
@@ -263,3 +278,87 @@ def admin_set_user_plan(user_id: uuid.UUID, payload: dict, request: Request, db=
     db.execute(_text("UPDATE users SET plan=:p, updated_at=now() WHERE id=:i"), {"p": plan, "i": str(user_id)})
     db.commit()
     return {"ok": True, "user_id": str(user_id), "plan": plan}
+
+
+@router.put(
+    "/admin/users/{user_id}/role",
+    summary="Set user role (Admin)",
+    response_model=RoleUpdateResponse,
+    responses={
+        200: {
+            "description": "Role updated",
+            "content": {
+                "application/json": {
+                    "example": {"user_id": "123e4567-e89b-12d3-a456-426614174000", "role": "moderator"}
+                }
+            },
+        }
+    },
+)
+def admin_set_user_role(
+    user_id: uuid.UUID,
+    payload: RoleUpdateRequest,
+    request: Request,
+    db=Depends(get_db),
+    user=Depends(require_role(ROLE_ADMIN)),
+):
+    """Change a user's durable authorization role in one serialized transaction."""
+    try:
+        # This lock is shared with account deletion.  It must precede both the
+        # target read and admin count so separate target-row demotions cannot
+        # strand the archive without an administrator.
+        lock_admin_role_mutation(db)
+        # The dependency's user was read before the advisory lock was acquired.
+        # Revalidate the durable role while holding the same serialization lock,
+        # so a queued request cannot act on authorization that was subsequently
+        # revoked by an earlier role mutation. Locking the actor first is also
+        # safe for self-updates: PostgreSQL permits a transaction to relock its
+        # own row.
+        actor = (
+            db.execute(
+                _text("SELECT id, role FROM users WHERE id=:id FOR UPDATE"),
+                {"id": str(user["id"])},
+            )
+            .mappings()
+            .first()
+        )
+        if not actor or actor["role"] != ROLE_ADMIN:
+            raise AuthorizationError("Admin access required")
+        target = (
+            db.execute(
+                _text("SELECT id, role FROM users WHERE id=:id FOR UPDATE"),
+                {"id": str(user_id)},
+            )
+            .mappings()
+            .first()
+        )
+        if not target:
+            raise NotFoundError("User not found", resource_type="user")
+
+        old_role = target["role"]
+        if old_role == ROLE_ADMIN and payload.role != ROLE_ADMIN:
+            admin_count = db.execute(_text("SELECT count(*) FROM users WHERE role='admin'")).scalar_one()
+            if admin_count == 1:
+                raise FinalAdminError()
+
+        db.execute(
+            _text("UPDATE users SET role=:role, updated_at=now() WHERE id=:id"),
+            {"role": payload.role, "id": str(user_id)},
+        )
+        write_audit_from_request(
+            db,
+            request,
+            ACTION_ADMIN_ACTION,
+            user_id=user["id"],
+            resource_type="user",
+            resource_id=str(user_id),
+            details={"target_user_id": str(user_id), "old_role": old_role, "new_role": payload.role},
+        )
+        db.commit()
+    except (FinalAdminError, NotFoundError):
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    return {"user_id": str(user_id), "role": payload.role}

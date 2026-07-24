@@ -1,33 +1,37 @@
 import os
 import socket
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Thread
 
 from prometheus_client import start_http_server
 from sqlalchemy import create_engine, text
 
 from app.logging_config import configure_logging, get_logger, video_id_ctx
-from app.settings import settings, validate_production_settings
+from app.settings import settings, validate_worker_production_settings
+from app.source_deletion import reconcile_pending_source_deletions
 from app.ytdlp_validation import validate_js_runtime_or_exit
-from worker.metrics import setup_worker_info, try_collect_gpu_metrics
 from worker.caption_ingest import ingest_available_captions
+from worker.job_lifecycle import claim_job_attempt, finish_job_attempt, maintain_job_lease
+from worker.metrics import setup_worker_info, try_collect_gpu_metrics
 from worker.pipeline import expand_channel_if_needed
-from worker.video_pipeline import ProcessVideoCommand, default_video_processing_pipeline
 from worker.state_model import (
     IN_PROGRESS_VIDEO_STATES,
     OPEN_CAPTION_INGEST_STATES,
-    TERMINAL_CAPTION_INGEST_STATES,
     VideoState,
+    pending_video_eligibility_sql,
     sql_string_list,
 )
+from worker.video_pipeline import ProcessVideoCommand, default_video_processing_pipeline
 
 engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
 POLL_INTERVAL = 3
 HEARTBEAT_INTERVAL = 60  # seconds
 youtube_caption_cooldown_until = 0.0
+SOURCE_CLEANUP_INTERVAL = 60
+SOURCE_CLEANUP_BATCH_SIZE = 10
 IN_PROGRESS_VIDEO_STATES_SQL = sql_string_list(IN_PROGRESS_VIDEO_STATES)
 OPEN_CAPTION_INGEST_STATES_SQL = sql_string_list(OPEN_CAPTION_INGEST_STATES)
-TERMINAL_CAPTION_INGEST_STATES_SQL = sql_string_list(TERMINAL_CAPTION_INGEST_STATES)
 
 # Configure structured logging for worker service
 configure_logging(
@@ -48,8 +52,7 @@ def update_heartbeat():
         with engine.begin() as conn:
             # Upsert heartbeat record
             conn.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO worker_heartbeat (worker_id, hostname, pid, last_seen, metrics)
                     VALUES (:worker_id, :hostname, :pid, now(), :metrics)
                     ON CONFLICT (worker_id)
@@ -58,8 +61,7 @@ def update_heartbeat():
                         hostname = EXCLUDED.hostname,
                         pid = EXCLUDED.pid,
                         metrics = EXCLUDED.metrics
-                """
-                ),
+                """),
                 {
                     "worker_id": WORKER_ID,
                     "hostname": socket.gethostname(),
@@ -80,22 +82,18 @@ def update_queue_metrics():
         with engine.begin() as conn:
             # Count pending videos
             pending_count = conn.execute(
-                text("SELECT COUNT(*) FROM videos WHERE state = :state"),
-                {"state": VideoState.PENDING.value},
+                text(f"SELECT COUNT(*) {pending_video_eligibility_sql()}"),
+                {"pending_state": VideoState.PENDING.value},
             ).scalar_one()
             videos_pending.set(pending_count)
 
             # Count in-progress videos by state
-            states = conn.execute(
-                text(
-                    f"""
+            states = conn.execute(text(f"""
                     SELECT state, COUNT(*)
                     FROM videos
                     WHERE state IN ({IN_PROGRESS_VIDEO_STATES_SQL})
                     GROUP BY state
-                """
-                )
-            ).all()
+                """)).all()
 
             # Reset all in-progress gauges first
             for state in IN_PROGRESS_VIDEO_STATES:
@@ -128,6 +126,16 @@ def heartbeat_updater():
         time.sleep(HEARTBEAT_INTERVAL)
 
 
+def source_cleanup_reconciler():
+    """Keep cleanup I/O off the transcription polling lane."""
+    while True:
+        try:
+            reconcile_pending_source_deletions(limit=SOURCE_CLEANUP_BATCH_SIZE)
+        except Exception as exc:
+            logger.warning("Source deletion reconciliation failed", extra={"error_type": type(exc).__name__})
+        time.sleep(SOURCE_CLEANUP_INTERVAL)
+
+
 def pending_video_claim_sql() -> str:
     """SQL for claiming native transcription work.
 
@@ -138,14 +146,8 @@ def pending_video_claim_sql() -> str:
     rest of the batch continues caption ingestion.
     """
     return f"""
-                SELECT v.id
-                FROM videos v
-                JOIN jobs j ON j.id = v.job_id
-                WHERE v.state = :pending_state
-                  AND (
-                    j.meta->>'staged' IS DISTINCT FROM 'true'
-                    OR v.caption_ingest_state IN ({TERMINAL_CAPTION_INGEST_STATES_SQL})
-                  )
+                SELECT v.id, j.id AS job_id
+                {pending_video_eligibility_sql()}
                 ORDER BY
                   CASE
                     WHEN EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id) THEN 1
@@ -158,8 +160,54 @@ def pending_video_claim_sql() -> str:
             """
 
 
+def process_claimed_video(video_id, lease) -> None:
+    """Process one claimed video outside the queue-claim transaction."""
+    video_id_ctx.set(str(video_id))
+    try:
+        logger.info("Starting video processing")
+        with maintain_job_lease(engine, lease, lease_seconds=settings.JOB_LEASE_SECONDS):
+            video_processing_pipeline.process_video(ProcessVideoCommand(video_id=video_id))
+        with engine.begin() as conn:
+            finish_job_attempt(conn, lease, outcome="completed", max_attempts=settings.MAX_JOB_ATTEMPTS)
+        logger.info("Video processing completed successfully")
+        from worker.metrics import videos_processed_total
+
+        videos_processed_total.labels(result="completed").inc()
+    except Exception as e:
+        logger.exception("Video processing failed", extra={"error": str(e)})
+        from worker.metrics import videos_processed_total
+
+        videos_processed_total.labels(result="failed").inc()
+        with engine.begin() as conn:
+            if lease.attempt_number < settings.MAX_JOB_ATTEMPTS:
+                conn.execute(
+                    text("UPDATE videos SET state='pending', error=:e, updated_at=now() WHERE id=:i"),
+                    {"i": video_id, "e": str(e)[:5000]},
+                )
+            else:
+                row = conn.execute(
+                    text(
+                        "UPDATE videos SET state='failed', error=:e, updated_at=now() " "WHERE id=:i RETURNING job_id"
+                    ),
+                    {"i": video_id, "e": str(e)[:5000]},
+                ).first()
+                if row:
+                    from worker.pipeline import refresh_job_state
+
+                    refresh_job_state(conn, row[0], error=str(e))
+            finish_job_attempt(
+                conn,
+                lease,
+                outcome="failed",
+                error=str(e),
+                max_attempts=settings.MAX_JOB_ATTEMPTS,
+            )
+    finally:
+        video_id_ctx.set(None)
+
+
 def run():
-    validate_production_settings(settings)
+    validate_worker_production_settings(settings)
 
     # Validate JavaScript runtime for yt-dlp before starting worker
     validate_js_runtime_or_exit()
@@ -199,10 +247,22 @@ def run():
     heartbeat_thread.start()
     logger.info("Worker heartbeat thread started")
 
+    cleanup_thread = Thread(target=source_cleanup_reconciler, daemon=True)
+    cleanup_thread.start()
+    logger.info("Source cleanup reconciliation thread started")
+
     # Initial heartbeat
     update_heartbeat()
 
+    max_parallel = max(1, settings.MAX_PARALLEL_JOBS)
+    executor = ThreadPoolExecutor(max_workers=max_parallel, thread_name_prefix="video-job")
+    active: set[Future] = set()
+
     while True:
+        active = {future for future in active if not future.done()}
+        if len(active) >= max_parallel:
+            time.sleep(POLL_INTERVAL)
+            continue
         logger.debug("Polling for work: expand jobs and pick a video")
         with engine.begin() as conn:
             # Expand pending jobs into videos
@@ -254,15 +314,13 @@ def run():
                 if rescue_seconds > 0:
                     logger.debug("Rescue check: requeue videos stuck", extra={"threshold_seconds": rescue_seconds})
                     conn.execute(
-                        text(
-                            """
+                        text("""
                         UPDATE videos
                         SET state = 'pending', updated_at = now()
                         WHERE state IN ('downloading','transcoding','transcribing')
                           AND now() - updated_at > make_interval(secs => :secs)
                         RETURNING id
-                        """
-                        ),
+                        """),
                         {"secs": rescue_seconds},
                     )
             except Exception as e:
@@ -283,8 +341,7 @@ def run():
                 current_rank = model_hierarchy.get(current_model, 0)
                 if current_rank > 0:
                     requeue_result = conn.execute(
-                        text(
-                            """
+                        text("""
                         UPDATE videos v
                         SET state = 'pending', updated_at = now()
                         FROM transcripts t
@@ -305,8 +362,7 @@ def run():
                             END
                           ) < :current_rank
                         RETURNING v.id, t.model
-                    """
-                        ),
+                    """),
                         {"current_rank": current_rank, "completed_state": VideoState.COMPLETED.value},
                     )
                     requeued = requeue_result.fetchall()
@@ -333,42 +389,19 @@ def run():
                 logger.debug("No pending videos found. Sleeping", extra={"sleep_seconds": POLL_INTERVAL})
                 time.sleep(POLL_INTERVAL)
                 continue
-            video_id = row[0]
-
-            # Set video context for logging
-            video_id_ctx.set(str(video_id))
+            video_id, job_id = row
+            lease = claim_job_attempt(
+                conn,
+                job_id=job_id,
+                worker_id=WORKER_ID,
+                lease_seconds=settings.JOB_LEASE_SECONDS,
+            )
+            if not lease:
+                continue
 
             logger.info("Picked video for processing")
             conn.execute(text("UPDATE videos SET state='downloading', updated_at=now() WHERE id=:i"), {"i": video_id})
-        try:
-            logger.info("Starting video processing")
-            video_processing_pipeline.process_video(ProcessVideoCommand(video_id=video_id))
-            logger.info("Video processing completed successfully")
-
-            # Track successful video processing
-            from worker.metrics import videos_processed_total
-
-            videos_processed_total.labels(result="completed").inc()
-        except Exception as e:
-            logger.exception("Video processing failed", extra={"error": str(e)})
-
-            # Track failed video processing
-            from worker.metrics import videos_processed_total
-
-            videos_processed_total.labels(result="failed").inc()
-
-            with engine.begin() as conn:
-                row = conn.execute(
-                    text("UPDATE videos SET state='failed', error=:e, updated_at=now() WHERE id=:i RETURNING job_id"),
-                    {"i": video_id, "e": str(e)[:5000]},
-                ).first()
-                if row:
-                    from worker.pipeline import refresh_job_state
-
-                    refresh_job_state(conn, row[0], error=str(e))
-        finally:
-            # Clear video context
-            video_id_ctx.set(None)
+        active.add(executor.submit(process_claimed_video, video_id, lease))
 
 
 def main():

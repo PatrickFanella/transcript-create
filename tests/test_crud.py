@@ -1,8 +1,10 @@
 """Tests for CRUD operations."""
 
 import uuid
+from unittest.mock import MagicMock
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app import crud
 
@@ -27,6 +29,39 @@ class TestJobCrud:
         job_id = crud.create_job(db_session, "channel", "https://youtube.com/channel/UCtest")
         job = crud.fetch_job(db_session, job_id)
         assert job["kind"] == "channel"
+
+    def test_create_job_cannot_take_ownership_from_caller_metadata(self, db_session):
+        claimed_owner = uuid.uuid4()
+        job_id = crud.create_job(
+            db_session,
+            "single",
+            "https://youtube.com/watch?v=unowned",
+            {"owner_user_id": str(claimed_owner), "api_key_id": "forged", "safe": True},
+        )
+
+        job = crud.fetch_job(db_session, job_id)
+        assert job["owner_user_id"] is None
+        assert job["meta"] == {"safe": True}
+
+    def test_create_job_derives_metadata_ownership_from_authoritative_arguments(self, db_session):
+        owner_id = uuid.uuid4()
+        db_session.execute(
+            text("INSERT INTO users (id, email, role) VALUES (:id, :email, 'user')"),
+            {"id": str(owner_id), "email": "owned-job@example.com"},
+        )
+
+        job_id = crud.create_job(
+            db_session,
+            "single",
+            "https://youtube.com/watch?v=owned",
+            {"owner_user_id": str(uuid.uuid4()), "api_key_id": "forged"},
+            owner_user_id=owner_id,
+            api_key_id="authoritative-key",
+        )
+
+        job = crud.fetch_job(db_session, job_id)
+        assert str(job["owner_user_id"]) == str(owner_id)
+        assert job["meta"] == {"owner_user_id": str(owner_id), "api_key_id": "authoritative-key"}
 
     def test_fetch_job_not_found(self, db_session):
         """Test fetching a non-existent job."""
@@ -254,3 +289,15 @@ class TestRetryDecorator:
         """Test that the retry decorator preserves the function's __module__."""
         assert crud.create_job.__module__ == "app.crud"
         assert crud.fetch_job.__module__ == "app.crud"
+
+    def test_transient_retry_rolls_back_failed_transaction(self, monkeypatch):
+        db = MagicMock()
+        db.execute.side_effect = [OperationalError("select", {}, Exception("connection lost")), MagicMock()]
+        monkeypatch.setattr(crud.time, "sleep", lambda _delay: None)
+
+        @crud._retry_on_transient_error
+        def operation(session):
+            return session.execute("SELECT 1")
+
+        operation(db)
+        assert db.rollback.call_count == 1

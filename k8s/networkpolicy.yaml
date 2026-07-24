@@ -95,7 +95,7 @@ spec:
     ports:
     - protocol: TCP
       port: 9200
-  # Allow HTTPS for external services (YouTube, OAuth, Stripe)
+  # Allow HTTPS for external services (YouTube and OAuth)
   - to:
     - namespaceSelector: {}
     ports:

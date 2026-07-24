@@ -1,21 +1,34 @@
-import secrets
 import uuid
-from datetime import datetime, timedelta
+from hashlib import sha256
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 
-from ..audit import ACTION_LOGIN_FAILED, ACTION_LOGIN_SUCCESS, ACTION_LOGOUT, log_audit_from_request
+from ..accounts import IdentityConflictError, create_session, link_identity, session_token_hash, sign_in_identity
+from ..audit import (
+    ACTION_IDENTITY_COLLISION,
+    ACTION_IDENTITY_LINKED,
+    ACTION_LOGIN_FAILED,
+    ACTION_LOGIN_SUCCESS,
+    ACTION_LOGOUT,
+    log_audit_from_request,
+    write_audit_event,
+)
+from ..auth.providers import exchange_and_normalize_profile, get_provider, register_provider
 from ..common.session import clear_session_cookie as _clear_session_cookie
 from ..common.session import get_session_token as _get_session_token
 from ..common.session import get_user_from_session as _get_user_from_session
-from ..common.session import refresh_session, should_refresh_session
+from ..common.session import refresh_session as _refresh_session
 from ..common.session import set_session_cookie as _set_session_cookie
+from ..common.session import should_refresh_session as _should_refresh_session
 from ..db import get_db
-from ..exceptions import ExternalServiceError, ValidationError
+from ..exceptions import DatabaseError, ExternalServiceError, ValidationError
 from ..logging_config import get_logger
-from ..security import generate_nonce, generate_oauth_state
+from ..policy import capabilities_for_role
+from ..security import generate_nonce, generate_oauth_state, get_user_role
 from ..settings import settings
 
 logger = get_logger(__name__)
@@ -32,25 +45,160 @@ except Exception:
 router = APIRouter(prefix="", tags=["Auth"])
 
 
+class AuthMeUserResponse(BaseModel):
+    id: uuid.UUID
+    email: str | None
+    name: str | None
+    avatar_url: str | None
+    plan: str
+
+
+class AuthMeResponse(BaseModel):
+    user: AuthMeUserResponse | None
+    role: Literal["user", "moderator", "admin"] | None
+    capabilities: list[str]
+
+
+class CsrfTokenResponse(BaseModel):
+    csrf_token: str
+
+
 def _new_oauth():
     if not OAuth:
         return None
     oauth = OAuth()
-    oauth.register(
-        name="twitch",
-        client_id=settings.OAUTH_TWITCH_CLIENT_ID,
-        client_secret=settings.OAUTH_TWITCH_CLIENT_SECRET,
-        access_token_url="https://id.twitch.tv/oauth2/token",
-        authorize_url="https://id.twitch.tv/oauth2/authorize",
-        api_base_url="https://api.twitch.tv/helix/",
-        client_kwargs={"scope": "user:read:email"},
-    )
+    register_provider(oauth, get_provider("twitch"))
     return oauth
+
+
+def _hash_oauth_value(value: str) -> str:
+    return sha256(value.encode("utf-8")).hexdigest()
+
+
+async def _start_oauth_login(request: Request, db, provider_name: str, *, intent: str = "login", link_user_id=None):
+    if not OAuth:
+        raise ExternalServiceError("OAuth", "Authentication library not installed")
+    provider = get_provider(provider_name)
+    if not provider.enabled:
+        raise ExternalServiceError(provider.name.title(), "Provider is not configured")
+    state, nonce = generate_oauth_state(), generate_nonce()
+    try:
+        # Keep a small, indexed cleanup batch in the same transaction as the
+        # new binding so it cannot interfere with a successful initiation.
+        db.execute(text("""
+            DELETE FROM oauth_requests
+            WHERE id IN (
+                SELECT id FROM oauth_requests
+                WHERE expires_at <= now()
+                ORDER BY expires_at
+                LIMIT 100
+            )
+        """))
+        db.execute(
+            text("""
+            INSERT INTO oauth_requests
+                (state_hash, nonce_hash, provider, intent, link_user_id, expires_at)
+            VALUES
+                (:state_hash, :nonce_hash, :provider, :intent, :link_user_id,
+                 now() + interval '10 minutes')
+        """),
+            {
+                "state_hash": _hash_oauth_value(state),
+                "nonce_hash": _hash_oauth_value(nonce),
+                "provider": provider.name,
+                "intent": intent,
+                "link_user_id": str(link_user_id) if link_user_id else None,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "OAuth request persistence failed", extra={"provider": provider_name, "error_type": type(exc).__name__}
+        )
+        raise DatabaseError("Authentication could not be started") from None
+    # Authlib's session state supports its protocol checks; this durable row is
+    # authoritative for provider binding and single use.
+    request.session["oauth_state"] = state
+    request.session["oauth_nonce"] = nonce
+    oauth = OAuth()
+    register_provider(oauth, provider)
+    try:
+        return await getattr(oauth, provider.name).authorize_redirect(
+            request, provider.redirect_uri, state=state, nonce=nonce
+        )
+    except Exception as exc:
+        # Provider failures may include authorization URLs, state, or nonce in
+        # their messages.  Keep every outward-facing sink to stable metadata.
+        logger.error(
+            "OAuth initiation failed",
+            extra={"provider": provider.name, "error_type": type(exc).__name__},
+        )
+        log_audit_from_request(
+            db,
+            request,
+            ACTION_LOGIN_FAILED,
+            success=False,
+            details={"provider": provider.name, "reason": "provider_initiation_failed"},
+        )
+        raise ExternalServiceError(
+            provider.name.title(),
+            "Authentication could not be started",
+            details={"code": "oauth_initiation_failed"},
+        ) from None
+
+
+async def _start_oauth_link(request: Request, db, provider_name: str, user_id) -> str:
+    response = await _start_oauth_login(request, db, provider_name, intent="link", link_user_id=user_id)
+    location = response.headers["location"]
+    if not isinstance(location, str):
+        raise RuntimeError("OAuth provider did not return a redirect location")
+    return location
+
+
+def _consume_oauth_request(db, request: Request, provider_name: str):
+    state = request.query_params.get("state")
+    if not state:
+        raise ValidationError("Invalid OAuth state parameter")
+    try:
+        row = (
+            db.execute(
+                text("""
+            UPDATE oauth_requests SET consumed_at = now()
+            WHERE state_hash = :state_hash AND consumed_at IS NULL AND expires_at > now()
+            RETURNING *
+        """),
+                {"state_hash": _hash_oauth_value(state)},
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            db.rollback()
+            raise ValidationError("Invalid OAuth state parameter")
+        # The consume must survive any later provider or account failure.
+        db.commit()
+    except ValidationError:
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "OAuth state consumption failed", extra={"provider": provider_name, "error_type": type(exc).__name__}
+        )
+        raise DatabaseError("Authentication state could not be verified") from None
+    if row["provider"] != provider_name:
+        raise ValidationError("Invalid OAuth state parameter")
+    if row["intent"] == "link":
+        user = _get_user_from_session(db, _get_session_token(request))
+        if not user or str(user["id"]) != str(row["link_user_id"]):
+            raise ValidationError("Invalid OAuth state parameter")
+    return row
 
 
 @router.get(
     "/auth/me",
     summary="Get current user",
+    response_model=AuthMeResponse,
     description="""
     Get the currently authenticated user's profile and account metadata.
     Returns `{"user": null}` if not authenticated.
@@ -68,11 +216,12 @@ def _new_oauth():
                                     "email": "user@example.com",
                                     "name": "John Doe",
                                     "avatar_url": "https://example.com/avatar.jpg",
-                                    "plan": "free"
-                                }
+                                    "plan": "free",
+                                },
+                                "role": "user",
+                                "capabilities": ["archive:read"],
                             }
                         },
-                        "unauthenticated": {"value": {"user": None}},
                     }
                 }
             },
@@ -85,12 +234,13 @@ def auth_me(request: Request, db=Depends(get_db)):
     user = _get_user_from_session(db, token)
 
     # Check if session should be refreshed
-    if user and token and should_refresh_session(db, token):
-        refresh_session(db, token)
+    if user and token and _should_refresh_session(db, token):
+        _refresh_session(db, token)
 
     if not user:
-        return {"user": None}
+        return {"user": None, "role": None, "capabilities": []}
     plan = user.get("plan") or "free"
+    role = get_user_role(user)
     return {
         "user": {
             "id": user["id"],
@@ -98,8 +248,24 @@ def auth_me(request: Request, db=Depends(get_db)):
             "name": user.get("name"),
             "avatar_url": user.get("avatar_url"),
             "plan": plan,
-        }
+        },
+        "role": role,
+        "capabilities": list(capabilities_for_role(role)),
     }
+
+
+@router.get("/auth/csrf", response_model=CsrfTokenResponse)
+def auth_csrf(request: Request, db=Depends(get_db)):
+    """Return a token bound to the currently valid HttpOnly session cookie."""
+    from ..common.session import get_user_from_session
+    from ..csrf import csrf_token
+
+    token = _get_session_token(request)
+    if not token or not get_user_from_session(db, token):
+        from ..exceptions import AuthenticationError
+
+        raise AuthenticationError("Authentication required")
+    return {"csrf_token": csrf_token(token)}
 
 
 @router.get(
@@ -116,28 +282,9 @@ def auth_me(request: Request, db=Depends(get_db)):
         503: {"description": "OAuth library not configured"},
     },
 )
-async def auth_login_google(request: Request):
+async def auth_login_google(request: Request, db=Depends(get_db)):
     """Initiate Google OAuth login."""
-    if not OAuth:
-        raise ExternalServiceError("OAuth", "Authentication library not installed")
-    oauth = OAuth()
-    oauth.register(
-        name="google",
-        client_id=settings.OAUTH_GOOGLE_CLIENT_ID,
-        client_secret=settings.OAUTH_GOOGLE_CLIENT_SECRET,
-        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-        client_kwargs={"scope": "openid email profile"},
-    )
-    redirect_uri = settings.OAUTH_GOOGLE_REDIRECT_URI
-
-    # Generate and store state parameter for CSRF protection
-    if settings.OAUTH_STATE_VALIDATION:
-        state = generate_oauth_state()
-        request.session["oauth_state"] = state
-        request.session["oauth_nonce"] = generate_nonce()
-        return await oauth.google.authorize_redirect(request, redirect_uri, state=state)
-
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    return await _start_oauth_login(request, db, "google")
 
 
 @router.get(
@@ -154,277 +301,145 @@ async def auth_login_google(request: Request):
         503: {"description": "OAuth library not configured"},
     },
 )
-async def auth_login_twitch(request: Request):
+async def auth_login_twitch(request: Request, db=Depends(get_db)):
     """Initiate Twitch OAuth login."""
+    return await _start_oauth_login(request, db, "twitch")
+
+
+async def _oauth_callback(request: Request, db, provider_name: str):
     if not OAuth:
         raise ExternalServiceError("OAuth", "Authentication library not installed")
-    oauth = _new_oauth()
-    redirect_uri = settings.OAUTH_TWITCH_REDIRECT_URI
+    provider = get_provider(provider_name)
+    if not provider.enabled:
+        raise ExternalServiceError(provider.name.title(), "Provider is not configured")
+    try:
+        binding = _consume_oauth_request(db, request, provider_name)
+    except ValidationError:
+        log_audit_from_request(
+            db,
+            request,
+            ACTION_LOGIN_FAILED,
+            success=False,
+            details={"provider": provider_name, "reason": "state_validation_failed"},
+        )
+        raise
+    except DatabaseError:
+        log_audit_from_request(
+            db,
+            request,
+            ACTION_LOGIN_FAILED,
+            success=False,
+            details={"provider": provider_name, "reason": "state_persistence_failed"},
+        )
+        raise
+    request.session.pop("oauth_state", None)
+    request.session.pop("oauth_nonce", None)
+    try:
+        oauth = OAuth()
+        register_provider(oauth, provider)
+        client = getattr(oauth, provider_name)
+        profile = await exchange_and_normalize_profile(client, provider, request, binding["nonce_hash"])
+    except (ValidationError, ExternalServiceError):
+        log_audit_from_request(
+            db,
+            request,
+            ACTION_LOGIN_FAILED,
+            success=False,
+            details={"provider": provider_name, "reason": "profile_validation_failed"},
+        )
+        raise
+    except Exception as exc:
+        logger.error("OAuth callback failed", extra={"provider": provider_name, "error_type": type(exc).__name__})
+        log_audit_from_request(
+            db,
+            request,
+            ACTION_LOGIN_FAILED,
+            success=False,
+            details={"provider": provider_name, "reason": "provider_callback_failed"},
+        )
+        raise ExternalServiceError(
+            provider.name.title(), "Authentication failed", details={"code": "oauth_callback_failed"}
+        )
+    try:
+        if binding["intent"] == "link":
+            user_id = binding["link_user_id"]
+            link_identity(db, user_id, profile)
+            write_audit_event(
+                db,
+                ACTION_IDENTITY_LINKED,
+                user_id=user_id,
+                details={"provider": provider_name},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            db.commit()
+            return RedirectResponse(url=f"{settings.FRONTEND_ORIGIN.rstrip('/')}/account?linked={provider_name}")
 
-    # Generate and store state parameter for CSRF protection
-    if settings.OAUTH_STATE_VALIDATION:
-        state = generate_oauth_state()
-        request.session["oauth_state"] = state
-        request.session["oauth_nonce"] = generate_nonce()
-        return await oauth.twitch.authorize_redirect(request, redirect_uri, state=state)
-
-    return await oauth.twitch.authorize_redirect(request, redirect_uri)
+        result = sign_in_identity(db, profile)
+        session_token = create_session(
+            db,
+            result.user["id"],
+            user_agent=request.headers.get("user-agent"),
+            ip_address=request.client.host if request.client else None,
+        )
+        write_audit_event(
+            db,
+            ACTION_LOGIN_SUCCESS,
+            user_id=result.user["id"],
+            success=True,
+            details={"provider": provider_name},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+        db.commit()
+    except IdentityConflictError:
+        db.rollback()
+        # A collision is meaningful operationally but does not disclose who
+        # owns the identity to the linking account.
+        try:
+            write_audit_event(
+                db,
+                ACTION_IDENTITY_COLLISION,
+                user_id=binding.get("link_user_id"),
+                success=False,
+                details={"provider": provider_name},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+        if binding["intent"] == "link":
+            return RedirectResponse(url=f"{settings.FRONTEND_ORIGIN.rstrip('/')}/account?error=identity_conflict")
+        raise DatabaseError("Authentication could not be completed") from None
+    except Exception as exc:
+        db.rollback()
+        # Never let SQLAlchemy render statement parameters (including the raw
+        # legacy session token) to a client or log sink.
+        logger.error(
+            "OAuth account persistence failed", extra={"provider": provider_name, "error_type": type(exc).__name__}
+        )
+        log_audit_from_request(
+            db,
+            request,
+            ACTION_LOGIN_FAILED,
+            success=False,
+            details={"provider": provider_name, "reason": "account_persistence_failed"},
+        )
+        raise DatabaseError("Authentication could not be completed") from None
+    response = RedirectResponse(url=f"{settings.FRONTEND_ORIGIN.rstrip('/')}/")
+    _set_session_cookie(response, session_token)
+    return response
 
 
 @router.get("/auth/callback/google")
 async def auth_callback_google(request: Request, db=Depends(get_db)):
-    if not OAuth:
-        raise ExternalServiceError("OAuth", "Authentication library not installed")
-
-    # Validate state parameter for CSRF protection
-    if settings.OAUTH_STATE_VALIDATION:
-        state = request.query_params.get("state")
-        stored_state = request.session.get("oauth_state")
-
-        if not state or not stored_state or state != stored_state:
-            logger.warning(
-                "OAuth state validation failed",
-                extra={
-                    "provider": "google",
-                    "has_state": bool(state),
-                    "has_stored_state": bool(stored_state),
-                },
-            )
-            log_audit_from_request(
-                db, request, ACTION_LOGIN_FAILED, details={"provider": "google", "reason": "state_validation_failed"}
-            )
-            raise ValidationError("Invalid OAuth state parameter")
-
-        # Clear state after use
-        request.session.pop("oauth_state", None)
-        request.session.pop("oauth_nonce", None)
-
-    try:
-        oauth = OAuth()
-        oauth.register(
-            name="google",
-            client_id=settings.OAUTH_GOOGLE_CLIENT_ID,
-            client_secret=settings.OAUTH_GOOGLE_CLIENT_SECRET,
-            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-            client_kwargs={"scope": "openid email profile"},
-        )
-        token = await oauth.google.authorize_access_token(request)
-        userinfo = token.get("userinfo") or {}
-        if not userinfo:
-            resp = await oauth.google.get("userinfo", token=token)
-            userinfo = resp.json()
-        sub = userinfo.get("sub")
-        email = userinfo.get("email")
-        name = userinfo.get("name")
-        avatar = userinfo.get("picture")
-        if not sub:
-            log_audit_from_request(
-                db, request, ACTION_LOGIN_FAILED, details={"provider": "google", "reason": "missing_subject"}
-            )
-            raise ValidationError("Missing user identifier from OAuth provider")
-    except (ValidationError, ExternalServiceError):
-        # Re-raise our custom exceptions without modification
-        raise
-    except Exception as e:
-        # Log the original exception with full context for debugging
-        logger.error(
-            "Google OAuth callback error: %s | type=%s",
-            str(e),
-            type(e).__name__,
-            exc_info=True,
-        )
-        log_audit_from_request(db, request, ACTION_LOGIN_FAILED, details={"provider": "google", "error": str(e)})
-        # Determine if it's an authlib-specific error
-        error_type = type(e).__name__
-        if AuthlibBaseError and isinstance(e, AuthlibBaseError):
-            # Provide more specific error message for OAuth protocol errors
-            raise ExternalServiceError(
-                "Google OAuth",
-                f"OAuth protocol error: {str(e)}",
-                details={"error_type": error_type, "error": str(e)},
-            )
-        # For all other exceptions, wrap with generic message
-        raise ExternalServiceError(
-            "Google OAuth",
-            f"Authentication failed: {str(e)}",
-            details={"error_type": error_type},
-        )
-
-    with db.begin():
-        row = (
-            db.execute(text("SELECT * FROM users WHERE oauth_provider='google' AND oauth_subject=:s"), {"s": sub})
-            .mappings()
-            .first()
-        )
-        if row:
-            user_id = row["id"]
-            db.execute(
-                text("UPDATE users SET email=:e, name=:n, avatar_url=:a, updated_at=now() WHERE id=:i"),
-                {"e": email, "n": name, "a": avatar, "i": str(user_id)},
-            )
-        else:
-            user_id = uuid.uuid4()
-            db.execute(
-                text(
-                    "INSERT INTO users (id,email,name,avatar_url,oauth_provider,oauth_subject) VALUES (:i,:e,:n,:a,'google',:s)"  # noqa: E501
-                ),
-                {"i": str(user_id), "e": email, "n": name, "a": avatar, "s": sub},
-            )
-        session_token = secrets.token_urlsafe(32)
-        expires = datetime.utcnow() + timedelta(hours=settings.SESSION_EXPIRE_HOURS)
-        db.execute(
-            text(
-                "INSERT INTO sessions (user_id, token, user_agent, ip_address, expires_at) VALUES (:u,:t,:ua,:ip,:exp)"
-            ),
-            {
-                "u": str(user_id),
-                "t": session_token,
-                "ua": request.headers.get("user-agent"),
-                "ip": request.client.host if request.client else None,
-                "exp": expires,
-            },
-        )
-
-        # Log successful login
-        log_audit_from_request(
-            db, request, ACTION_LOGIN_SUCCESS, user_id=user_id, details={"provider": "google", "email": email}
-        )
-
-    resp = RedirectResponse(url=f"{settings.FRONTEND_ORIGIN}")
-    _set_session_cookie(resp, session_token)
-    return resp
+    return await _oauth_callback(request, db, "google")
 
 
 @router.get("/auth/callback/twitch")
 async def auth_callback_twitch(request: Request, db=Depends(get_db)):
-    if not OAuth:
-        raise ExternalServiceError("OAuth", "Authentication library not installed")
-
-    # Validate state parameter for CSRF protection
-    if settings.OAUTH_STATE_VALIDATION:
-        state = request.query_params.get("state")
-        stored_state = request.session.get("oauth_state")
-
-        if not state or not stored_state or state != stored_state:
-            logger.warning(
-                "OAuth state validation failed",
-                extra={
-                    "provider": "twitch",
-                    "has_state": bool(state),
-                    "has_stored_state": bool(stored_state),
-                },
-            )
-            log_audit_from_request(
-                db, request, ACTION_LOGIN_FAILED, details={"provider": "twitch", "reason": "state_validation_failed"}
-            )
-            raise ValidationError("Invalid OAuth state parameter")
-
-        # Clear state after use
-        request.session.pop("oauth_state", None)
-        request.session.pop("oauth_nonce", None)
-
-    try:
-        oauth = _new_oauth()
-        token = await oauth.twitch.authorize_access_token(request)
-        access_token = token.get("access_token")
-        if not access_token:
-            log_audit_from_request(
-                db, request, ACTION_LOGIN_FAILED, details={"provider": "twitch", "reason": "missing_access_token"}
-            )
-            raise ValidationError("Missing access token from OAuth provider")
-        headers = {
-            "Client-ID": settings.OAUTH_TWITCH_CLIENT_ID,
-            "Authorization": f"Bearer {access_token}",
-        }
-        resp = await oauth.twitch.get("users", token=token, headers=headers)
-        data = resp.json()
-        users = data.get("data") or []
-        if not users:
-            log_audit_from_request(
-                db, request, ACTION_LOGIN_FAILED, details={"provider": "twitch", "reason": "no_user_data"}
-            )
-            raise ExternalServiceError("Twitch", "Failed to fetch user information")
-        u0 = users[0]
-        sub = u0.get("id")
-        email = u0.get("email")
-        name = u0.get("display_name") or u0.get("login")
-        avatar = u0.get("profile_image_url")
-        if not sub:
-            log_audit_from_request(
-                db, request, ACTION_LOGIN_FAILED, details={"provider": "twitch", "reason": "missing_subject"}
-            )
-            raise ValidationError("Missing user identifier from OAuth provider")
-    except (ValidationError, ExternalServiceError):
-        # Re-raise our custom exceptions without modification
-        raise
-    except Exception as e:
-        # Log the original exception with full context for debugging
-        logger.error(
-            "Twitch OAuth callback error: %s | type=%s",
-            str(e),
-            type(e).__name__,
-            exc_info=True,
-        )
-        log_audit_from_request(db, request, ACTION_LOGIN_FAILED, details={"provider": "twitch", "error": str(e)})
-        # Determine if it's an authlib-specific error
-        error_type = type(e).__name__
-        if AuthlibBaseError and isinstance(e, AuthlibBaseError):
-            # Provide more specific error message for OAuth protocol errors
-            raise ExternalServiceError(
-                "Twitch OAuth",
-                f"OAuth protocol error: {str(e)}",
-                details={"error_type": error_type, "error": str(e)},
-            )
-        # For all other exceptions, wrap with generic message
-        raise ExternalServiceError(
-            "Twitch OAuth",
-            f"Authentication failed: {str(e)}",
-            details={"error_type": error_type},
-        )
-
-    with db.begin():
-        row = (
-            db.execute(text("SELECT * FROM users WHERE oauth_provider='twitch' AND oauth_subject=:s"), {"s": sub})
-            .mappings()
-            .first()
-        )
-        if row:
-            user_id = row["id"]
-            db.execute(
-                text("UPDATE users SET email=:e, name=:n, avatar_url=:a, updated_at=now() WHERE id=:i"),
-                {"e": email, "n": name, "a": avatar, "i": str(user_id)},
-            )
-        else:
-            user_id = uuid.uuid4()
-            db.execute(
-                text(
-                    "INSERT INTO users (id,email,name,avatar_url,oauth_provider,oauth_subject) VALUES (:i,:e,:n,:a,'twitch',:s)"  # noqa: E501
-                ),
-                {"i": str(user_id), "e": email, "n": name, "a": avatar, "s": sub},
-            )
-        session_token = secrets.token_urlsafe(32)
-        expires = datetime.utcnow() + timedelta(hours=settings.SESSION_EXPIRE_HOURS)
-        db.execute(
-            text(
-                "INSERT INTO sessions (user_id, token, user_agent, ip_address, expires_at) VALUES (:u,:t,:ua,:ip,:exp)"
-            ),
-            {
-                "u": str(user_id),
-                "t": session_token,
-                "ua": request.headers.get("user-agent"),
-                "ip": request.client.host if request.client else None,
-                "exp": expires,
-            },
-        )
-
-        # Log successful login
-        log_audit_from_request(
-            db, request, ACTION_LOGIN_SUCCESS, user_id=user_id, details={"provider": "twitch", "email": email}
-        )
-
-    resp = RedirectResponse(url=f"{settings.FRONTEND_ORIGIN}")
-    _set_session_cookie(resp, session_token)
-    return resp
+    return await _oauth_callback(request, db, "twitch")
 
 
 @router.post(
@@ -448,12 +463,23 @@ def auth_logout(request: Request, db=Depends(get_db)):
     user = _get_user_from_session(db, tok) if tok else None
 
     if tok:
-        db.execute(text("DELETE FROM sessions WHERE token=:t"), {"t": tok})
-        db.commit()
-
-        # Log successful logout
-        if user:
-            log_audit_from_request(db, request, ACTION_LOGOUT, user_id=user.get("id"))
+        try:
+            db.execute(
+                text("DELETE FROM sessions WHERE token_hash=:token_hash"), {"token_hash": session_token_hash(tok)}
+            )
+            if user:
+                write_audit_event(
+                    db,
+                    ACTION_LOGOUT,
+                    user_id=user.get("id"),
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                )
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.error("Logout persistence failed", extra={"error_type": type(exc).__name__})
+            raise DatabaseError("Logout could not be completed") from None
 
     resp = JSONResponse({"ok": True})
     _clear_session_cookie(resp)

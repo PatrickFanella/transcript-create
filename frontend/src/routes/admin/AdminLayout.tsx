@@ -1,13 +1,13 @@
 import { Link, Outlet } from 'react-router-dom';
 import Protected from '../Protected';
 import { useAuth } from '../../services/auth';
+import { ForbiddenPage } from '../RouteStates';
 
 function ProtectedAdmin({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  // Simple admin check by email domain/flag can be surfaced from /auth/me if needed
-  // For now, rely on backend to gate /admin endpoints; here we just require login
+  const { user, loading, capabilities } = useAuth();
   if (loading) return <div className="p-6">Loading…</div>;
   if (!user) return <Protected>{children}</Protected>;
+  if (!capabilities.includes('admin:access')) return <ForbiddenPage />;
   return <>{children}</>;
 }
 

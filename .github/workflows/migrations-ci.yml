@@ -56,11 +56,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install alembic sqlalchemy psycopg[binary]
-          pip install -r requirements.txt
+          pip install -c constraints.txt -r requirements.txt
 
       - name: Run migrations on fresh database
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/transcripts
+          ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: 'true'
         run: |
           python scripts/run_migrations.py upgrade
           echo "✓ Fresh migration successful"
@@ -81,7 +82,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/transcripts
         run: |
-          python scripts/run_migrations.py current
+          python scripts/run_migrations.py current | grep -F '20260714_0200 (head)'
           python scripts/run_migrations.py history
 
   validate-migrations-from-existing:
@@ -119,7 +120,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install alembic sqlalchemy psycopg[binary]
-          pip install -r requirements.txt
+          pip install -c constraints.txt -r requirements.txt
 
       - name: Apply existing schema.sql (simulate production)
         env:
@@ -141,12 +142,13 @@ jobs:
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/transcripts
         run: |
-          python scripts/run_migrations.py current | grep -E '[a-f0-9]{12}' || exit 1
+          python scripts/run_migrations.py current | grep -F '20260714_0200 (head)'
           echo "✓ Database correctly stamped"
 
       - name: Test that no new migrations are pending
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/transcripts
+          ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: 'true'
         run: |
           # After stamping, upgrade should be a no-op
           python scripts/run_migrations.py upgrade
@@ -187,13 +189,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install alembic sqlalchemy psycopg[binary]
-          pip install -r requirements.txt
+          pip install -c constraints.txt -r requirements.txt
 
       - name: Apply all migrations
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/transcripts
+          ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: 'true'
         run: |
           python scripts/run_migrations.py upgrade
+          PGPASSWORD=postgres psql -h localhost -U postgres -d transcripts -c "INSERT INTO users (email) VALUES ('downgrade-test@example.com') RETURNING id" > /tmp/user_id
+          PGPASSWORD=postgres psql -h localhost -U postgres -d transcripts -c "INSERT INTO sessions (user_id, token_hash) SELECT id, repeat('a', 64) FROM users WHERE email = 'downgrade-test@example.com'"
           echo "✓ Migrations applied"
 
       - name: Downgrade one revision
@@ -203,20 +208,20 @@ jobs:
           python scripts/run_migrations.py downgrade
           echo "✓ Downgrade successful"
 
-      - name: Verify tables are dropped
+      - name: Verify one-revision downgrade contract
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/transcripts
         run: |
-          # After downgrading from baseline, tables should not exist
-          if PGPASSWORD=postgres psql -h localhost -U postgres -d transcripts -c "\dt" | grep -q jobs; then
-            echo "✗ Tables still exist after downgrade"
-            exit 1
-          fi
-          echo "✓ Tables properly removed by downgrade"
+          python scripts/run_migrations.py current | grep -F '20260714_linked_identities'
+          PGPASSWORD=postgres psql -h localhost -U postgres -d transcripts -c "SELECT to_regclass('public.jobs'), to_regclass('public.users'), to_regclass('public.sessions')" | grep -E 'jobs|users|sessions'
+          PGPASSWORD=postgres psql -h localhost -U postgres -d transcripts -c "SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name = 'token'" | grep -q 1
+          PGPASSWORD=postgres psql -h localhost -U postgres -d transcripts -c "SELECT count(*) FROM sessions" | grep -E '^[[:space:]]*0[[:space:]]*$'
+          echo "✓ Linked-identities shape restored and hash-only sessions invalidated"
 
       - name: Re-apply migrations
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/transcripts
+          ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: 'true'
         run: |
           python scripts/run_migrations.py upgrade
           echo "✓ Re-applied migrations"

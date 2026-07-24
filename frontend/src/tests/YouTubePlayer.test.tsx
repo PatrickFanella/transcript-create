@@ -1,17 +1,17 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import YouTubePlayer from '../components/YouTubePlayer'
-import { createRef } from 'react'
-import type { YouTubePlayerHandle } from '../components/YouTubePlayer'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import YouTubePlayer from '../components/YouTubePlayer';
+import { createRef } from 'react';
+import type { YouTubePlayerHandle } from '../components/YouTubePlayer';
 
 describe('YouTubePlayer', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mockPlayer: any
-  let playerState = 2
+  let mockPlayer: any;
+  let playerState = 2;
 
   beforeEach(() => {
-    vi.clearAllMocks()
-    playerState = 2
+    vi.clearAllMocks();
+    playerState = 2;
 
     // Mock YouTube IFrame API
     mockPlayer = {
@@ -20,234 +20,246 @@ describe('YouTubePlayer', () => {
       pauseVideo: vi.fn(),
       getPlayerState: vi.fn(() => playerState),
       destroy: vi.fn(),
-    }
+    };
 
     window.YT = {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       Player: vi.fn(function (this: any, _element: any, config: any) {
-        this.seekTo = mockPlayer.seekTo
-        this.playVideo = mockPlayer.playVideo
-        this.pauseVideo = mockPlayer.pauseVideo
-        this.getPlayerState = mockPlayer.getPlayerState
-        this.destroy = mockPlayer.destroy
+        this.seekTo = mockPlayer.seekTo;
+        this.playVideo = mockPlayer.playVideo;
+        this.pauseVideo = mockPlayer.pauseVideo;
+        this.getPlayerState = mockPlayer.getPlayerState;
+        this.destroy = mockPlayer.destroy;
         // Simulate onReady callback
-        setTimeout(() => config.events.onReady(), 0)
-        return this
+        setTimeout(() => config.events.onReady(), 0);
+        return this;
       }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any
-  })
+    } as any;
+  });
 
   afterEach(() => {
-    delete window.YT
-  })
+    delete window.YT;
+  });
 
   it('renders player container', () => {
-    render(<YouTubePlayer videoId="test-video-id" />)
-    expect(screen.getByTitle('YouTube player')).toBeInTheDocument()
-  })
+    render(<YouTubePlayer videoId="test-video-id" />);
+    expect(screen.getByTitle('YouTube player')).toBeInTheDocument();
+  });
 
   it('renders with custom title', () => {
-    render(<YouTubePlayer videoId="test-video-id" title="Custom Title" />)
-    expect(screen.getByTitle('Custom Title')).toBeInTheDocument()
-  })
+    render(<YouTubePlayer videoId="test-video-id" title="Custom Title" />);
+    expect(screen.getByTitle('Custom Title')).toBeInTheDocument();
+  });
 
   it('initializes YouTube player with correct config', async () => {
-    render(<YouTubePlayer videoId="test-video-id" start={30} />)
+    render(<YouTubePlayer videoId="test-video-id" start={30} />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const call = (window.YT!.Player as any).mock.calls[0]
-    const config = call[1]
+    const call = (window.YT!.Player as any).mock.calls[0];
+    const config = call[1];
 
-    expect(config.videoId).toBe('test-video-id')
-    expect(config.height).toBe('100%')
-    expect(config.width).toBe('100%')
-    expect(config.playerVars.start).toBe(30)
-    expect(config.playerVars.autoplay).toBe(0)
-  })
+    expect(config.videoId).toBe('test-video-id');
+    expect(config.height).toBe('100%');
+    expect(config.width).toBe('100%');
+    expect(config.playerVars.start).toBe(30);
+    expect(config.playerVars.autoplay).toBe(0);
+  });
 
   it('seeks to start time when ready', async () => {
-    render(<YouTubePlayer videoId="test-video-id" start={45} />)
+    render(<YouTubePlayer videoId="test-video-id" start={45} />);
 
     await waitFor(() => {
-      expect(mockPlayer.seekTo).toHaveBeenCalledWith(45, true)
-    })
-  })
+      expect(mockPlayer.seekTo).toHaveBeenCalledWith(45, true);
+    });
+  });
 
   it('does not seek when start is 0', async () => {
-    render(<YouTubePlayer videoId="test-video-id" start={0} />)
+    render(<YouTubePlayer videoId="test-video-id" start={0} />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
     // Wait a bit to ensure seekTo is not called
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(mockPlayer.seekTo).not.toHaveBeenCalled()
-  })
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(mockPlayer.seekTo).not.toHaveBeenCalled();
+  });
 
   it('exposes seekTo method via ref', async () => {
-    const ref = createRef<YouTubePlayerHandle>()
-    render(<YouTubePlayer ref={ref} videoId="test-video-id" />)
+    const ref = createRef<YouTubePlayerHandle>();
+    render(<YouTubePlayer ref={ref} videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
     // Call seekTo via ref
-    ref.current?.seekTo(120)
+    ref.current?.seekTo(120);
 
-    expect(mockPlayer.seekTo).toHaveBeenCalledWith(120, true)
-  })
+    expect(mockPlayer.seekTo).toHaveBeenCalledWith(120, true);
+  });
 
   it('can seek and play via ref', async () => {
-    const ref = createRef<YouTubePlayerHandle>()
-    render(<YouTubePlayer ref={ref} videoId="test-video-id" />)
+    const ref = createRef<YouTubePlayerHandle>();
+    render(<YouTubePlayer ref={ref} videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
-    ref.current?.seekTo(120, { play: true })
+    ref.current?.seekTo(120, { play: true });
 
-    expect(mockPlayer.seekTo).toHaveBeenCalledWith(120, true)
-    expect(mockPlayer.playVideo).toHaveBeenCalled()
-  })
+    expect(mockPlayer.seekTo).toHaveBeenCalledWith(120, true);
+    expect(mockPlayer.playVideo).toHaveBeenCalled();
+  });
 
   it('exposes play, pause, and togglePlay methods via ref', async () => {
-    const ref = createRef<YouTubePlayerHandle>()
-    render(<YouTubePlayer ref={ref} videoId="test-video-id" />)
+    const ref = createRef<YouTubePlayerHandle>();
+    render(<YouTubePlayer ref={ref} videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
-    ref.current?.play()
-    expect(mockPlayer.playVideo).toHaveBeenCalled()
+    ref.current?.play();
+    expect(mockPlayer.playVideo).toHaveBeenCalled();
 
-    ref.current?.pause()
-    expect(mockPlayer.pauseVideo).toHaveBeenCalled()
+    ref.current?.pause();
+    expect(mockPlayer.pauseVideo).toHaveBeenCalled();
 
-    ref.current?.togglePlay()
-    expect(mockPlayer.playVideo).toHaveBeenCalledTimes(2)
+    ref.current?.togglePlay();
+    expect(mockPlayer.playVideo).toHaveBeenCalledTimes(2);
 
-    playerState = 1
-    ref.current?.togglePlay()
-    expect(mockPlayer.pauseVideo).toHaveBeenCalledTimes(2)
-  })
+    playerState = 1;
+    ref.current?.togglePlay();
+    expect(mockPlayer.pauseVideo).toHaveBeenCalledTimes(2);
+  });
 
   it('does not call playVideo when already playing', async () => {
-    mockPlayer.getPlayerState = vi.fn(() => 1)
-    const ref = createRef<YouTubePlayerHandle>()
-    render(<YouTubePlayer ref={ref} videoId="test-video-id" />)
+    mockPlayer.getPlayerState = vi.fn(() => 1);
+    const ref = createRef<YouTubePlayerHandle>();
+    render(<YouTubePlayer ref={ref} videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
-    ref.current?.seekTo(120, { play: true })
+    ref.current?.seekTo(120, { play: true });
 
-    expect(mockPlayer.seekTo).toHaveBeenCalledWith(120, true)
-    expect(mockPlayer.playVideo).not.toHaveBeenCalled()
-  })
+    expect(mockPlayer.seekTo).toHaveBeenCalledWith(120, true);
+    expect(mockPlayer.playVideo).not.toHaveBeenCalled();
+  });
 
   it('does not recreate player when start prop changes', async () => {
-    const { rerender } = render(<YouTubePlayer videoId="test-video-id" start={30} />)
+    const { rerender } = render(<YouTubePlayer videoId="test-video-id" start={30} />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalledTimes(1)
-    })
+      expect(window.YT!.Player).toHaveBeenCalledTimes(1);
+    });
 
-    rerender(<YouTubePlayer videoId="test-video-id" start={90} />)
+    rerender(<YouTubePlayer videoId="test-video-id" start={90} />);
 
-    expect(window.YT!.Player).toHaveBeenCalledTimes(1)
-  })
+    expect(window.YT!.Player).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockPlayer.seekTo).toHaveBeenCalledWith(90, true));
+  });
+
+  it('resets readiness and pending seek for a new video', async () => {
+    const { rerender } = render(<YouTubePlayer videoId="video-one" start={30} />);
+    await waitFor(() => expect(window.YT!.Player).toHaveBeenCalledTimes(1));
+
+    rerender(<YouTubePlayer videoId="video-two" start={75} />);
+    await waitFor(() => expect(window.YT!.Player).toHaveBeenCalledTimes(2));
+    const secondConfig = (window.YT!.Player as ReturnType<typeof vi.fn>).mock.calls[1][1];
+    expect(secondConfig.videoId).toBe('video-two');
+    expect(secondConfig.playerVars.start).toBe(75);
+  });
 
   it('handles seekTo errors gracefully', async () => {
     mockPlayer.seekTo = vi.fn(() => {
-      throw new Error('Player not ready')
-    })
+      throw new Error('Player not ready');
+    });
 
-    const ref = createRef<YouTubePlayerHandle>()
-    render(<YouTubePlayer ref={ref} videoId="test-video-id" />)
+    const ref = createRef<YouTubePlayerHandle>();
+    render(<YouTubePlayer ref={ref} videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
     // Should not throw
-    expect(() => ref.current?.seekTo(120)).not.toThrow()
-  })
+    expect(() => ref.current?.seekTo(120)).not.toThrow();
+  });
 
   it('cleans up player on unmount', async () => {
-    const { unmount } = render(<YouTubePlayer videoId="test-video-id" />)
+    const { unmount } = render(<YouTubePlayer videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
-    unmount()
+    unmount();
 
-    expect(mockPlayer.destroy).toHaveBeenCalled()
-  })
+    expect(mockPlayer.destroy).toHaveBeenCalled();
+  });
 
   it('handles destroy errors gracefully', async () => {
     mockPlayer.destroy = vi.fn(() => {
-      throw new Error('Destroy error')
-    })
+      throw new Error('Destroy error');
+    });
 
-    const { unmount } = render(<YouTubePlayer videoId="test-video-id" />)
+    const { unmount } = render(<YouTubePlayer videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
     // Should not throw
-    expect(() => unmount()).not.toThrow()
-  })
+    expect(() => unmount()).not.toThrow();
+  });
 
   it.skip('loads YouTube API script when not available', async () => {
     // This test is skipped because happy-dom doesn't support external script loading
     // In a real browser environment, this functionality works correctly
-    delete window.YT
+    delete window.YT;
 
-    const appendChildSpy = vi.spyOn(document.body, 'appendChild')
+    const appendChildSpy = vi.spyOn(document.body, 'appendChild');
 
-    render(<YouTubePlayer videoId="test-video-id" />)
+    render(<YouTubePlayer videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(appendChildSpy).toHaveBeenCalled()
-    })
+      expect(appendChildSpy).toHaveBeenCalled();
+    });
 
-    const scriptTag = appendChildSpy.mock.calls[0][0] as HTMLScriptElement
-    expect(scriptTag.src).toBe('https://www.youtube.com/iframe_api')
+    const scriptTag = appendChildSpy.mock.calls[0][0] as HTMLScriptElement;
+    expect(scriptTag.src).toBe('https://www.youtube.com/iframe_api');
 
-    appendChildSpy.mockRestore()
-  })
+    appendChildSpy.mockRestore();
+  });
 
   it('does not reload API script when already available', async () => {
     // YT is already available from beforeEach
-    const appendChildSpy = vi.spyOn(document.body, 'appendChild')
+    const appendChildSpy = vi.spyOn(document.body, 'appendChild');
 
-    render(<YouTubePlayer videoId="test-video-id" />)
+    render(<YouTubePlayer videoId="test-video-id" />);
 
     await waitFor(() => {
-      expect(window.YT!.Player).toHaveBeenCalled()
-    })
+      expect(window.YT!.Player).toHaveBeenCalled();
+    });
 
     // Check if appendChild was called with a script tag
-    const scriptCalls = appendChildSpy.mock.calls.filter(call => {
-      const element = call[0] as HTMLElement
-      return element && element.tagName === 'SCRIPT'
-    })
-    
-    // Should not append script when YT is already available
-    expect(scriptCalls.length).toBe(0)
+    const scriptCalls = appendChildSpy.mock.calls.filter((call) => {
+      const element = call[0] as HTMLElement;
+      return element && element.tagName === 'SCRIPT';
+    });
 
-    appendChildSpy.mockRestore()
-  })
-})
+    // Should not append script when YT is already available
+    expect(scriptCalls.length).toBe(0);
+
+    appendChildSpy.mockRestore();
+  });
+});

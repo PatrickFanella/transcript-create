@@ -9,7 +9,8 @@ import { StreamCard, StreamFiltersBar } from '../components/archive';
 export default function StreamsPage() {
   const [params, setParams] = useSearchParams();
   const searchKey = params.toString();
-  const filters = useMemo(() => parseFilters(params), [searchKey]);
+  const filters = useMemo(() => parseFilters(new URLSearchParams(searchKey)), [searchKey]);
+  const offset = Math.max(0, Number(new URLSearchParams(searchKey).get('offset') ?? '0') || 0);
 
   const [q, setQ] = useState(filters.q);
   const [dateFrom, setDateFrom] = useState(filters.dateFrom);
@@ -32,7 +33,7 @@ export default function StreamsPage() {
     api
       .listStreamLibrary({
         limit: DEFAULT_LIMIT,
-        offset: Math.max(0, Number(params.get('offset') ?? '0') || 0),
+        offset,
         completed_only: false,
         q: filters.q || undefined,
         date_field: 'uploaded_at',
@@ -51,9 +52,8 @@ export default function StreamsPage() {
         setPageInfo(null);
       })
       .finally(() => setLoading(false));
-  }, [filters.dateFrom, filters.dateTo, filters.q, params]);
+  }, [filters.dateFrom, filters.dateTo, filters.q, offset]);
 
-  const offset = Math.max(0, Number(params.get('offset') ?? '0') || 0);
   const totalCount = pageInfo?.total_count ?? items.length;
   const startItem = totalCount === 0 ? 0 : offset + 1;
   const endItem = Math.min(offset + items.length, totalCount);
@@ -119,7 +119,11 @@ export default function StreamsPage() {
 
       <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
         <div>
-          {loading ? 'Loading VODs…' : error ? error : `${startItem}-${endItem} of ${totalCount} VODs`}
+          {loading
+            ? 'Loading VODs…'
+            : error
+              ? error
+              : `${startItem}-${endItem} of ${totalCount} VODs`}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -161,7 +165,9 @@ export default function StreamsPage() {
       ) : (
         <div className="surface-card text-center">
           <p className="text-lg font-medium text-ink">No VODs match these filters.</p>
-          <p className="mt-2 text-muted">Try broadening the date range or clearing completed-only.</p>
+          <p className="mt-2 text-muted">
+            Try broadening the date range or clearing completed-only.
+          </p>
         </div>
       )}
 

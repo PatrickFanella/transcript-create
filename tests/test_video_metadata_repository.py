@@ -365,6 +365,22 @@ def test_video_metadata_assignment_round_trip_and_public_filtering():
     assert {tag["slug"] for tag in admin[0]["tags"]} == {"chadvice", "hidden-tag"}
 
 
+def test_get_video_metadata_map_deduplicates_video_id_bind_params():
+    db = _FakeMetadataDb()
+    video_id = uuid.uuid4()
+
+    metadata = get_video_metadata_map(db, [video_id, video_id, str(video_id)])
+
+    metadata_queries = [
+        params
+        for sql, params in db.calls
+        if "FROM archive_video_people vp" in sql or "FROM archive_video_taggings vt" in sql
+    ]
+    assert metadata == {str(video_id): {"people": [], "tags": []}}
+    assert len(metadata_queries) == 2
+    assert all(params == {"video_id_0": str(video_id)} for params in metadata_queries)
+
+
 def test_set_video_metadata_rejects_unknown_slugs():
     db = _FakeMetadataDb()
     video_id = uuid.uuid4()

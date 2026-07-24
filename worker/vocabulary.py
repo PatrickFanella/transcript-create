@@ -93,60 +93,62 @@ class VocabularyProcessor:
         return corrected
 
 
-def load_vocabularies(conn, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def load_vocabularies(conn, user_id: Optional[str], vocabulary_ids: List[str]) -> List[Dict[str, Any]]:
     """Load applicable vocabularies from database.
 
     Args:
         conn: Database connection
-        user_id: User ID to load user-specific vocabularies (optional)
+        user_id: Owner whose private vocabularies may be loaded
+        vocabulary_ids: Exact vocabulary IDs selected when the job was submitted
 
     Returns:
         List of vocabulary dicts
     """
     from sqlalchemy import text
 
-    vocabularies = []
+    if not vocabulary_ids:
+        return []
 
-    # Load global vocabularies
-    global_vocabs = (
+    vocabularies = (
         conn.execute(
-            text("SELECT id, name, terms FROM user_vocabularies WHERE is_global = true"),
+            text(
+                "SELECT id, name, terms FROM user_vocabularies "
+                "WHERE id = ANY(CAST(:vocabulary_ids AS uuid[])) "
+                "AND (is_global = true OR user_id = :user_id)"
+            ),
+            {"vocabulary_ids": vocabulary_ids, "user_id": user_id},
         )
         .mappings()
         .all()
     )
-    vocabularies.extend(global_vocabs)
 
-    # Load user-specific vocabularies if user_id provided
-    if user_id:
-        user_vocabs = (
-            conn.execute(
-                text("SELECT id, name, terms FROM user_vocabularies WHERE user_id = :uid AND is_global = false"),
-                {"uid": user_id},
-            )
-            .mappings()
-            .all()
-        )
-        vocabularies.extend(user_vocabs)
+    selected_ids = {str(vocabulary_id) for vocabulary_id in vocabulary_ids}
+    loaded_ids = {str(vocabulary["id"]) for vocabulary in vocabularies}
+    if loaded_ids != selected_ids:
+        raise ValueError("One or more selected vocabularies are unavailable to the job owner")
 
     logger.info("Loaded vocabularies", extra={"count": len(vocabularies)})
     return [dict(v) for v in vocabularies]
 
 
 def apply_vocabulary_corrections(
-    conn, segments: List[Dict[str, Any]], user_id: Optional[str] = None
+    conn,
+    segments: List[Dict[str, Any]],
+    user_id: Optional[str],
+    vocabulary_ids: List[str],
 ) -> List[Dict[str, Any]]:
     """Apply vocabulary corrections to segments.
 
     Args:
         conn: Database connection
         segments: Transcript segments
-        user_id: Optional user ID for user-specific vocabularies
+        user_id: Owner whose private vocabularies may be loaded
+        vocabulary_ids: Exact vocabulary IDs selected for this job
 
     Returns:
         Corrected segments
     """
-    vocabularies = load_vocabularies(conn, user_id)
+    vocabularies = load_vocabularies(conn, user_id, vocabulary_ids)
     if not vocabularies:
         return segments
 

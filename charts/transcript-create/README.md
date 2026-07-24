@@ -29,11 +29,16 @@ Official Helm chart for deploying transcript-create on Kubernetes.
 # Add the repository (when published)
 # helm repo add transcript-create https://subculture-collective.github.io/transcript-create
 
-# Install with default values (development)
+# Fresh development install (values-dev opts into the 0200 bootstrap only)
 helm install transcript-create ./charts/transcript-create \
+  -f charts/transcript-create/values-dev.yaml \
   --namespace transcript-create \
   --create-namespace
 ```
+
+`values-dev.yaml` sets `migrations.allowSessionTokenContractMigration=true` only
+for controlled, empty development installs. Do not use it for an existing or
+production release; generic and production values keep the flag `false`.
 
 ### Production Installation
 
@@ -43,6 +48,7 @@ helm install transcript-create ./charts/transcript-create \
    kubectl create secret generic transcript-secrets \
      --from-literal=database-url='postgresql+psycopg://user:pass@host:5432/db' \
      --from-literal=session-secret="$(openssl rand -hex 32)" \
+     --from-literal=analytics-hmac-secret="$(openssl rand -hex 32)" \
      --from-literal=hf-token='your-hf-token' \
      --namespace transcript-create
    ```
@@ -60,6 +66,8 @@ helm install transcript-create ./charts/transcript-create \
 
    api:
      replicaCount: 5
+     # Browser frontend origin; independent of the API ingress host below.
+     frontendOrigin: https://app.example.com
      ingress:
        enabled: true
        hosts:
@@ -85,6 +93,13 @@ helm install transcript-create ./charts/transcript-create \
      existingSecret: transcript-secrets
    ```
 
+   Add OAuth client IDs and secrets to this Secret with the
+   `oauth-google-client-id`, `oauth-google-client-secret`,
+   `oauth-twitch-client-id`, and `oauth-twitch-client-secret` keys. Set the OAuth
+   callback values to the exact URLs registered with each provider.
+   `config.oauth.bootstrapAdminIdentities` is an optional comma-separated list of
+   immutable `provider:subject` values.
+
 3. **Install**:
 
    ```bash
@@ -93,6 +108,48 @@ helm install transcript-create ./charts/transcript-create \
      --namespace transcript-create \
      --create-namespace
    ```
+
+### Frontend origin, API host, and OAuth
+
+In custom production values, set the browser frontend origin independently of the
+API ingress host. FastAPI is the sole CORS and CSRF authority; do not add ingress
+CORS annotations.
+
+```yaml
+api:
+  # Exact HTTPS browser origin; replace before deployment.
+  frontendOrigin: https://app.example.com
+  ingress:
+    hosts:
+      # API host, independent of frontendOrigin.
+      - host: api.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+
+config:
+  oauth:
+    # Exact HTTPS callbacks registered with each provider.
+    googleRedirectUri: https://api.example.com/auth/callback/google
+    twitchRedirectUri: https://api.example.com/auth/callback/twitch
+    # Optional immutable provider:subject identities for admin bootstrap.
+    bootstrapAdminIdentities: "google:1234567890"
+```
+
+Add OAuth client IDs and secrets to the deployment Secret. The callback values
+must exactly match their provider registrations; bootstrap identities are optional
+and comma-separated when more than one is used.
+
+### 20260714_0200 session-token contract migration
+
+`migrations.allowSessionTokenContractMigration` defaults to `false`. Keep it
+false for ordinary Helm upgrades: the pre-upgrade hook is expected to block
+before the irreversible 0200 cutover. Follow [the maintenance sequence](../../docs/MIGRATIONS.md#20260714_0200-hash-only-session-contract-maintenance-only): stop traffic, disable autoscaling/PDB constraints, scale every API, worker, cronjob,
+admin, maintenance, and other DB writer to zero, wait for pods and PostgreSQL
+sessions (including idle-in-transaction) to drain, run one isolated migration
+with the value true, verify head and no `sessions.token`, deploy only the
+hash-only image, then restore workloads and traffic. A downgrade invalidates all
+sessions.
 
 ## Configuration
 
@@ -109,7 +166,9 @@ The chart includes three pre-configured values files:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `global.environment` | Deployment environment | `production` |
-| `global.domain` | Base domain for ingress | `your-domain.com` |
+| `global.domain` | General deployment domain (not used for API CORS) | `your-domain.com` |
+| `api.frontendOrigin` | Exact browser frontend origin used for FastAPI CORS/CSRF | `https://your-frontend-domain.com` |
+| `api.ingress.hosts` | API ingress host(s), independent of frontend origin | `api.your-domain.com` |
 | `image.repository` | Docker image repository | `transcript-create` |
 | `image.tag` | Image tag | `latest` |
 | `api.replicaCount` | Number of API replicas | `3` |

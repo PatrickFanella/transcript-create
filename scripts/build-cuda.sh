@@ -8,14 +8,14 @@
 #   ./build-cuda.sh [cuda_version] [--no-cache] [--push]
 #
 # Arguments:
-#   cuda_version - CUDA version (12.1, 11.8), default: 12.1
+#   cuda_version - audited CUDA version (12.8 only), default: 12.8
 #   --no-cache   - Build without using cache
 #   --push       - Push to registry after build
 #
 # Examples:
-#   ./build-cuda.sh                    # Build with CUDA 12.1 and cache
-#   ./build-cuda.sh 11.8 --no-cache    # Build CUDA 11.8 without cache
-#   ./build-cuda.sh --push             # Build and push to registry
+#   ./build-cuda.sh                    # Build with CUDA 12.8 and cache
+#   ./build-cuda.sh 12.8 --no-cache    # Build CUDA 12.8 without cache
+#   ./build-cuda.sh 12.8 --push        # Scan, then push to registry
 # =============================================================================
 
 set -euo pipefail
@@ -27,7 +27,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Default values
-CUDA_VERSION="${1:-12.1}"
+CUDA_VERSION="${1:-12.8}"
 NO_CACHE=""
 PUSH_IMAGE=false
 IMAGE_NAME="${IMAGE_NAME:-hasanara}"
@@ -54,15 +54,12 @@ done
 
 # Map CUDA version to PyTorch wheel index
 case ${CUDA_VERSION} in
-    12.1)
-        CUDA_WHEEL_INDEX="https://download.pytorch.org/whl/cu121"
-        ;;
-    11.8)
-        CUDA_WHEEL_INDEX="https://download.pytorch.org/whl/cu118"
+    12.8)
+        CUDA_WHEEL_INDEX="https://download.pytorch.org/whl/cu128"
         ;;
     *)
         echo -e "${RED}Unsupported CUDA version: ${CUDA_VERSION}${NC}"
-        echo "Supported versions: 12.1, 11.8"
+        echo "Supported version: 12.8"
         exit 1
         ;;
 esac
@@ -97,6 +94,7 @@ echo "  Image size: ${IMAGE_SIZE}"
 echo ""
 echo -e "${YELLOW}Verifying build...${NC}"
 docker run --rm "${IMAGE_NAME}:${IMAGE_TAG}" python3 -c "import torch; print('✓ Torch version:', torch.__version__)"
+"$(dirname "$0")/scan-container-image.sh" "${IMAGE_NAME}:${IMAGE_TAG}"
 
 # Push if requested
 if [ "${PUSH_IMAGE}" = true ]; then

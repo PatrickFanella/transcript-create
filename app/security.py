@@ -7,47 +7,29 @@ from typing import Optional
 from fastapi import Depends, Request
 from sqlalchemy import text
 
+from . import policy
 from .common.session import get_session_token, get_user_from_session
 from .db import get_db
 from .exceptions import AuthenticationError, AuthorizationError
 from .logging_config import get_logger
 
+ROLE_USER = policy.ROLE_USER
+ROLE_MODERATOR = policy.ROLE_MODERATOR
+ROLE_ADMIN = policy.ROLE_ADMIN
+ROLE_HIERARCHY = policy.ROLE_HIERARCHY
+
 logger = get_logger(__name__)
-
-# Role definitions
-ROLE_USER = "user"
-ROLE_PRO = "pro"
-ROLE_ADMIN = "admin"
-
-# Permission hierarchy: higher roles inherit lower role permissions
-ROLE_HIERARCHY = {
-    ROLE_USER: 0,
-    ROLE_PRO: 1,
-    ROLE_ADMIN: 2,
-}
 
 
 def get_user_role(user: Optional[dict]) -> str:
     """Get user role from user dict. Returns 'user' by default."""
-    if not user:
-        return ROLE_USER
-
-    # Admin check (from ADMIN_EMAILS env var)
-    from .common.session import is_admin
-
-    if is_admin(user):
-        return ROLE_ADMIN
-
-    # Account plan check
-    plan = user.get("plan", "free")
-    if plan == "pro":
-        return ROLE_PRO
-
-    return ROLE_USER
+    return policy.resolve_role(user)
 
 
 def has_role(user: Optional[dict], required_role: str) -> bool:
     """Check if user has the required role or higher."""
+    if required_role not in ROLE_HIERARCHY:
+        return False
     if not user and required_role != ROLE_USER:
         return False
 
@@ -154,16 +136,14 @@ def verify_api_key(db, api_key: str) -> Optional[dict]:
     # Look up the key in the database
     result = (
         db.execute(
-            text(
-                """
-            SELECT u.*, k.id as api_key_id, k.name as api_key_name
+            text("""
+            SELECT u.*, k.id as api_key_id, k.name as api_key_name, k.scopes as api_key_scopes
             FROM api_keys k
             JOIN users u ON u.id = k.user_id
             WHERE k.key_hash = :hash
               AND k.revoked_at IS NULL
               AND (k.expires_at IS NULL OR k.expires_at > now())
-        """
-            ),
+        """),
             {"hash": api_key_hash},
         )
         .mappings()
@@ -217,6 +197,25 @@ def get_user_optional(request: Request, db=Depends(get_db)) -> Optional[dict]:
     if api_key:
         user = verify_api_key(db, api_key)
         if user:
+            required_scope = policy.required_api_key_scope(request.method, request.url.path)
+            granted = {scope.strip() for scope in str(user.get("api_key_scopes") or "").split(",") if scope.strip()}
+            if required_scope is None or required_scope not in granted:
+                logger.warning(
+                    "API key scope denied",
+                    extra={"path": request.url.path, "method": request.method, "required_scope": required_scope},
+                )
+                raise AuthorizationError("API key is not authorized for this operation")
+            from .audit import ACTION_API_KEY_USED, log_audit_from_request
+
+            log_audit_from_request(
+                db,
+                request,
+                ACTION_API_KEY_USED,
+                user_id=user["id"],
+                resource_type="api_key",
+                resource_id=str(user["api_key_id"]),
+                details={"scope": required_scope, "path": request.url.path, "method": request.method},
+            )
             return user
 
     return None

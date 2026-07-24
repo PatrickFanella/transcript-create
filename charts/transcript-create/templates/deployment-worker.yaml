@@ -50,7 +50,7 @@ spec:
       {{- end }}
       containers:
       - name: worker
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        image: {{ include "transcript-create.image" . | quote }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command: ["python3", "-m", "worker.loop"]
         env:
@@ -60,7 +60,42 @@ spec:
               name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "transcript-create.fullname" .)) }}
               key: database-url
         - name: OPENSEARCH_URL
-          value: {{ include "transcript-create.opensearchUrl" . | quote }}
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "transcript-create.fullname" . }}-config
+              key: opensearch-url
+        - name: OPENSEARCH_INDEX_NATIVE
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "transcript-create.fullname" . }}-config
+              key: opensearch-index-native
+        - name: OPENSEARCH_INDEX_YOUTUBE
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "transcript-create.fullname" . }}-config
+              key: opensearch-index-youtube
+        - name: OPENSEARCH_VERIFY_SSL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "transcript-create.fullname" . }}-config
+              key: opensearch-verify-ssl
+        - name: OPENSEARCH_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "transcript-create.fullname" .)) }}
+              key: opensearch-user
+              optional: true
+        - name: OPENSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "transcript-create.fullname" .)) }}
+              key: opensearch-password
+              optional: true
+        - name: SEARCH_BACKEND
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "transcript-create.fullname" . }}-config
+              key: search-backend
         - name: WHISPER_MODEL
           value: {{ .Values.config.whisper.model | quote }}
         - name: WHISPER_BACKEND

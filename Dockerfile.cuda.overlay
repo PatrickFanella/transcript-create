@@ -1,0 +1,23 @@
+ARG WORKER_RUNTIME_IMAGE=hasanara:gtx1080-runtime
+FROM ${WORKER_RUNTIME_IMAGE}
+
+WORKDIR /app
+RUN find /app -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+COPY . /app
+RUN python3 -m compileall -q /app && \
+    python3 -c "import fastapi, faster_whisper, torch, whisper"
+
+ENV PDF_FONT_PATH=/app/fonts/DejaVuSerif.ttf \
+    HF_HOME=/root/.cache/hf \
+    HF_HUB_CACHE=/root/.cache/hf/hub \
+    TRANSFORMERS_CACHE=/root/.cache/hf/transformers \
+    FORCE_GPU=true \
+    WHISPER_BACKEND=faster-whisper \
+    GPU_DEVICE_PREFERENCE=cuda \
+    GPU_COMPUTE_TYPES=int8,float32
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

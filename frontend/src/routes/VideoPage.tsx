@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { HTTPError } from 'ky';
 import { api, apiAddFavorite, apiListFavorites, favorites, useAuth, track } from '../services';
 import type { Segment, TranscriptResponse, VideoInfo, SearchHit, VideoChapter } from '../types/api';
 // favorites, useAuth imported from services barrel
@@ -13,7 +14,8 @@ import {
 } from '../features/videoTranscript/transcript';
 import {
   FormattedTranscriptDocument,
-  EpisodeOutline,
+  EpisodeIntelligence,
+  PlaybackProgress,
   PlayerPanel,
   PlainTranscriptTurns,
   TranscriptSearchBar,
@@ -25,15 +27,22 @@ function secondsToYouTubeTs(s: number) {
   return Math.max(0, Math.floor(s));
 }
 
-function copyText(text: string) {
-  void navigator.clipboard?.writeText(text);
+async function copyText(text: string) {
+  if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+  await navigator.clipboard.writeText(text);
 }
 
 export default function VideoPage() {
   const { videoId } = useParams();
   const [params, setParams] = useSearchParams();
   const [video, setVideo] = useState<VideoInfo | null>(null);
+  const [videoStatus, setVideoStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>(
+    'loading'
+  );
   const [transcript, setTranscript] = useState<TranscriptResponse | null>(null);
+  const [transcriptStatus, setTranscriptStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading'
+  );
   const [chapters, setChapters] = useState<VideoChapter[]>([]);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const { user } = useAuth();
@@ -43,10 +52,10 @@ export default function VideoPage() {
   const [activeSegId, setActiveSegId] = useState<number | null>(null);
   const [activeSentenceId, setActiveSentenceId] = useState<string | null>(null);
   const [activeBlockIndex, setActiveBlockIndex] = useState<number | null>(null);
-  const [currentMs, setCurrentMs] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'standard' | 'theater' | 'reader'>('standard');
   const [isPlayingMatches, setIsPlayingMatches] = useState(false);
   const [autoFollowEnabled, setAutoFollowEnabled] = useState(true);
+  const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
   const playerRef = useRef<YouTubePlayerHandle | null>(null);
   const autoFollowScrollTimeoutRef = useRef<number | null>(null);
 
@@ -79,21 +88,61 @@ export default function VideoPage() {
       inline: 'nearest',
     });
   }, [scrollElementIntoView]);
+  const autoScrollToPlayback = useCallback(
+    (element: HTMLElement) =>
+      scrollElementIntoView(element, {
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest',
+      }),
+    [scrollElementIntoView]
+  );
+
+  const loadTranscript = useCallback(
+    async (id: string, source: 'best' | 'whisper' | 'youtube' = 'best') => {
+      setTranscript(null);
+      setTranscriptStatus('loading');
+      try {
+        const response = await api.getTranscript(id, source);
+        setTranscript(response);
+        setTranscriptStatus('ready');
+      } catch {
+        setTranscript(null);
+        setTranscriptStatus('error');
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!videoId) return;
+    setVideo(null);
+    setVideoStatus('loading');
+    setChapters([]);
     api
       .getVideo(videoId)
-      .then(setVideo)
-      .catch(() => setVideo(null));
-    api
-      .getTranscript(videoId)
-      .then(setTranscript)
-      .catch(() => setTranscript(null));
+      .then((response) => {
+        setVideo(response);
+        setVideoStatus('ready');
+        void loadTranscript(videoId, response.has_whisper_transcript ? 'whisper' : 'best');
+      })
+      .catch((error: unknown) => {
+        setVideo(null);
+        const status =
+          error instanceof HTTPError
+            ? error.response.status
+            : (error as { response?: { status?: number } })?.response?.status;
+        setVideoStatus(status === 404 ? 'missing' : 'error');
+        setTranscriptStatus('error');
+      });
     api
       .getVideoChapters(videoId)
       .then((response) => setChapters(response.chapters ?? []))
       .catch(() => setChapters([]));
+  }, [loadTranscript, videoId]);
+
+  useEffect(() => {
+    if (!videoId) return;
     if (transcriptQuery) {
       api
         .search(transcriptQuery, { video_id: videoId })
@@ -102,6 +151,10 @@ export default function VideoPage() {
     } else {
       setHits(null);
     }
+  }, [transcriptQuery, videoId]);
+
+  useEffect(() => {
+    if (!videoId) return;
     if (user) {
       apiListFavorites(videoId)
         .then((r) => {
@@ -116,7 +169,7 @@ export default function VideoPage() {
     } else {
       setServerFavs([]);
     }
-  }, [videoId, transcriptQuery, user]);
+  }, [user, videoId]);
 
   useEffect(() => {
     const unlockAutoFollow = () => setAutoFollowEnabled(false);
@@ -222,22 +275,6 @@ export default function VideoPage() {
       }
     }
   }, [scrollElementIntoView, startSeconds, transcript]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      const seconds = playerRef.current?.getCurrentTime();
-      if (seconds == null || !Number.isFinite(seconds)) return;
-      setCurrentMs(Math.floor(seconds * 1000));
-    }, 750);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (!autoFollowEnabled || currentMs == null) return;
-    const el = document.querySelector('[data-current-sentence="true"]');
-    if (!el) return;
-    scrollElementIntoView(el, { behavior: 'smooth', block: 'center', inline: 'nearest' });
-  }, [autoFollowEnabled, currentMs, scrollElementIntoView]);
 
   const jumpTo = useCallback(
     (ms: number) => {
@@ -403,17 +440,24 @@ export default function VideoPage() {
         });
       }
       track({ type: 'favorite_add', payload: { videoId, start_ms: segment.start_ms } });
+      setOperationFeedback('Transcript moment saved.');
     } catch (err) {
       console.error('Failed to save transcript moment', err);
+      setOperationFeedback('The transcript moment could not be saved.');
     }
   }
 
-  function copyTranscriptQuote(segment: Segment, text: string, segIndex: number) {
+  async function copyTranscriptQuote(segment: Segment, text: string, segIndex: number) {
     if (!videoId) return;
     const url = `${window.location.origin}${buildTimestampLink(videoId, segment.start_ms, segIndex)}`;
-    copyText(
-      `“${normalizeTranscriptText(text)}”\n\n— ${episodeTitle}, ${formatTimestamp(segment.start_ms)}\n${url}`
-    );
+    try {
+      await copyText(
+        `“${normalizeTranscriptText(text)}”\n\n— ${episodeTitle}, ${formatTimestamp(segment.start_ms)}\n${url}`
+      );
+      setOperationFeedback('Quote copied.');
+    } catch {
+      setOperationFeedback('The quote could not be copied.');
+    }
   }
 
   const transcriptTurns = useMemo(
@@ -439,11 +483,40 @@ export default function VideoPage() {
     const target = evidence ? document.getElementById(`block-${evidence.block_index}`) : null;
     scrollElementIntoView(target, { behavior: 'smooth', block: 'start' });
   }
+  if (videoStatus === 'missing') {
+    return (
+      <section className="mx-auto max-w-2xl p-8 text-center" role="alert">
+        <div className="archive-eyebrow">Missing episode</div>
+        <h1 className="mt-3 text-3xl font-semibold text-ink">This video is not in the archive</h1>
+        <p className="mt-3 text-muted">It may have been removed or the link may be incorrect.</p>
+        <Link className="btn mt-6 inline-flex" to="/episodes">
+          Browse episodes
+        </Link>
+      </section>
+    );
+  }
+  if (videoStatus === 'error' && !video) {
+    return (
+      <section className="mx-auto max-w-2xl p-8 text-center" role="alert">
+        <h1 className="text-3xl font-semibold text-ink">Episode unavailable</h1>
+        <p className="mt-3 text-muted">The archive could not load this episode right now.</p>
+        <button className="btn mt-6" type="button" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+      </section>
+    );
+  }
   return (
     <div className="episode-page space-y-7">
       <VideoHeader title={episodeTitle} actions={video ? <ExportMenu videoId={video.id} /> : null}>
         {video && <VideoDetailsPanel video={video} />}
       </VideoHeader>
+      {operationFeedback && (
+        <div className="text-sm text-success" role="status">
+          {operationFeedback}
+        </div>
+      )}
+      {video && <EpisodeIntelligence videoId={video.id} />}
 
       <div className={viewMode === 'standard' ? 'transcript-layout' : 'space-y-6'}>
         <aside
@@ -451,37 +524,66 @@ export default function VideoPage() {
             viewMode === 'standard'
               ? 'transcript-rail'
               : viewMode === 'theater'
-                ? 'mx-auto max-w-6xl'
+                ? 'mx-auto max-w-6xl space-y-4'
                 : 'hidden'
           }
         >
-          <div className={viewMode === 'standard' ? 'lg:sticky lg:top-24 space-y-4' : 'space-y-4'}>
-            {video && <PlayerPanel video={video} start={start} playerRef={playerRef} />}
-            <div className="rail-panel">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="meta-label">Reading mode</span>
-                <span className="font-mono text-[10px] text-subtle">
-                  {transcript?.segments.length.toLocaleString() ?? '—'} segments
-                </span>
-              </div>
-              <div className="view-switch" role="group" aria-label="Transcript layout">
-                {(['standard', 'theater', 'reader'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={viewMode === mode ? 'view-switch-active' : ''}
-                    onClick={() => setViewMode(mode)}
-                  >
-                    {mode === 'standard' ? 'Split' : mode === 'theater' ? 'Watch' : 'Read'}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-3 text-xs leading-5 text-subtle">
-                Select any sentence to play from that moment. Scroll manually to pause auto-follow.
-              </p>
+          {video && (
+            <div className={viewMode === 'standard' ? 'split-player-sticky' : ''}>
+              <PlayerPanel video={video} start={start} playerRef={playerRef} />
             </div>
-            <EpisodeOutline chapters={chapters} currentMs={currentMs} onSelect={selectChapter} />
+          )}
+          <div className="rail-panel">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="meta-label">Reading mode</span>
+              <span className="font-mono text-[10px] text-subtle">
+                {transcript?.segments.length.toLocaleString() ?? '—'} segments
+              </span>
+            </div>
+            <div className="view-switch" role="group" aria-label="Transcript layout">
+              {(['standard', 'theater', 'reader'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={viewMode === mode ? 'view-switch-active' : ''}
+                  aria-pressed={viewMode === mode}
+                  onClick={() => setViewMode(mode)}
+                >
+                  {mode === 'standard' ? 'Split' : mode === 'theater' ? 'Watch' : 'Read'}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-subtle">
+              Select any sentence to play from that moment. Scroll manually to pause auto-follow.
+            </p>
+            <div className="mt-4 border-t border-border/70 pt-4">
+              {autoFollowEnabled ? (
+                <div
+                  className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-accent"
+                  role="status"
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_rgba(183,255,60,0.65)]"
+                    aria-hidden="true"
+                  />
+                  Following live transcript
+                </div>
+              ) : (
+                <button type="button" className="follow-live-button" onClick={resumeAutoFollow}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+                  Enable follow live
+                </button>
+              )}
+            </div>
           </div>
+          <PlaybackProgress
+            chapters={chapters}
+            onSelectChapter={selectChapter}
+            playerRef={playerRef}
+            transcriptKey={`${videoId}:${transcript?.segments.length ?? 0}:${formattedBlocks.length}`}
+            autoFollow={autoFollowEnabled}
+            onAutoScroll={autoScrollToPlayback}
+          />
         </aside>
 
         <section
@@ -596,7 +698,7 @@ export default function VideoPage() {
             </header>
 
             <div className="transcript-body">
-              {!transcript && (
+              {transcriptStatus === 'loading' && (
                 <div className="py-24 text-center text-muted" role="status" aria-live="polite">
                   <span
                     className="mb-4 inline-block h-7 w-7 animate-spin rounded-full border-2 border-border border-t-accent"
@@ -607,7 +709,38 @@ export default function VideoPage() {
                   </p>
                 </div>
               )}
-              {transcript &&
+              {transcriptStatus === 'error' && (
+                <div className="mx-auto max-w-lg px-6 py-24 text-center" role="alert">
+                  <div
+                    className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-danger/20 bg-danger-soft text-danger"
+                    aria-hidden="true"
+                  >
+                    !
+                  </div>
+                  <h3 className="text-lg font-semibold text-ink">
+                    Transcript took too long to load
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    The source transcript is still available. Try the request again without leaving
+                    this episode.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-primary mt-5"
+                    onClick={() =>
+                      videoId &&
+                      void loadTranscript(
+                        videoId,
+                        video?.has_whisper_transcript ? 'whisper' : 'best'
+                      )
+                    }
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+              {transcriptStatus === 'ready' &&
+                transcript &&
                 (hasFormattedBlocks ? (
                   <FormattedTranscriptDocument
                     blocks={formattedBlocks}
@@ -616,7 +749,6 @@ export default function VideoPage() {
                     activeBlockIndex={activeBlockIndex}
                     activeSegId={activeSegId}
                     activeSentenceId={activeSentenceId}
-                    currentMs={currentMs}
                     isSavedSegment={isSavedSegment}
                     onClickSentence={onClickFormattedSentence}
                     onSaveMoment={saveTranscriptMoment}

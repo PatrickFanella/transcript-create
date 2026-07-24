@@ -1,31 +1,34 @@
 from __future__ import annotations
 
+import calendar
 import json
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timezone, timedelta
-import calendar
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Sequence
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 
-from app.archive.repository import ARCHIVE_VIDEO_FILTER_SQL, archive_repository
 from app.archive.intelligence_facets import attach_archive_facets
+from app.archive.query_support import execute as _safe_execute
+from app.archive.query_support import execute_many as _safe_execute_many
+from app.archive.query_support import query_mappings as _safe_mappings
+from app.archive.repository import ARCHIVE_VIDEO_FILTER_SQL, archive_repository
 from app.archive.video_metadata_repository import get_video_metadata_map
 from app.exceptions import ValidationError
 from app.schemas import (
     ArchiveEvidenceMoment,
     ArchiveIntelligenceResponse,
+    ArchiveNamedPeriod,
     ArchiveNamedPeriodAdminListResponse,
     ArchiveNamedPeriodAdminResponse,
-    ArchiveNamedPeriod,
     ArchiveNamedPeriodCreate,
     ArchiveNamedPeriodUpdate,
+    ArchivePeriodIntelligence,
     ArchivePeriodOption,
     ArchivePeriodOptionsResponse,
-    ArchivePeriodIntelligence,
     ArchiveTopicCard,
     ArchiveTrendingSearch,
     VideoInfo,
@@ -61,7 +64,104 @@ AUTO_TOPIC_STOP_TERMS = {
     "youtube",
 }
 
+
+def _is_junk_topic_label(value: str) -> bool:
+    # The labeling package imports this repository for alias boundary matching,
+    # so load its normalization rule lazily after this module is initialized.
+    from app.archive.labeling.normalization import is_junk_phrase
+
+    return is_junk_phrase(value)
+
+
 CURATED_NAMED_PERIODS: tuple[dict[str, object], ...] = (
+    {
+        "slug": "2020-election-leadup",
+        "label": "Election 2020 Leadup",
+        "kind": "leadup",
+        "date_from": date(2020, 10, 22),
+        "date_to": date(2020, 11, 2),
+        "description": "The final stretch of the 2020 U.S. presidential campaign",
+    },
+    {
+        "slug": "2020-election-week",
+        "label": "Election Week 2020",
+        "kind": "event",
+        "date_from": date(2020, 11, 2),
+        "date_to": date(2020, 11, 8),
+        "description": "Election night, vote counting, and the presidential result",
+    },
+    {
+        "slug": "2020-election-day",
+        "label": "Election Day 2020",
+        "kind": "date",
+        "date_from": date(2020, 11, 2),
+        "date_to": date(2020, 11, 4),
+        "description": "Hasan's 2020 U.S. election coverage",
+    },
+    {
+        "slug": "2020-election-fallout",
+        "label": "Election 2020 Fallout",
+        "kind": "fallout",
+        "date_from": date(2020, 11, 9),
+        "date_to": date(2020, 12, 14),
+        "description": "The transition, election challenges, and post-election reaction",
+    },
+    {
+        "slug": "january-6-leadup",
+        "label": "January 6 Leadup",
+        "kind": "leadup",
+        "date_from": date(2020, 12, 14),
+        "date_to": date(2021, 1, 5),
+        "description": "The electoral-count challenge and organizing before January 6",
+    },
+    {
+        "slug": "january-6-capitol-attack",
+        "label": "January 6 Capitol Attack",
+        "kind": "event",
+        "date_from": date(2021, 1, 5),
+        "date_to": date(2021, 1, 10),
+        "description": "The attack on the U.S. Capitol and immediate coverage",
+    },
+    {
+        "slug": "january-6-2021",
+        "label": "January 6, 2021",
+        "kind": "date",
+        "date_from": date(2021, 1, 5),
+        "date_to": date(2021, 1, 7),
+        "description": "The Capitol attack as it unfolded on stream",
+    },
+    {
+        "slug": "january-6-fallout",
+        "label": "January 6 Fallout",
+        "kind": "fallout",
+        "date_from": date(2021, 1, 7),
+        "date_to": date(2021, 2, 13),
+        "description": "Impeachment, arrests, investigations, and political fallout after January 6",
+    },
+    {
+        "slug": "gamestop-saga",
+        "label": "GameStop Saga",
+        "kind": "event",
+        "date_from": date(2021, 1, 25),
+        "date_to": date(2021, 2, 5),
+        "description": "WallStreetBets, GameStop, Robinhood, and the retail-trading surge",
+    },
+    {
+        "slug": "israel-palestine-may-2021",
+        "label": "Israel-Palestine: May 2021",
+        "kind": "event",
+        "date_from": date(2021, 5, 10),
+        "date_to": date(2021, 5, 21),
+        "description": "Coverage of the May 2021 escalation in Israel and Palestine",
+    },
+    {
+        "slug": "afghanistan-withdrawal-2021",
+        "label": "Afghanistan Withdrawal",
+        "kind": "event",
+        "date_from": date(2021, 8, 15),
+        "date_to": date(2021, 8, 31),
+        "description": "The fall of Kabul and the final U.S. withdrawal from Afghanistan",
+    },
     {
         "slug": "2024-election-leadup",
         "label": "Election 2024 Leadup",
@@ -87,6 +187,62 @@ CURATED_NAMED_PERIODS: tuple[dict[str, object], ...] = (
         "description": "Post-election coverage and reactions",
     },
     {
+        "slug": "dobbs-leadup",
+        "label": "Dobbs Decision Leadup",
+        "kind": "leadup",
+        "date_from": date(2022, 5, 2),
+        "date_to": date(2022, 6, 23),
+        "description": "The leaked Dobbs draft and leadup to the end of Roe v. Wade",
+    },
+    {
+        "slug": "dobbs-decision",
+        "label": "Dobbs Decision",
+        "kind": "event",
+        "date_from": date(2022, 6, 23),
+        "date_to": date(2022, 7, 1),
+        "description": "The Supreme Court decision overturning Roe v. Wade",
+    },
+    {
+        "slug": "dobbs-june-24-2022",
+        "label": "June 24, 2022: Dobbs",
+        "kind": "date",
+        "date_from": date(2022, 6, 23),
+        "date_to": date(2022, 6, 25),
+        "description": "The day the Supreme Court overturned Roe v. Wade",
+    },
+    {
+        "slug": "dobbs-fallout",
+        "label": "Dobbs Fallout",
+        "kind": "fallout",
+        "date_from": date(2022, 6, 25),
+        "date_to": date(2022, 7, 31),
+        "description": "Protests, state abortion bans, and political fallout after Dobbs",
+    },
+    {
+        "slug": "2022-midterms-leadup",
+        "label": "2022 Midterms Leadup",
+        "kind": "leadup",
+        "date_from": date(2022, 10, 1),
+        "date_to": date(2022, 11, 7),
+        "description": "Campaign coverage in the final weeks before the 2022 U.S. midterms",
+    },
+    {
+        "slug": "2022-midterms",
+        "label": "2022 Midterms",
+        "kind": "event",
+        "date_from": date(2022, 11, 7),
+        "date_to": date(2022, 11, 10),
+        "description": "Election-night and immediate 2022 U.S. midterm coverage",
+    },
+    {
+        "slug": "2022-midterms-fallout",
+        "label": "2022 Midterms Fallout",
+        "kind": "fallout",
+        "date_from": date(2022, 11, 9),
+        "date_to": date(2022, 12, 6),
+        "description": "Results, recounts, runoff coverage, and post-midterm analysis",
+    },
+    {
         "slug": "october-7",
         "label": "October 7",
         "kind": "date",
@@ -101,6 +257,86 @@ CURATED_NAMED_PERIODS: tuple[dict[str, object], ...] = (
         "date_from": date(2023, 10, 15),
         "date_to": date(2023, 12, 31),
         "description": "Longer aftermath of October 7",
+    },
+    {
+        "slug": "gaza-campus-protests-2024",
+        "label": "Gaza Campus Protests",
+        "kind": "event",
+        "date_from": date(2024, 4, 17),
+        "date_to": date(2024, 5, 31),
+        "description": "Campus encampments, police responses, and pro-Palestinian student protests",
+    },
+    {
+        "slug": "trump-assassination-attempt-2024",
+        "label": "Trump Assassination Attempt",
+        "kind": "event",
+        "date_from": date(2024, 7, 12),
+        "date_to": date(2024, 7, 16),
+        "description": "The Butler rally shooting and immediate political response",
+    },
+    {
+        "slug": "july-13-2024",
+        "label": "July 13, 2024",
+        "kind": "date",
+        "date_from": date(2024, 7, 12),
+        "date_to": date(2024, 7, 14),
+        "description": "The assassination attempt at Donald Trump's Butler rally",
+    },
+    {
+        "slug": "trump-assassination-attempt-fallout",
+        "label": "Trump Assassination Attempt Fallout",
+        "kind": "fallout",
+        "date_from": date(2024, 7, 14),
+        "date_to": date(2024, 7, 31),
+        "description": "Convention coverage, investigations, and reaction after the Butler shooting",
+    },
+    {
+        "slug": "dnc-2024",
+        "label": "Democratic National Convention 2024",
+        "kind": "event",
+        "date_from": date(2024, 8, 18),
+        "date_to": date(2024, 8, 23),
+        "description": "Hasan's coverage from the 2024 Democratic National Convention in Chicago",
+    },
+    {
+        "slug": "2024-election-day",
+        "label": "Election Day 2024",
+        "kind": "date",
+        "date_from": date(2024, 11, 4),
+        "date_to": date(2024, 11, 6),
+        "description": "Hasan's 2024 U.S. election-day coverage",
+    },
+    {
+        "slug": "2025-inauguration",
+        "label": "2025 Presidential Inauguration",
+        "kind": "event",
+        "date_from": date(2025, 1, 19),
+        "date_to": date(2025, 1, 22),
+        "description": "Donald Trump's second inauguration and immediate executive actions",
+    },
+    {
+        "slug": "january-20-2025",
+        "label": "January 20, 2025",
+        "kind": "date",
+        "date_from": date(2025, 1, 19),
+        "date_to": date(2025, 1, 21),
+        "description": "Inauguration Day 2025",
+    },
+    {
+        "slug": "la-protests-2025",
+        "label": "Los Angeles Protests 2025",
+        "kind": "event",
+        "date_from": date(2025, 6, 6),
+        "date_to": date(2025, 6, 15),
+        "description": "Immigration raids, protests, and federal response in Los Angeles",
+    },
+    {
+        "slug": "nyc-mayoral-primary-2025",
+        "label": "NYC Mayoral Primary 2025",
+        "kind": "event",
+        "date_from": date(2025, 6, 23),
+        "date_to": date(2025, 6, 25),
+        "description": "The New York City Democratic mayoral primary and Zohran Mamdani's victory",
     },
     {
         "slug": "may-day",
@@ -131,6 +367,56 @@ CURATED_NAMED_PERIODS: tuple[dict[str, object], ...] = (
         "recurring_month": 12,
         "recurring_day": 25,
         "description": "Christmas streams across every archive year",
+    },
+    {
+        "slug": "april-fools-day",
+        "label": "April Fools' Day",
+        "kind": "holiday",
+        "date_from": date(1970, 4, 1),
+        "date_to": date(1970, 4, 1),
+        "recurring_month": 4,
+        "recurring_day": 1,
+        "description": "April Fools' Day streams across every archive year",
+    },
+    {
+        "slug": "juneteenth",
+        "label": "Juneteenth",
+        "kind": "holiday",
+        "date_from": date(1970, 6, 19),
+        "date_to": date(1970, 6, 19),
+        "recurring_month": 6,
+        "recurring_day": 19,
+        "description": "Juneteenth streams and political coverage across every archive year",
+    },
+    {
+        "slug": "independence-day",
+        "label": "Independence Day",
+        "kind": "holiday",
+        "date_from": date(1970, 7, 4),
+        "date_to": date(1970, 7, 4),
+        "recurring_month": 7,
+        "recurring_day": 4,
+        "description": "July 4 streams across every archive year",
+    },
+    {
+        "slug": "halloween",
+        "label": "Halloween",
+        "kind": "holiday",
+        "date_from": date(1970, 10, 31),
+        "date_to": date(1970, 10, 31),
+        "recurring_month": 10,
+        "recurring_day": 31,
+        "description": "Halloween streams across every archive year",
+    },
+    {
+        "slug": "new-years-eve",
+        "label": "New Year's Eve",
+        "kind": "holiday",
+        "date_from": date(1970, 12, 31),
+        "date_to": date(1970, 12, 31),
+        "recurring_month": 12,
+        "recurring_day": 31,
+        "description": "New Year's Eve streams across every archive year",
     },
     {
         "slug": "russia-ukraine-invasion-leadup",
@@ -176,6 +462,66 @@ CURATED_NAMED_PERIODS: tuple[dict[str, object], ...] = (
         "recurring_day": 21,
         "description": "August 21 streams across every archive year",
     },
+    {
+        "slug": "january-6-anniversary",
+        "label": "January 6 Anniversary",
+        "kind": "anniversary",
+        "date_from": date(1970, 1, 6),
+        "date_to": date(1970, 1, 6),
+        "recurring_month": 1,
+        "recurring_day": 6,
+        "description": "January 6 anniversary coverage across every archive year",
+    },
+    {
+        "slug": "ukraine-invasion-anniversary",
+        "label": "Ukraine Invasion Anniversary",
+        "kind": "anniversary",
+        "date_from": date(1970, 2, 24),
+        "date_to": date(1970, 2, 24),
+        "recurring_month": 2,
+        "recurring_day": 24,
+        "description": "Anniversary coverage of Russia's full-scale invasion of Ukraine",
+    },
+    {
+        "slug": "george-floyd-anniversary",
+        "label": "George Floyd Anniversary",
+        "kind": "anniversary",
+        "date_from": date(1970, 5, 25),
+        "date_to": date(1970, 5, 25),
+        "recurring_month": 5,
+        "recurring_day": 25,
+        "description": "George Floyd anniversary and racial-justice coverage across archive years",
+    },
+    {
+        "slug": "dobbs-anniversary",
+        "label": "Dobbs Anniversary",
+        "kind": "anniversary",
+        "date_from": date(1970, 6, 24),
+        "date_to": date(1970, 6, 24),
+        "recurring_month": 6,
+        "recurring_day": 24,
+        "description": "Anniversary coverage of the decision overturning Roe v. Wade",
+    },
+    {
+        "slug": "trump-assassination-attempt-anniversary",
+        "label": "Trump Assassination Attempt Anniversary",
+        "kind": "anniversary",
+        "date_from": date(1970, 7, 13),
+        "date_to": date(1970, 7, 13),
+        "recurring_month": 7,
+        "recurring_day": 13,
+        "description": "Anniversary coverage of the July 13 Butler rally shooting",
+    },
+    {
+        "slug": "october-7-anniversary",
+        "label": "October 7 Anniversary",
+        "kind": "anniversary",
+        "date_from": date(1970, 10, 7),
+        "date_to": date(1970, 10, 7),
+        "recurring_month": 10,
+        "recurring_day": 7,
+        "description": "October 7 anniversary coverage across every archive year",
+    },
 )
 
 RETIRED_NAMED_PERIOD_SLUGS: tuple[str, ...] = (
@@ -188,9 +534,7 @@ RETIRED_NAMED_PERIOD_SLUGS: tuple[str, ...] = (
     "christmas-2025",
 )
 
-RETIRED_NAMED_PERIOD_PATTERNS: tuple[str, ...] = (
-    r"^[0-9]{4}-august-21$",
-)
+RETIRED_NAMED_PERIOD_PATTERNS: tuple[str, ...] = (r"^[0-9]{4}-august-21$",)
 
 
 def slugify_topic(value: str) -> str:
@@ -213,45 +557,11 @@ def alias_matches_text(alias: str, text_value: str) -> bool:
     return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text_value) is not None
 
 
-def _safe_mappings(db, sql: str, params: dict | None = None):
-    try:
-        return [dict(row) for row in db.execute(text(sql), params or {}).mappings().all()]
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return []
-
-
-def _safe_scalar(db, sql: str, params: dict | None = None):
-    try:
-        return db.execute(text(sql), params or {}).scalar_one()
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return None
-
-
-def _safe_execute(db, sql: str, params: dict | None = None):
-    try:
-        return db.execute(text(sql), params or {})
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return None
-
-
-def _safe_execute_many(db, sql: str, rows: Sequence[dict]):
-    if not rows:
-        return None
-    try:
-        return db.execute(text(sql), list(rows))
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return None
-
-
 def _safe_video_metadata_map(db, video_ids: Sequence[object], published_only: bool = True):
     try:
-        return get_video_metadata_map(db, list(video_ids), published_only=published_only)
+        with db.begin_nested():
+            return get_video_metadata_map(db, list(video_ids), published_only=published_only)
     except (OperationalError, ProgrammingError, AssertionError):
-        db.rollback()
         return {str(video_id): {"people": [], "tags": []} for video_id in video_ids}
 
 
@@ -410,7 +720,9 @@ def _named_period_admin_model_row(row) -> ArchiveNamedPeriodAdminResponse:
     )
 
 
-def _named_period_admin_rows(db, *, where_sql: str = "", params: dict[str, object] | None = None, limit: int | None = None, offset: int = 0):
+def _named_period_admin_rows(
+    db, *, where_sql: str = "", params: dict[str, object] | None = None, limit: int | None = None, offset: int = 0
+):
     sql_limit = ""
     sql_params: dict[str, object] = {}
     if params:
@@ -450,7 +762,9 @@ def _named_period_admin_rows(db, *, where_sql: str = "", params: dict[str, objec
 
 
 def _named_period_admin_row_by_slug(db, period_slug: str):
-    rows = _named_period_admin_rows(db, where_sql="WHERE p.slug = :period_slug", params={"period_slug": period_slug}, limit=1)
+    rows = _named_period_admin_rows(
+        db, where_sql="WHERE p.slug = :period_slug", params={"period_slug": period_slug}, limit=1
+    )
     return rows[0] if rows else None
 
 
@@ -498,7 +812,9 @@ def _named_period_public_option(option: ArchivePeriodOption) -> ArchivePeriodOpt
     return option
 
 
-def _within_period_range(period: str, granularity: str, date_from: date | datetime | None, date_to: date | datetime | None) -> bool:
+def _within_period_range(
+    period: str, granularity: str, date_from: date | datetime | None, date_to: date | datetime | None
+) -> bool:
     start = _period_start(period, granularity)
     if start is None:
         return True
@@ -645,7 +961,9 @@ def _named_period_records_from_videos(db, years_back: int) -> list[dict[str, obj
         """
         SELECT DISTINCT date_trunc('month', v.uploaded_at)::date AS period_start
         FROM videos v
-        WHERE (""" + ARCHIVE_VIDEO_FILTER_SQL + """)
+        WHERE ("""
+        + ARCHIVE_VIDEO_FILTER_SQL
+        + """)
           AND v.uploaded_at IS NOT NULL
           AND v.uploaded_at::date >= :cutoff
         ORDER BY period_start DESC
@@ -657,7 +975,9 @@ def _named_period_records_from_videos(db, years_back: int) -> list[dict[str, obj
         """
         SELECT DISTINCT date_trunc('week', v.uploaded_at)::date AS period_start
         FROM videos v
-        WHERE (""" + ARCHIVE_VIDEO_FILTER_SQL + """)
+        WHERE ("""
+        + ARCHIVE_VIDEO_FILTER_SQL
+        + """)
           AND v.uploaded_at IS NOT NULL
           AND v.uploaded_at::date >= :cutoff
         ORDER BY period_start DESC
@@ -792,7 +1112,9 @@ def _validate_recurring_date(recurring_month: int | None, recurring_day: int | N
     try:
         date(2000, int(recurring_month), int(recurring_day))
     except ValueError as exc:
-        raise ValidationError("recurring_month/recurring_day must form a valid calendar date", field="recurring_day") from exc
+        raise ValidationError(
+            "recurring_month/recurring_day must form a valid calendar date", field="recurring_day"
+        ) from exc
 
 
 def _pydantic_fields_set(payload) -> set[str]:
@@ -817,15 +1139,13 @@ def create_named_period(db, payload: ArchiveNamedPeriodCreate):
     }
     try:
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO archive_named_periods (
                     slug, label, kind, date_from, date_to, description, status, sort_order, recurring_month, recurring_day, created_at, updated_at
                 ) VALUES (
                     :slug, :label, :kind, :date_from, :date_to, :description, :status, :sort_order, :recurring_month, :recurring_day, now(), now()
                 )
-                """
-            ),
+                """),
             params,
         )
     except IntegrityError as exc:
@@ -851,13 +1171,25 @@ def update_named_period(db, period_slug: str, payload: ArchiveNamedPeriodUpdate)
     next_date_from = payload.date_from if payload.date_from is not None else current.get("date_from")
     next_date_to = payload.date_to if payload.date_to is not None else current.get("date_to")
     _validate_named_period_range(next_date_from, next_date_to)
-    next_recurring_month = payload.recurring_month if "recurring_month" in fields_set else current.get("recurring_month")
+    next_recurring_month = (
+        payload.recurring_month if "recurring_month" in fields_set else current.get("recurring_month")
+    )
     next_recurring_day = payload.recurring_day if "recurring_day" in fields_set else current.get("recurring_day")
     _validate_recurring_date(next_recurring_month, next_recurring_day)
 
     updates: list[str] = []
     params: dict[str, object] = {"period_slug": period_slug}
-    for field in ("label", "kind", "date_from", "date_to", "description", "status", "sort_order", "recurring_month", "recurring_day"):
+    for field in (
+        "label",
+        "kind",
+        "date_from",
+        "date_to",
+        "description",
+        "status",
+        "sort_order",
+        "recurring_month",
+        "recurring_day",
+    ):
         value = getattr(payload, field)
         if value is not None or field in fields_set:
             updates.append(f"{field} = :{field}")
@@ -866,13 +1198,11 @@ def update_named_period(db, period_slug: str, payload: ArchiveNamedPeriodUpdate)
         return _named_period_admin_row_by_slug(db, period_slug)
     updates.append("updated_at = now()")
     db.execute(
-        text(
-            f"""
+        text(f"""
             UPDATE archive_named_periods
             SET {', '.join(updates)}
             WHERE slug = :period_slug
-            """
-        ),
+            """),
         params,
     )
     return _named_period_admin_row_by_slug(db, period_slug)
@@ -1041,8 +1371,12 @@ def _label_evidence_snippet(raw_evidence: object, label: str) -> str:
 
 def _published_label_card_from_group(label_row: dict, rows: list[dict]) -> ArchiveTopicCard:
     video_ids = {str(row["video_id"]) for row in rows if row.get("video_id") is not None}
+    total_moments = max((int(row.get("label_assignment_count") or 0) for row in rows), default=0) or len(rows)
     evidence = [
-        _evidence_from_row({**row, "snippet": _label_evidence_snippet(row.get("evidence_payload"), label_row["label"])}, topic=label_row["label"])
+        _evidence_from_row(
+            {**row, "snippet": _label_evidence_snippet(row.get("evidence_payload"), label_row["label"])},
+            topic=label_row["label"],
+        )
         for row in rows[:2]
     ]
     confidence_average = sum(float(row.get("assignment_confidence") or 0) for row in rows) / max(1, len(rows))
@@ -1054,10 +1388,10 @@ def _published_label_card_from_group(label_row: dict, rows: list[dict]) -> Archi
         status="published",
         is_editable=True,
         aliases=[],
-        total_moments=len(rows),
+        total_moments=total_moments,
         total_videos=len(video_ids),
         recent_mentions_90d=0,
-        trend_score=round((len(rows) * 2) + (len(video_ids) * 3) + confidence_average, 3),
+        trend_score=round((total_moments * 2) + (len(video_ids) * 3) + confidence_average, 3),
         related_topics=[],
         evidence=evidence,
     )
@@ -1069,19 +1403,23 @@ def published_label_cards_for_period(
     date_to: date | datetime | None = None,
     limit: int = 12,
 ) -> list[ArchiveTopicCard]:
-    params: dict[str, object] = {"limit": max(limit * 8, limit)}
-    where_parts = [
-        "l.status = 'published'",
+    params: dict[str, object] = {
+        "limit": max(limit * 8, limit),
+        "per_label_limit": 2,
+    }
+    assignment_where_parts = [
         "a.status IN ('auto_published', 'admin_approved')",
         "a.publish_tier IN ('gold', 'silver')",
     ]
     lower = _coerce_datetime(date_from)
     upper = _coerce_datetime(date_to, end=True)
+    if lower is not None or upper is not None:
+        assignment_where_parts.append("v.uploaded_at IS NOT NULL")
     if lower is not None:
-        where_parts.append("COALESCE(v.uploaded_at, v.created_at) >= :date_from")
+        assignment_where_parts.append("v.uploaded_at >= :date_from")
         params["date_from"] = lower
     if upper is not None:
-        where_parts.append("COALESCE(v.uploaded_at, v.created_at) < :date_to")
+        assignment_where_parts.append("v.uploaded_at < :date_to")
         params["date_to"] = upper
 
     rows = _safe_mappings(
@@ -1092,31 +1430,46 @@ def published_label_cards_for_period(
             l.slug,
             l.label,
             l.kind,
-            a.id AS assignment_id,
-            a.video_id,
-            a.start_ms,
-            a.end_ms,
-            a.confidence_score AS assignment_confidence,
-            a.evidence AS evidence_payload,
-            v.youtube_id,
-            v.title,
-            v.duration_seconds,
-            v.state,
-            v.caption_ingest_state,
-            v.diarization_state,
-            v.uploaded_at,
-            v.created_at,
-            v.updated_at,
-            v.channel_name,
-            v.language,
-            v.category,
-            EXISTS (SELECT 1 FROM segments s2 WHERE s2.video_id = v.id) AS has_whisper_transcript,
-            EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id) AS has_youtube_transcript
-        FROM archive_label_assignments a
-        JOIN archive_labels l ON l.id = a.label_id
-        JOIN videos v ON v.id = a.video_id
-        WHERE {' AND '.join(where_parts)}
-        ORDER BY l.slug ASC, a.confidence_score DESC, a.evidence_count DESC, COALESCE(v.uploaded_at, v.created_at) DESC NULLS LAST
+            evidence.*
+        FROM archive_labels l
+        CROSS JOIN LATERAL (
+            SELECT
+                a.id AS assignment_id,
+                a.video_id,
+                a.start_ms,
+                a.end_ms,
+                a.confidence_score AS assignment_confidence,
+                a.evidence AS evidence_payload,
+                a.evidence_count,
+                COUNT(*) OVER () AS label_assignment_count,
+                v.youtube_id,
+                v.title,
+                v.duration_seconds,
+                v.state,
+                v.caption_ingest_state,
+                v.diarization_state,
+                v.uploaded_at,
+                v.created_at,
+                v.updated_at,
+                v.channel_name,
+                v.language,
+                v.category,
+                EXISTS (SELECT 1 FROM segments s2 WHERE s2.video_id = v.id) AS has_whisper_transcript,
+                EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id) AS has_youtube_transcript
+            FROM archive_label_assignments a
+            JOIN videos v ON v.id = a.video_id
+            WHERE a.label_id = l.id
+              AND {' AND '.join(assignment_where_parts)}
+            ORDER BY a.confidence_score DESC, a.evidence_count DESC,
+                     COALESCE(v.uploaded_at, v.created_at) DESC NULLS LAST
+            LIMIT :per_label_limit
+        ) evidence
+        WHERE l.status = 'published'
+          AND l.source IN ('admin', 'seed', 'hybrid')
+        ORDER BY evidence.label_assignment_count DESC, l.label ASC,
+                 evidence.assignment_confidence DESC,
+                 evidence.evidence_count DESC,
+                 COALESCE(evidence.uploaded_at, evidence.created_at) DESC NULLS LAST
         LIMIT :limit
         """,
         params,
@@ -1135,12 +1488,22 @@ def published_label_cards_for_period(
         label_rows.setdefault(slug, row)
 
     cards = [_published_label_card_from_group(label_rows[slug], group_rows) for slug, group_rows in grouped.items()]
-    return sorted(cards, key=lambda card: (card.trend_score, card.total_videos, card.total_moments), reverse=True)[:limit]
+    return sorted(cards, key=lambda card: (card.trend_score, card.total_videos, card.total_moments), reverse=True)[
+        :limit
+    ]
 
 
-def merge_label_topic_cards(existing: list[ArchiveTopicCard], label_cards: list[ArchiveTopicCard], limit: int) -> list[ArchiveTopicCard]:
-    by_slug: dict[str, ArchiveTopicCard] = {card.slug: card for card in existing}
+def _is_public_topic_card(card: ArchiveTopicCard) -> bool:
+    return card.source != "automatic" and not _is_junk_topic_label(card.label)
+
+
+def merge_label_topic_cards(
+    existing: list[ArchiveTopicCard], label_cards: list[ArchiveTopicCard], limit: int
+) -> list[ArchiveTopicCard]:
+    by_slug: dict[str, ArchiveTopicCard] = {card.slug: card for card in existing if _is_public_topic_card(card)}
     for card in label_cards:
+        if not _is_public_topic_card(card):
+            continue
         current = by_slug.get(card.slug)
         if current is None or (card.evidence and (not current.evidence or card.trend_score >= current.trend_score)):
             by_slug[card.slug] = card
@@ -1250,7 +1613,9 @@ def _fallback_seed_topic_cards(evidence_pool: list[ArchiveEvidenceMoment], limit
     return sorted(cards, key=lambda card: card.trend_score, reverse=True)[:limit]
 
 
-def _with_named_period_fallback_topics(db, period: ArchivePeriodIntelligence, topic_limit: int) -> ArchivePeriodIntelligence:
+def _with_named_period_fallback_topics(
+    db, period: ArchivePeriodIntelligence, topic_limit: int
+) -> ArchivePeriodIntelligence:
     if period.top_topics and period.evidence:
         return period
     evidence_pool = _fallback_evidence_for_videos(db, period.videos)
@@ -1266,7 +1631,9 @@ def _with_named_period_fallback_topics(db, period: ArchivePeriodIntelligence, to
 
 def _period_intelligence_from_row(row, topic_limit: int | None = None) -> ArchivePeriodIntelligence:
     top_topics_payload = _as_list(row.get("top_topics"))
-    top_topics = [_topic_card_from_payload(item) for item in top_topics_payload][: topic_limit or len(top_topics_payload)]
+    top_topics = [card for item in top_topics_payload if _is_public_topic_card(card := _topic_card_from_payload(item))][
+        : topic_limit or len(top_topics_payload)
+    ]
     evidence = [_evidence_from_payload(item) for item in _as_list(row.get("evidence"))]
     videos = [_video_info_from_payload(item) for item in _as_list(row.get("representative_videos"))]
     return ArchivePeriodIntelligence(
@@ -1351,7 +1718,10 @@ def refresh_named_period_stats(db, limit: int | None = None, period_slug: str | 
               AND EXTRACT(MONTH FROM COALESCE(m.occurred_at, v.uploaded_at, v.created_at)) = :recurring_month
               AND EXTRACT(DAY FROM COALESCE(m.occurred_at, v.uploaded_at, v.created_at)) = :recurring_day
             """
-            period_params: dict[str, object] = {"recurring_month": int(recurring_month), "recurring_day": int(recurring_day)}
+            period_params: dict[str, object] = {
+                "recurring_month": int(recurring_month),
+                "recurring_day": int(recurring_day),
+            }
         else:
             video_period_sql = """
               AND v.uploaded_at >= :start_dt
@@ -1440,7 +1810,9 @@ def refresh_named_period_stats(db, limit: int | None = None, period_slug: str | 
 
         mention_rows_by_topic: dict[str, list[dict]] = defaultdict(list)
         topic_mentions_payload: list[dict] = []
-        topic_aggregate: dict[str, dict] = defaultdict(lambda: {"mention_count": 0, "video_ids": set(), "trend_score": 0.0})
+        topic_aggregate: dict[str, dict] = defaultdict(
+            lambda: {"mention_count": 0, "video_ids": set(), "trend_score": 0.0}
+        )
 
         for mention_row in mention_rows:
             topic_id = str(mention_row["topic_id"])
@@ -1453,8 +1825,13 @@ def refresh_named_period_stats(db, limit: int | None = None, period_slug: str | 
             topic_row = topic_rows_by_id.get(topic_id)
             if topic_row is None:
                 continue
-            public_mentions = _named_period_evidence_rows(mention_rows_by_topic.get(topic_id, []), topic_row["label"], 6)
-            evidence_payload = [_evidence_row_to_public_payload(mention_row, topic=topic_row["label"]) for mention_row in public_mentions]
+            public_mentions = _named_period_evidence_rows(
+                mention_rows_by_topic.get(topic_id, []), topic_row["label"], 6
+            )
+            evidence_payload = [
+                _evidence_row_to_public_payload(mention_row, topic=topic_row["label"])
+                for mention_row in public_mentions
+            ]
             topic_mentions_payload.append(
                 {
                     "slug": topic_row["slug"],
@@ -1462,7 +1839,11 @@ def refresh_named_period_stats(db, limit: int | None = None, period_slug: str | 
                     "source": topic_row.get("source") or "hybrid",
                     "status": topic_row.get("status") or "published",
                     "is_editable": bool(topic_row.get("is_editable", True)),
-                    "aliases": [alias_row.get("alias") for alias_row in _as_list(topic_row.get("aliases")) if (alias_row or {}).get("alias")],
+                    "aliases": [
+                        alias_row.get("alias")
+                        for alias_row in _as_list(topic_row.get("aliases"))
+                        if (alias_row or {}).get("alias")
+                    ],
                     "total_moments": int(agg["mention_count"]),
                     "total_videos": len(agg["video_ids"]),
                     "recent_mentions_90d": int(agg["mention_count"]),
@@ -1483,7 +1864,9 @@ def refresh_named_period_stats(db, limit: int | None = None, period_slug: str | 
             for mention_row in public_evidence_rows
         ]
         snippets = [str(item.get("snippet")) for item in evidence_payload if item.get("snippet")]
-        topic_labels = list(dict.fromkeys(str(item.get("label")) for item in topic_mentions_payload if item.get("label")))
+        topic_labels = list(
+            dict.fromkeys(str(item.get("label")) for item in topic_mentions_payload if item.get("label"))
+        )
         summary_parts = [f"{row['label']}: {len(video_rows)} videos."]
         if topic_labels:
             summary_parts.append(f"Topics: {', '.join(topic_labels[:3])}.")
@@ -1494,7 +1877,9 @@ def refresh_named_period_stats(db, limit: int | None = None, period_slug: str | 
             {
                 "period_id": row["id"],
                 "video_count": len(video_rows),
-                "total_duration_seconds": int(sum(int(video_row.get("duration_seconds") or 0) for video_row in video_rows)),
+                "total_duration_seconds": int(
+                    sum(int(video_row.get("duration_seconds") or 0) for video_row in video_rows)
+                ),
                 "top_topics": json.dumps(topic_mentions_payload),
                 "representative_videos": json.dumps(representative_videos),
                 "evidence": json.dumps(evidence_payload),
@@ -1538,15 +1923,12 @@ def autopublish_search_topics(db, limit: int = 20):
     if not rows:
         return {"topics": 0}
 
-    existing = {
-        row["slug"]
-        for row in _safe_mappings(db, "SELECT slug FROM archive_topics")
-    }
+    existing = {row["slug"] for row in _safe_mappings(db, "SELECT slug FROM archive_topics")}
     inserted = 0
     for row in rows:
         term = row["term"]
         slug = slugify_topic(term)
-        if slug in AUTO_TOPIC_STOP_TERMS or term.strip().lower() in AUTO_TOPIC_STOP_TERMS:
+        if slug in AUTO_TOPIC_STOP_TERMS or term.strip().lower() in AUTO_TOPIC_STOP_TERMS or _is_junk_topic_label(term):
             continue
         if slug in existing:
             continue
@@ -1595,6 +1977,9 @@ def hide_automatic_stop_topics(db):
 
 
 def refresh_topic_mentions(db, topic_slug: str | None = None, segment_limit: int | None = None):
+    # Keep topic selection, segment scanning, and reconciliation serialized.  This
+    # is transaction-scoped deliberately: callers own the transaction boundary.
+    _safe_execute(db, "SELECT pg_advisory_xact_lock(hashtext('archive_topic_mentions_refresh'))")
     topics = _get_topics(db, topic_slug=topic_slug)
     if not topics:
         return {"topics": 0, "mentions": 0}
@@ -1603,11 +1988,19 @@ def refresh_topic_mentions(db, topic_slug: str | None = None, segment_limit: int
     topic_placeholders, topic_params = _in_clause("topic_id", topic_ids)
     _safe_execute(
         db,
-        f"""
-        DELETE FROM archive_topic_mentions
-        WHERE topic_id IN ({topic_placeholders})
+        """
+        CREATE TEMP TABLE archive_topic_mentions_stage (
+            topic_id UUID NOT NULL,
+            video_id UUID NOT NULL,
+            segment_id BIGINT NOT NULL,
+            start_ms INTEGER NOT NULL,
+            end_ms INTEGER NOT NULL,
+            snippet TEXT NOT NULL,
+            score NUMERIC NOT NULL,
+            occurred_at TIMESTAMPTZ,
+            PRIMARY KEY (topic_id, video_id, segment_id, start_ms)
+        ) ON COMMIT DROP
         """,
-        topic_params,
     )
 
     alias_map: dict[str, list[tuple[str, float]]] = {}
@@ -1622,9 +2015,6 @@ def refresh_topic_mentions(db, topic_slug: str | None = None, segment_limit: int
         alias_map[str(row["id"])] = aliases
 
     alias_terms = sorted(set(alias_terms), key=lambda value: (len(value), value))
-    if not alias_terms:
-        return {"topics": len(topics), "mentions": 0}
-
     params: dict[str, object] = {}
     alias_clauses: list[str] = []
     for idx, alias in enumerate(alias_terms):
@@ -1637,9 +2027,11 @@ def refresh_topic_mentions(db, topic_slug: str | None = None, segment_limit: int
         limit_sql = "LIMIT :segment_limit"
         params["segment_limit"] = segment_limit
 
-    segment_rows = _safe_mappings(
-        db,
-        f"""
+    segment_rows = []
+    if alias_terms:
+        segment_rows = _safe_mappings(
+            db,
+            f"""
         SELECT * FROM (
             SELECT
                 s.id AS segment_id,
@@ -1698,8 +2090,8 @@ def refresh_topic_mentions(db, topic_slug: str | None = None, segment_limit: int
         ORDER BY COALESCE(uploaded_at, created_at) DESC NULLS LAST, transcript_source_priority ASC, start_ms ASC
         {limit_sql}
         """,
-        params,
-    )
+            params,
+        )
 
     mentions_by_key: dict[tuple[str, str, int, int], dict] = {}
     for row in segment_rows:
@@ -1735,13 +2127,64 @@ def refresh_topic_mentions(db, topic_slug: str | None = None, segment_limit: int
     _safe_execute_many(
         db,
         """
-        INSERT INTO archive_topic_mentions (
-            topic_id, video_id, segment_id, start_ms, end_ms, snippet, score, occurred_at, created_at
+        INSERT INTO archive_topic_mentions_stage (
+            topic_id, video_id, segment_id, start_ms, end_ms, snippet, score, occurred_at
         ) VALUES (
-            :topic_id, :video_id, :segment_id, :start_ms, :end_ms, :snippet, :score, :occurred_at, now()
+            :topic_id, :video_id, :segment_id, :start_ms, :end_ms, :snippet, :score, :occurred_at
         )
         """,
         mention_rows,
+    )
+    _safe_execute(db, "ANALYZE archive_topic_mentions_stage")
+
+    if segment_limit is None:
+        _safe_execute(
+            db,
+            f"""
+            DELETE FROM archive_topic_mentions m
+            WHERE m.topic_id IN ({topic_placeholders})
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM archive_topic_mentions_stage s
+                  WHERE s.topic_id = m.topic_id
+                    AND s.video_id = m.video_id
+                    AND s.segment_id = m.segment_id
+                    AND s.start_ms = m.start_ms
+              )
+            """,
+            topic_params,
+        )
+
+    _safe_execute(
+        db,
+        """
+        INSERT INTO archive_topic_mentions AS m (
+            topic_id, video_id, segment_id, start_ms, end_ms, snippet, score, occurred_at, created_at
+        )
+        SELECT
+            s.topic_id, s.video_id, s.segment_id, s.start_ms,
+            s.end_ms, s.snippet, s.score, s.occurred_at, now()
+        FROM archive_topic_mentions_stage s
+        LEFT JOIN archive_topic_mentions existing
+          ON existing.topic_id = s.topic_id
+         AND existing.video_id = s.video_id
+         AND existing.segment_id = s.segment_id
+         AND existing.start_ms = s.start_ms
+        WHERE existing.id IS NULL
+           OR existing.end_ms IS DISTINCT FROM s.end_ms
+           OR existing.snippet IS DISTINCT FROM s.snippet
+           OR existing.score IS DISTINCT FROM s.score
+           OR existing.occurred_at IS DISTINCT FROM s.occurred_at
+        ON CONFLICT (topic_id, video_id, segment_id, start_ms) DO UPDATE SET
+            end_ms = EXCLUDED.end_ms,
+            snippet = EXCLUDED.snippet,
+            score = EXCLUDED.score,
+            occurred_at = EXCLUDED.occurred_at
+        WHERE m.end_ms IS DISTINCT FROM EXCLUDED.end_ms
+           OR m.snippet IS DISTINCT FROM EXCLUDED.snippet
+           OR m.score IS DISTINCT FROM EXCLUDED.score
+           OR m.occurred_at IS DISTINCT FROM EXCLUDED.occurred_at
+        """,
     )
     return {"topics": len(topics), "mentions": len(mention_rows)}
 
@@ -2020,7 +2463,9 @@ def refresh_period_summaries(db, granularity: str = "month", limit: int = 120):
         videos = videos_by_period.get(period, [])
         mentions = mentions_by_period.get(period, [])
         evidence_payload = []
-        public_mentions = [row for row in mentions if alias_matches_text(row.get("topic_label") or "", row.get("snippet") or "")]
+        public_mentions = [
+            row for row in mentions if alias_matches_text(row.get("topic_label") or "", row.get("snippet") or "")
+        ]
         for row in public_mentions[:5]:
             evidence_payload.append(
                 {
@@ -2149,7 +2594,9 @@ def get_named_period_intelligence(db, period_slug: str, topic_limit: int = 8) ->
     period_option = _period_option_from_row(period_row)
     period_intelligence = _period_intelligence_from_row(period_row, topic_limit=topic_limit)
     period_intelligence = _with_named_period_fallback_topics(db, period_intelligence, topic_limit=topic_limit)
-    label_cards = published_label_cards_for_period(db, period_option.date_from, period_option.date_to, limit=topic_limit)
+    label_cards = published_label_cards_for_period(
+        db, period_option.date_from, period_option.date_to, limit=topic_limit
+    )
     period_intelligence = period_intelligence.model_copy(
         update={"top_topics": merge_label_topic_cards(period_intelligence.top_topics, label_cards, topic_limit)}
     )
@@ -2157,7 +2604,9 @@ def get_named_period_intelligence(db, period_slug: str, topic_limit: int = 8) ->
     top_topic_cards = period_intelligence.top_topics[:topic_limit]
     top_topic_labels = {topic.label.lower() for topic in top_topic_cards}
     trending_searches = [
-        ArchiveTrendingSearch(term=topic.label, frequency=topic.total_moments, trend_score=topic.trend_score, source="hybrid")
+        ArchiveTrendingSearch(
+            term=topic.label, frequency=topic.total_moments, trend_score=topic.trend_score, source="hybrid"
+        )
         for topic in top_topic_cards
     ]
     search_trends_rows = _safe_mappings(
@@ -2196,21 +2645,26 @@ def get_named_period_intelligence(db, period_slug: str, topic_limit: int = 8) ->
     for item in search_trends:
         if item.term.lower() not in top_topic_labels:
             trending_searches.append(item)
-    trending_searches = sorted(trending_searches, key=lambda item: item.trend_score, reverse=True)[: max(topic_limit, 8)]
+    trending_searches = sorted(trending_searches, key=lambda item: item.trend_score, reverse=True)[
+        : max(topic_limit, 8)
+    ]
     suggested_searches = trending_searches[: max(topic_limit, len(SEED_TOPICS))]
     period_options = list_period_options(db).periods
 
-    return attach_archive_facets(ArchiveIntelligenceResponse(
-        summary=summary,
-        exploration_modes=["periods", "topics", "trending", "suggested"],
-        trending_searches=trending_searches,
-        suggested_searches=suggested_searches,
-        topic_cards=top_topic_cards,
-        periods=[period_intelligence],
-        selected_period=period_option,
-        period_options=period_options,
-        query_time_ms=None,
-    ))
+    return attach_archive_facets(
+        ArchiveIntelligenceResponse(
+            summary=summary,
+            exploration_modes=["periods", "topics", "trending", "suggested"],
+            trending_searches=trending_searches,
+            suggested_searches=suggested_searches,
+            topic_cards=top_topic_cards,
+            periods=[period_intelligence],
+            selected_period=period_option,
+            period_options=period_options,
+            query_time_ms=None,
+        ),
+        db=db,
+    )
 
 
 def get_durable_archive_intelligence(
@@ -2227,10 +2681,17 @@ def get_durable_archive_intelligence(
         granularity = "month"
     if _table_has_rows(db, "archive_named_periods") and _table_has_rows(db, "archive_named_period_stats"):
         named_period_slug = period_slug or _latest_named_period_slug(db)
-        named = get_named_period_intelligence(db, named_period_slug, topic_limit=topic_limit) if named_period_slug else None
+        named = (
+            get_named_period_intelligence(db, named_period_slug, topic_limit=topic_limit) if named_period_slug else None
+        )
         if named is not None:
             return named
-    if not (_table_has_rows(db, "archive_topics") and _table_has_rows(db, "archive_topic_mentions") and _table_has_rows(db, "archive_topic_period_stats") and _table_has_rows(db, "archive_period_summaries")):
+    if not (
+        _table_has_rows(db, "archive_topics")
+        and _table_has_rows(db, "archive_topic_mentions")
+        and _table_has_rows(db, "archive_topic_period_stats")
+        and _table_has_rows(db, "archive_period_summaries")
+    ):
         return None
 
     summary = archive_repository.get_summary(db, recent_limit=6, popular_limit=max(topic_limit, 8))
@@ -2328,7 +2789,9 @@ def get_durable_archive_intelligence(
             mentions_by_period[period].append(row)
 
     topic_rows_by_id = {str(row["id"]): row for row in topics}
-    topic_aggregate: dict[str, dict] = defaultdict(lambda: {"mention_count": 0, "video_ids": set(), "recent_mentions_90d": 0, "trend_score": 0.0, "periods": set()})
+    topic_aggregate: dict[str, dict] = defaultdict(
+        lambda: {"mention_count": 0, "video_ids": set(), "recent_mentions_90d": 0, "trend_score": 0.0, "periods": set()}
+    )
     for row in stats_rows:
         agg = topic_aggregate[str(row["topic_id"])]
         agg["mention_count"] += int(row.get("mention_count") or 0)
@@ -2338,7 +2801,9 @@ def get_durable_archive_intelligence(
         agg["periods"].add(row["period"])
 
     topic_cards: list[ArchiveTopicCard] = []
-    for topic_id, agg in sorted(topic_aggregate.items(), key=lambda item: item[1]["trend_score"], reverse=True)[:topic_limit]:
+    for topic_id, agg in sorted(topic_aggregate.items(), key=lambda item: item[1]["trend_score"], reverse=True)[
+        :topic_limit
+    ]:
         topic_row = topic_rows_by_id.get(topic_id)
         if topic_row is None:
             continue
@@ -2350,7 +2815,10 @@ def get_durable_archive_intelligence(
         for other in topics:
             if str(other["id"]) == topic_id:
                 continue
-            if any(alias_matches_text((alias_row or {}).get("alias", ""), haystack) for alias_row in _as_list(other.get("aliases"))):
+            if any(
+                alias_matches_text((alias_row or {}).get("alias", ""), haystack)
+                for alias_row in _as_list(other.get("aliases"))
+            ):
                 related_topics.append(other["label"])
         topic_cards.append(
             ArchiveTopicCard(
@@ -2359,7 +2827,11 @@ def get_durable_archive_intelligence(
                 source=topic_row["source"],
                 status=topic_row.get("status") or "published",
                 is_editable=bool(topic_row.get("is_editable", True)),
-                aliases=[(alias_row or {}).get("alias") for alias_row in _as_list(topic_row.get("aliases")) if (alias_row or {}).get("alias")],
+                aliases=[
+                    (alias_row or {}).get("alias")
+                    for alias_row in _as_list(topic_row.get("aliases"))
+                    if (alias_row or {}).get("alias")
+                ],
                 total_moments=int(agg["mention_count"]),
                 total_videos=len({str(video_id) for video_id in agg["video_ids"]}),
                 recent_mentions_90d=int(agg["recent_mentions_90d"]),
@@ -2375,7 +2847,9 @@ def get_durable_archive_intelligence(
     )
 
     topic_search_trends = [
-        ArchiveTrendingSearch(term=topic.label, frequency=topic.total_moments, trend_score=topic.trend_score, source="hybrid")
+        ArchiveTrendingSearch(
+            term=topic.label, frequency=topic.total_moments, trend_score=topic.trend_score, source="hybrid"
+        )
         for topic in topic_cards
     ]
     search_trends_rows = _safe_mappings(
@@ -2388,7 +2862,9 @@ def get_durable_archive_intelligence(
         """,
         {"granularity": granularity},
     )
-    search_trends_rows = [row for row in search_trends_rows if _within_period_range(row["period"], granularity, date_from, date_to)]
+    search_trends_rows = [
+        row for row in search_trends_rows if _within_period_range(row["period"], granularity, date_from, date_to)
+    ]
     search_trends = [
         ArchiveTrendingSearch(
             term=row["term"],
@@ -2406,7 +2882,9 @@ def get_durable_archive_intelligence(
             continue
         trending_searches.append(item)
         seen_terms.add(key)
-    trending_searches = sorted(trending_searches, key=lambda item: item.trend_score, reverse=True)[: max(topic_limit, 8)]
+    trending_searches = sorted(trending_searches, key=lambda item: item.trend_score, reverse=True)[
+        : max(topic_limit, 8)
+    ]
 
     suggested_searches: list[ArchiveTrendingSearch] = []
     seen_terms.clear()
@@ -2414,7 +2892,11 @@ def get_durable_archive_intelligence(
         key = item.term.lower()
         if key in seen_terms:
             continue
-        suggested_searches.append(ArchiveTrendingSearch(term=item.term, frequency=item.frequency, trend_score=item.trend_score, source=item.source))
+        suggested_searches.append(
+            ArchiveTrendingSearch(
+                term=item.term, frequency=item.frequency, trend_score=item.trend_score, source=item.source
+            )
+        )
         seen_terms.add(key)
         if len(suggested_searches) >= max(topic_limit, len(SEED_TOPICS)):
             break
@@ -2437,14 +2919,24 @@ def get_durable_archive_intelligence(
         period_start = _period_start(period, granularity)
         period_end = None
         if period_start is not None:
-            period_end = period_start + (timedelta(days=7) if granularity == "week" else timedelta(days=calendar.monthrange(period_start.year, period_start.month)[1]))
+            period_end = period_start + (
+                timedelta(days=7)
+                if granularity == "week"
+                else timedelta(days=calendar.monthrange(period_start.year, period_start.month)[1])
+            )
         period_top_topics: list[ArchiveTopicCard] = []
-        for stat_row in sorted(period_topic_stats, key=lambda item: float(item.get("trend_score") or 0), reverse=True)[:3]:
+        for stat_row in sorted(period_topic_stats, key=lambda item: float(item.get("trend_score") or 0), reverse=True)[
+            :3
+        ]:
             topic_row = topic_rows_by_id.get(str(stat_row["topic_id"]))
             if topic_row is None:
                 continue
             evidence_rows = _public_topic_evidence_rows(
-                [ev_row for ev_row in mentions_by_period.get(period, []) if str(ev_row["topic_id"]) == str(stat_row["topic_id"])],
+                [
+                    ev_row
+                    for ev_row in mentions_by_period.get(period, [])
+                    if str(ev_row["topic_id"]) == str(stat_row["topic_id"])
+                ],
                 topic_row["label"],
                 1,
             )
@@ -2456,7 +2948,11 @@ def get_durable_archive_intelligence(
                     source=topic_row["source"],
                     status=topic_row.get("status") or "published",
                     is_editable=bool(topic_row.get("is_editable", True)),
-                    aliases=[(alias_row or {}).get("alias") for alias_row in _as_list(topic_row.get("aliases")) if (alias_row or {}).get("alias")],
+                    aliases=[
+                        (alias_row or {}).get("alias")
+                        for alias_row in _as_list(topic_row.get("aliases"))
+                        if (alias_row or {}).get("alias")
+                    ],
                     total_moments=int(stat_row.get("mention_count") or 0),
                     total_videos=int(stat_row.get("video_count") or 0),
                     recent_mentions_90d=int(stat_row.get("recent_mentions_90d") or 0),
@@ -2473,7 +2969,15 @@ def get_durable_archive_intelligence(
         evidence_payload = _as_list(row.get("evidence"))
         period_evidence: list[ArchiveEvidenceMoment] = []
         for item in evidence_payload:
-            video_row = next((candidate for candidate in mentions_by_period.get(period, []) if str(candidate["video_id"]) == str(item.get("video_id")) and int(candidate["start_ms"] or 0) == int(item.get("start_ms") or 0)), None)
+            video_row = next(
+                (
+                    candidate
+                    for candidate in mentions_by_period.get(period, [])
+                    if str(candidate["video_id"]) == str(item.get("video_id"))
+                    and int(candidate["start_ms"] or 0) == int(item.get("start_ms") or 0)
+                ),
+                None,
+            )
             if video_row is None:
                 continue
             period_evidence.append(
@@ -2488,7 +2992,10 @@ def get_durable_archive_intelligence(
                 )
             )
         if not period_evidence:
-            period_evidence = [_evidence_from_row(row_item, topic=row_item.get("topic_label")) for row_item in mentions_by_period.get(period, [])[:5]]
+            period_evidence = [
+                _evidence_from_row(row_item, topic=row_item.get("topic_label"))
+                for row_item in mentions_by_period.get(period, [])[:5]
+            ]
         period_videos: list[dict] = []
         seen_video_ids: set[str] = set()
         for row_item in mentions_by_period.get(period, []):
@@ -2515,14 +3022,17 @@ def get_durable_archive_intelligence(
     if selected_period is None and period_options:
         selected_period = period_options[0]
 
-    return attach_archive_facets(ArchiveIntelligenceResponse(
-        summary=summary,
-        exploration_modes=["timeline", "topics", "trending", "suggested"],
-        trending_searches=trending_searches,
-        suggested_searches=suggested_searches,
-        topic_cards=topic_cards,
-        periods=periods,
-        selected_period=selected_period,
-        period_options=period_options,
-        query_time_ms=None,
-    ))
+    return attach_archive_facets(
+        ArchiveIntelligenceResponse(
+            summary=summary,
+            exploration_modes=["timeline", "topics", "trending", "suggested"],
+            trending_searches=trending_searches,
+            suggested_searches=suggested_searches,
+            topic_cards=topic_cards,
+            periods=periods,
+            selected_period=selected_period,
+            period_options=period_options,
+            query_time_ms=None,
+        ),
+        db=db,
+    )

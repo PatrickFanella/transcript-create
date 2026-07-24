@@ -83,15 +83,11 @@ This file contains notices and information for third-party software included wit
   - Copyright 2019 Kenneth Reitz
   - <https://github.com/psf/requests>
 
-#### Authentication and Payment
+#### Authentication
 
 - **Authlib** - BSD-3-Clause License
   - Copyright (c) 2017 Hsiaoming Yang
   - <https://github.com/lepture/authlib>
-
-- **stripe** - MIT License
-  - Copyright (c) Stripe, Inc.
-  - <https://github.com/stripe/stripe-python>
 
 #### Document Generation
 
@@ -257,7 +253,6 @@ Note: Some optional system dependencies (FFmpeg, psycopg) use LGPL or GPL licens
 This application may integrate with:
 
 - **YouTube** - Google Terms of Service apply when downloading content
-- **Stripe** - Stripe Terms of Service apply for payment processing
 - **Google OAuth** - Google API Terms apply for authentication
 - **Twitch OAuth** - Twitch Developer Agreement applies for authentication
 - **Hugging Face** - Hugging Face Terms apply when accessing models

@@ -47,8 +47,12 @@ export function formatDateTime(value?: string | null) {
 
 export function formatTimestamp(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(total / 3600).toString().padStart(2, '0');
-  const minutes = Math.floor((total % 3600) / 60).toString().padStart(2, '0');
+  const hours = Math.floor(total / 3600)
+    .toString()
+    .padStart(2, '0');
+  const minutes = Math.floor((total % 3600) / 60)
+    .toString()
+    .padStart(2, '0');
   const seconds = (total % 60).toString().padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
 }
@@ -84,6 +88,7 @@ export function titleCase(value: string) {
     .join(' ');
 }
 
-export function sourceLabel(_source?: 'whisper' | 'youtube' | 'merged' | 'best' | 'native') {
+export function sourceLabel(source?: 'whisper' | 'youtube' | 'merged' | 'best' | 'native') {
+  void source;
   return 'Transcript';
 }

@@ -515,25 +515,6 @@ class TestRunBackfill:
         assert result["skipped"] >= 1
 
 
-class TestIntegration:
-    """Integration tests requiring database setup."""
-    
-    # These tests would require actual database setup
-    # For now, we'll mark them as requiring database
-    
-    @pytest.mark.skip(reason="Requires database setup")
-    def test_full_backfill_workflow(self):
-        """Test complete backfill workflow with real database."""
-        # This would test the actual backfill on a test database
-        pass
-    
-    @pytest.mark.skip(reason="Requires database setup")
-    def test_idempotency(self):
-        """Test that running backfill twice doesn't duplicate work."""
-        # This would verify idempotency with real data
-        pass
-
-
 class TestEdgeCases:
     """Tests for edge cases and error conditions."""
     

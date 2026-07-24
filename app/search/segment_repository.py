@@ -4,6 +4,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app.search.highlights import POSTGRES_HEADLINE_OPTIONS, normalize_search_rows
+
 
 class SearchRepository:
     def search_native(
@@ -23,7 +25,12 @@ class SearchRepository:
         # Build WHERE clause with filters. Search transcript text and video title so
         # users can find newly processed videos by title from the main search box.
         where_clauses = ["(s.text_tsv @@ websearch_to_tsquery('english', :q) OR v.title ILIKE :title_q)"]
-        params = {"q": q, "limit": limit, "offset": offset}
+        params = {
+            "q": q,
+            "limit": limit,
+            "offset": offset,
+            "headline_options": POSTGRES_HEADLINE_OPTIONS,
+        }
         params["title_q"] = f"%{q.strip()}%"
 
         if video_id:
@@ -80,7 +87,7 @@ class SearchRepository:
         select_fields = (
             "s.id, s.video_id, s.start_ms, s.end_ms, "
             "CASE WHEN s.text_tsv @@ websearch_to_tsquery('english', :q) "
-            "THEN ts_headline('english', s.text, websearch_to_tsquery('english', :q)) "
+            "THEN ts_headline('english', s.text, websearch_to_tsquery('english', :q), :headline_options) "
             "ELSE coalesce(v.title, s.text) END AS snippet, "
             "ts_rank_cd(s.text_tsv, websearch_to_tsquery('english', :q)) AS rank, "
             "CASE WHEN v.title ILIKE :title_q THEN 1 ELSE 0 END AS title_match"
@@ -102,7 +109,7 @@ class SearchRepository:
         # Track search query metric
         search_queries_total.labels(backend="postgres").inc()
 
-        return rows
+        return normalize_search_rows(rows)
 
     def search_youtube(
         self,
@@ -121,7 +128,13 @@ class SearchRepository:
         # searches scan/return every caption segment for matching videos.
         text_where = ["ys.text_tsv @@ websearch_to_tsquery('english', :q)"]
         title_where = ["(v.title ILIKE :title_q OR v.youtube_id ILIKE :title_q)"]
-        params = {"q": q, "limit": limit, "offset": offset, "title_q": f"%{q.strip()}%"}
+        params = {
+            "q": q,
+            "limit": limit,
+            "offset": offset,
+            "title_q": f"%{q.strip()}%",
+            "headline_options": POSTGRES_HEADLINE_OPTIONS,
+        }
 
         if video_id:
             text_where.append("yt.video_id = :vid")
@@ -180,7 +193,9 @@ class SearchRepository:
                     yt.video_id,
                     ys.start_ms,
                     ys.end_ms,
-                    ts_headline('english', ys.text, websearch_to_tsquery('english', :q)) AS snippet,
+                    ts_headline(
+                        'english', ys.text, websearch_to_tsquery('english', :q), :headline_options
+                    ) AS snippet,
                     ts_rank_cd(ys.text_tsv, websearch_to_tsquery('english', :q)) AS rank,
                     0 AS title_match,
                     v.uploaded_at,
@@ -222,7 +237,7 @@ class SearchRepository:
         """
 
         rows = db.execute(text(sql), params).mappings().all()
-        return rows
+        return normalize_search_rows(rows)
 
     def search_best(
         self,
@@ -237,58 +252,75 @@ class SearchRepository:
         from app.metrics import search_queries_total
 
         filters = filters or {}
-        params = {"q": q, "limit": limit, "offset": offset, "title_q": f"%{q.strip()}%"}
-        native_where = ["(s.text_tsv @@ websearch_to_tsquery('english', :q) OR v.title ILIKE :title_q)"]
+        params = {
+            "q": q,
+            "limit": limit,
+            "offset": offset,
+            "title_q": f"%{q.strip()}%",
+            "headline_options": POSTGRES_HEADLINE_OPTIONS,
+        }
+        native_where = ["s.text_tsv @@ websearch_to_tsquery('english', :q)"]
+        native_title_where = ["v.title ILIKE :title_q"]
         youtube_where = ["ys.text_tsv @@ websearch_to_tsquery('english', :q)"]
         youtube_title_where = ["(v.title ILIKE :title_q OR v.youtube_id ILIKE :title_q)"]
 
         if video_id:
             native_where.append("s.video_id = :vid")
+            native_title_where.append("v.id = :vid")
             youtube_where.append("yt.video_id = :vid")
             youtube_title_where.append("yt.video_id = :vid")
             params["vid"] = str(video_id)
 
         if filters.get("date_from"):
             native_where.append("v.uploaded_at >= :date_from")
+            native_title_where.append("v.uploaded_at >= :date_from")
             youtube_where.append("v.uploaded_at >= :date_from")
             youtube_title_where.append("v.uploaded_at >= :date_from")
             params["date_from"] = filters["date_from"]
         if filters.get("date_to"):
             native_where.append("v.uploaded_at <= :date_to")
+            native_title_where.append("v.uploaded_at <= :date_to")
             youtube_where.append("v.uploaded_at <= :date_to")
             youtube_title_where.append("v.uploaded_at <= :date_to")
             params["date_to"] = filters["date_to"]
         if filters.get("min_duration") is not None:
             native_where.append("v.duration_seconds >= :min_duration")
+            native_title_where.append("v.duration_seconds >= :min_duration")
             youtube_where.append("v.duration_seconds >= :min_duration")
             youtube_title_where.append("v.duration_seconds >= :min_duration")
             params["min_duration"] = filters["min_duration"]
         if filters.get("max_duration") is not None:
             native_where.append("v.duration_seconds <= :max_duration")
+            native_title_where.append("v.duration_seconds <= :max_duration")
             youtube_where.append("v.duration_seconds <= :max_duration")
             youtube_title_where.append("v.duration_seconds <= :max_duration")
             params["max_duration"] = filters["max_duration"]
         if filters.get("channel"):
             native_where.append("v.channel_name ILIKE :channel")
+            native_title_where.append("v.channel_name ILIKE :channel")
             youtube_where.append("v.channel_name ILIKE :channel")
             youtube_title_where.append("v.channel_name ILIKE :channel")
             params["channel"] = f"%{filters['channel']}%"
         if filters.get("category"):
             native_where.append("v.category ILIKE :category")
+            native_title_where.append("v.category ILIKE :category")
             youtube_where.append("v.category ILIKE :category")
             youtube_title_where.append("v.category ILIKE :category")
             params["category"] = filters["category"]
         if filters.get("language"):
             native_where.append("v.language = :language")
+            native_title_where.append("v.language = :language")
             youtube_where.append("v.language = :language")
             youtube_title_where.append("v.language = :language")
             params["language"] = filters["language"]
         if filters.get("has_speaker_labels") is not None:
             if filters["has_speaker_labels"]:
                 native_where.append("s.speaker_label IS NOT NULL")
+                native_title_where.append("s.speaker_label IS NOT NULL")
                 youtube_where.append("FALSE")
             else:
                 native_where.append("s.speaker_label IS NULL")
+                native_title_where.append("s.speaker_label IS NULL")
 
         youtube_where.append("NOT EXISTS (SELECT 1 FROM segments native_s WHERE native_s.video_id = yt.video_id)")
         youtube_title_where.append("NOT EXISTS (SELECT 1 FROM segments native_s WHERE native_s.video_id = yt.video_id)")
@@ -314,7 +346,9 @@ class SearchRepository:
                     s.start_ms,
                     s.end_ms,
                     CASE WHEN s.text_tsv @@ websearch_to_tsquery('english', :q)
-                        THEN ts_headline('english', s.text, websearch_to_tsquery('english', :q))
+                        THEN ts_headline(
+                            'english', s.text, websearch_to_tsquery('english', :q), :headline_options
+                        )
                         ELSE coalesce(v.title, s.text)
                     END AS snippet,
                     'whisper' AS source,
@@ -331,12 +365,39 @@ class SearchRepository:
                 UNION ALL
 
                 SELECT
+                    s.id,
+                    v.id AS video_id,
+                    s.start_ms,
+                    s.end_ms,
+                    coalesce(v.title, s.text) AS snippet,
+                    'whisper' AS source,
+                    0.0 AS rank,
+                    1 AS title_match,
+                    v.uploaded_at,
+                    v.duration_seconds,
+                    v.title AS video_title,
+                    v.channel_name
+                FROM videos v
+                JOIN LATERAL (
+                    SELECT segment.id, segment.start_ms, segment.end_ms, segment.text, segment.speaker_label
+                    FROM segments segment
+                    WHERE segment.video_id = v.id
+                    ORDER BY segment.start_ms ASC
+                    LIMIT 1
+                ) s ON true
+                WHERE {' AND '.join(native_title_where)}
+
+                UNION ALL
+
+                SELECT
                     ys.id,
                     yt.video_id,
                     ys.start_ms,
                     ys.end_ms,
                     CASE WHEN ys.text_tsv @@ websearch_to_tsquery('english', :q)
-                        THEN ts_headline('english', ys.text, websearch_to_tsquery('english', :q))
+                        THEN ts_headline(
+                            'english', ys.text, websearch_to_tsquery('english', :q), :headline_options
+                        )
                         ELSE coalesce(v.title, ys.text)
                     END AS snippet,
                     'youtube' AS source,
@@ -377,4 +438,4 @@ class SearchRepository:
         """
         rows = db.execute(text(sql), params).mappings().all()
         search_queries_total.labels(backend="postgres").inc()
-        return rows
+        return normalize_search_rows(rows)

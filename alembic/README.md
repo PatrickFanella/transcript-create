@@ -46,7 +46,7 @@ The baseline migration (`5cd038a8f131_initial_schema_baseline.py`) captures the 
 Simply run migrations on an empty database:
 
 ```bash
-python scripts/run_migrations.py upgrade
+ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION=true python scripts/run_migrations.py upgrade
 ```
 
 ### For Existing Deployments
@@ -102,10 +102,12 @@ All tests must pass before changes can be merged.
 When running with Docker Compose, migrations are automatically applied on startup:
 
 ```bash
-docker compose up -d
+ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION=true docker compose up -d
 ```
 
 The `migrations` service runs `python scripts/run_migrations.py upgrade` before the API and worker services start.
+The opt-in is for a controlled empty local database only. Production rolling
+deployments must leave it false and follow the maintenance runbook for 0200.
 
 ## Manual Migration Operations
 
@@ -124,7 +126,7 @@ python scripts/run_migrations.py history
 ### Upgrade to Latest
 
 ```bash
-python scripts/run_migrations.py upgrade
+ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION=true python scripts/run_migrations.py upgrade
 ```
 
 ### Downgrade One Revision

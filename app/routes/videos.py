@@ -1,13 +1,15 @@
 import uuid
 from typing import Literal, Union
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import text
 
 from .. import crud
+from ..archive.product_intelligence import quoted_moments, related_episodes
 from ..archive.video_chapters import build_grounded_chapters
+from ..audit import ACTION_USER_DATA_DELETION, write_audit_from_request
 from ..db import get_db
-from ..exceptions import TranscriptNotReadyError, VideoNotFoundError
+from ..exceptions import AuthorizationError, TranscriptNotReadyError, VideoNotFoundError
 from ..schemas import (
     CleanedTranscriptResponse,
     CleanupConfig,
@@ -15,6 +17,8 @@ from ..schemas import (
     FormattedTranscriptResponse,
     PageInfo,
     PaginatedVideos,
+    QuotedMomentsResponse,
+    RelatedEpisodesResponse,
     Segment,
     TranscriptBlockResponse,
     TranscriptResponse,
@@ -23,6 +27,8 @@ from ..schemas import (
     YouTubeTranscriptResponse,
     YTSegment,
 )
+from ..security import ROLE_ADMIN, get_user_required, get_user_role
+from ..source_deletion import cleanup_deleted_source, delete_source
 from ..transcripts.blocks import FORMATTER_VERSION, build_transcript_blocks
 from ..transcripts.merged import build_merged_transcript
 from ..transcripts.service import TranscriptPresentationService
@@ -31,6 +37,64 @@ from ..transcripts.youtube_formatting import build_youtube_caption_blocks, forma
 
 router = APIRouter(prefix="", tags=["Videos"])
 transcript_presentation_service = TranscriptPresentationService()
+
+
+@router.get("/videos/{video_id}/related", response_model=RelatedEpisodesResponse)
+def get_related_episodes(video_id: uuid.UUID, limit: int = Query(8, ge=1, le=20), db=Depends(get_db)):
+    if not crud.get_video(db, video_id):
+        raise VideoNotFoundError(str(video_id))
+    return related_episodes(db, video_id=video_id, limit=limit)
+
+
+@router.get("/videos/{video_id}/quoted-moments", response_model=QuotedMomentsResponse)
+def get_quoted_moments(video_id: uuid.UUID, limit: int = Query(10, ge=1, le=50), db=Depends(get_db)):
+    if not crud.get_video(db, video_id):
+        raise VideoNotFoundError(str(video_id))
+    return quoted_moments(db, video_id=video_id, limit=limit)
+
+
+@router.delete("/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an ingested source")
+def delete_video_source(
+    video_id: uuid.UUID,
+    request: Request,
+    db=Depends(get_db),
+    user=Depends(get_user_required),
+):
+    video_owner = (
+        db.execute(
+            text("SELECT j.owner_user_id FROM videos v JOIN jobs j ON j.id=v.job_id WHERE v.id=:id"),
+            {"id": video_id},
+        )
+        .mappings()
+        .first()
+    )
+    if video_owner is None:
+        raise VideoNotFoundError(str(video_id))
+    owner = video_owner["owner_user_id"]
+    if str(owner) != str(user["id"]) and get_user_role(user) != ROLE_ADMIN:
+        raise AuthorizationError("You don't have permission to delete this source")
+    try:
+        deleted = delete_source(db, video_id=video_id, deleted_by_user_id=user["id"])
+        if not deleted:
+            raise VideoNotFoundError(str(video_id))
+        write_audit_from_request(
+            db,
+            request,
+            ACTION_USER_DATA_DELETION,
+            user_id=user["id"],
+            resource_type="video",
+            resource_id=str(video_id),
+            details={"youtube_id": deleted["youtube_id"]},
+        )
+        db.commit()
+    except VideoNotFoundError:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    cleanup_deleted_source(deleted)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _cleanup_config() -> CleanupConfig:
@@ -152,7 +216,9 @@ def get_transcript(
 
     segs = crud.list_segments(db, video_id)
     segments = [transcript_presentation_service.from_db_row(r) for r in segs]
-    yt, yt_segs, yt_segments_for_merge = _youtube_segments_for_merge(db, video_id) if source in ("best", "merged", "youtube") else (None, [], [])
+    yt, yt_segs, yt_segments_for_merge = (
+        _youtube_segments_for_merge(db, video_id) if source in ("best", "merged", "youtube") else (None, [], [])
+    )
 
     if source in ("best", "merged") and segments and yt_segments_for_merge:
         merged = build_merged_transcript(str(video_id), segments, yt_segments_for_merge)
@@ -174,7 +240,9 @@ def get_transcript(
         return FormattedTranscriptResponse(
             video_id=video_id,
             segments=merged_segments,
-            text="\n\n".join(f"{block.speaker_label}:\n{block.text}" if block.speaker_label else block.text for block in blocks),
+            text="\n\n".join(
+                f"{block.speaker_label}:\n{block.text}" if block.speaker_label else block.text for block in blocks
+            ),
             format="structured",
             cleanup_config=_cleanup_config(),
             blocks=blocks,
@@ -196,10 +264,7 @@ def get_transcript(
                     source="youtube",
                     source_label="YouTube captions",
                 )
-            blocks = [
-                _block_response(b)
-                for b in build_youtube_caption_blocks(rows)
-            ]
+            blocks = [_block_response(b) for b in build_youtube_caption_blocks(rows)]
             return FormattedTranscriptResponse(
                 video_id=video_id,
                 segments=yt_segments,
@@ -231,7 +296,9 @@ def get_transcript(
 
     elif mode == "formatted":
         persisted_blocks = [
-            block for block in crud.list_transcript_blocks(db, video_id) if block["formatter_version"] == FORMATTER_VERSION
+            block
+            for block in crud.list_transcript_blocks(db, video_id)
+            if block["formatter_version"] == FORMATTER_VERSION
         ]
         if persisted_blocks:
             blocks = [
@@ -249,10 +316,7 @@ def get_transcript(
                 for r in persisted_blocks
             ]
         else:
-            blocks = [
-                _block_response(b)
-                for b in build_transcript_blocks(segments)
-            ]
+            blocks = [_block_response(b) for b in build_transcript_blocks(segments)]
 
         formatted_text = "\n\n".join(
             f"{block.speaker_label}:\n{block.text}" if block.speaker_label else block.text for block in blocks
@@ -323,15 +387,13 @@ def get_video_chapters(video_id: uuid.UUID, db=Depends(get_db)):
 
     persisted_rows = (
         db.execute(
-            text(
-                """
+            text("""
                 SELECT chapter_index, start_ms, end_ms, title, summary,
                        confidence_score, status, source
                 FROM archive_video_chapters
                 WHERE video_id = :video_id AND status = 'published'
                 ORDER BY chapter_index
-                """
-            ),
+                """),
             {"video_id": str(video_id)},
         )
         .mappings()

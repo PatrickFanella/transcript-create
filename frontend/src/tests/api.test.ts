@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { api, buildApiUrl, http, apiListSavedSearches } from '../services/api'
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { api, buildApiUrl, http, apiListSavedSearches } from '../services/api';
 
 // Mock ky
 vi.mock('ky', () => ({
@@ -10,37 +10,37 @@ vi.mock('ky', () => ({
       delete: vi.fn(),
     }),
   },
-}))
+}));
 
 describe('api service', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   describe('search', () => {
     it('calls API with correct parameters', async () => {
-      const mockResponse = { hits: [] }
+      const mockResponse = { hits: [] };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      await api.search('test query')
+      await api.search('test query');
 
       expect(getMock).toHaveBeenCalledWith(
         'search',
         expect.objectContaining({
           searchParams: expect.any(URLSearchParams),
         })
-      )
-    })
+      );
+    });
 
     it('includes optional parameters', async () => {
-      const mockResponse = { hits: [] }
+      const mockResponse = { hits: [] };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
       await api.search('test', {
         source: 'youtube',
@@ -48,17 +48,17 @@ describe('api service', () => {
         video_id: 'abc123',
         limit: 10,
         offset: 5,
-      })
+      });
 
-      const call = getMock.mock.calls[0]
-      const params = call[1].searchParams as URLSearchParams
-      expect(params.get('q')).toBe('test')
-      expect(params.get('source')).toBe('youtube')
-      expect(params.get('category')).toBe('news')
-      expect(params.get('video_id')).toBe('abc123')
-      expect(params.get('limit')).toBe('10')
-      expect(params.get('offset')).toBe('5')
-    })
+      const call = getMock.mock.calls[0];
+      const params = call[1].searchParams as URLSearchParams;
+      expect(params.get('q')).toBe('test');
+      expect(params.get('source')).toBe('youtube');
+      expect(params.get('category')).toBe('news');
+      expect(params.get('video_id')).toBe('abc123');
+      expect(params.get('limit')).toBe('10');
+      expect(params.get('offset')).toBe('5');
+    });
 
     it('returns search results', async () => {
       const mockResponse = {
@@ -71,34 +71,38 @@ describe('api service', () => {
             snippet: 'test snippet',
           },
         ],
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.search('test')
-      expect(result).toEqual(mockResponse)
-    })
-  })
+      const result = await api.search('test');
+      expect(result).toEqual(mockResponse);
+    });
+  });
 
   describe('searchGrouped', () => {
     it('calls the grouped search endpoint', async () => {
-      const mockResponse = { total_moments: 0, total_videos: 0, groups: [] }
+      const mockResponse = { total_moments: 0, total_videos: 0, groups: [] };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      await api.searchGrouped('rent', { date_from: '2026-05-01', source: 'native', category: 'interview' })
+      await api.searchGrouped('rent', {
+        date_from: '2026-05-01',
+        source: 'native',
+        category: 'interview',
+      });
 
-      const params = getMock.mock.calls[0][1].searchParams as URLSearchParams
-      expect(params.get('q')).toBe('rent')
-      expect(params.get('source')).toBe('native')
-      expect(params.get('date_from')).toBe('2026-05-01')
-      expect(params.get('category')).toBe('interview')
-    })
-  })
+      const params = getMock.mock.calls[0][1].searchParams as URLSearchParams;
+      expect(params.get('q')).toBe('rent');
+      expect(params.get('source')).toBe('native');
+      expect(params.get('date_from')).toBe('2026-05-01');
+      expect(params.get('category')).toBe('interview');
+    });
+  });
 
   describe('getMentionMap', () => {
     it('calls the mention map endpoint and returns mini-report fields', async () => {
@@ -113,21 +117,23 @@ describe('api service', () => {
         related_topics: ['copyright', 'openai'],
         top_episodes_count: 5,
         top_episodes: [],
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.getMentionMap('ai', { category: 'interview' })
+      const result = await api.getMentionMap('ai', { category: 'interview' });
 
-      expect(result).toEqual(mockResponse)
-      expect(getMock).toHaveBeenCalledWith('search/mention-map', { searchParams: expect.any(URLSearchParams) })
-      const params = getMock.mock.calls[0][1].searchParams as URLSearchParams
-      expect(params.get('q')).toBe('ai')
-      expect(params.get('category')).toBe('interview')
-    })
-  })
+      expect(result).toEqual(mockResponse);
+      expect(getMock).toHaveBeenCalledWith('search/mention-map', {
+        searchParams: expect.any(URLSearchParams),
+      });
+      const params = getMock.mock.calls[0][1].searchParams as URLSearchParams;
+      expect(params.get('q')).toBe('ai');
+      expect(params.get('category')).toBe('interview');
+    });
+  });
 
   describe('getExploreIntelligence', () => {
     it('calls archive intelligence endpoint', async () => {
@@ -149,17 +155,17 @@ describe('api service', () => {
         periods: [],
         selected_period: null,
         period_options: [],
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.getExploreIntelligence()
+      const result = await api.getExploreIntelligence();
 
-      expect(result).toEqual(mockResponse)
-      expect(getMock).toHaveBeenCalledWith('archive/intelligence')
-    })
+      expect(result).toEqual(mockResponse);
+      expect(getMock).toHaveBeenCalledWith('archive/intelligence');
+    });
 
     it('passes through intelligence query params including period', async () => {
       const mockResponse = {
@@ -180,11 +186,11 @@ describe('api service', () => {
         periods: [],
         selected_period: null,
         period_options: [],
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
       await api.getExploreIntelligence({
         period: '2026-05',
@@ -193,90 +199,118 @@ describe('api service', () => {
         period_limit: 16,
         date_from: '2026-05-01',
         date_to: '2026-05-31',
-      })
+      });
 
       expect(getMock).toHaveBeenCalledWith(
         'archive/intelligence',
         expect.objectContaining({ searchParams: expect.any(URLSearchParams) })
-      )
-      const params = getMock.mock.calls[0][1].searchParams as URLSearchParams
-      expect(params.get('period')).toBe('2026-05')
-      expect(params.get('granularity')).toBe('week')
-      expect(params.get('topic_limit')).toBe('12')
-      expect(params.get('period_limit')).toBe('16')
-      expect(params.get('date_from')).toBe('2026-05-01')
-      expect(params.get('date_to')).toBe('2026-05-31')
-    })
-  })
+      );
+      const params = getMock.mock.calls[0][1].searchParams as URLSearchParams;
+      expect(params.get('period')).toBe('2026-05');
+      expect(params.get('granularity')).toBe('week');
+      expect(params.get('topic_limit')).toBe('12');
+      expect(params.get('period_limit')).toBe('16');
+      expect(params.get('date_from')).toBe('2026-05-01');
+      expect(params.get('date_to')).toBe('2026-05-31');
+    });
+  });
+
+  describe('getSearchSuggestions', () => {
+    it('uses the lightweight suggestions endpoint and forwards cancellation', async () => {
+      const response = { suggestions: [{ term: 'rent', frequency: 3 }] };
+      const getMock = vi.fn().mockReturnValue({ json: vi.fn().mockResolvedValue(response) });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
+      const controller = new AbortController();
+
+      await expect(api.getSearchSuggestions('re', 8, controller.signal)).resolves.toEqual(response);
+      expect(getMock).toHaveBeenCalledWith('search/suggestions', {
+        searchParams: expect.any(URLSearchParams),
+        signal: controller.signal,
+      });
+    });
+  });
 
   describe('getExplorePeriods', () => {
     it('calls the predefined periods endpoint', async () => {
-      const mockResponse = { items: [] }
+      const mockResponse = { items: [] };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.getExplorePeriods({ kind: 'week', limit: 16 })
+      const result = await api.getExplorePeriods({ kind: 'week', limit: 16 });
 
-      expect(result).toEqual(mockResponse)
+      expect(result).toEqual(mockResponse);
       expect(getMock).toHaveBeenCalledWith('archive/intelligence/periods', {
         searchParams: expect.any(URLSearchParams),
-      })
-      const params = getMock.mock.calls[0][1].searchParams as URLSearchParams
-      expect(params.get('kind')).toBe('week')
-      expect(params.get('limit')).toBe('16')
-    })
-  })
+      });
+      const params = getMock.mock.calls[0][1].searchParams as URLSearchParams;
+      expect(params.get('kind')).toBe('week');
+      expect(params.get('limit')).toBe('16');
+    });
+  });
 
   describe('saved searches', () => {
     it('lists saved searches', async () => {
-      const mockResponse = { items: [] }
+      const mockResponse = { items: [] };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await apiListSavedSearches()
-      expect(result).toEqual(mockResponse)
-      expect(getMock).toHaveBeenCalledWith('users/me/saved-searches')
-    })
-  })
+      const result = await apiListSavedSearches();
+      expect(result).toEqual(mockResponse);
+      expect(getMock).toHaveBeenCalledWith('users/me/saved-searches');
+    });
+  });
 
   describe('getTranscript', () => {
     it('calls correct endpoint', async () => {
       const mockResponse = {
         video_id: 'video1',
         segments: [],
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      await api.getTranscript('video1')
+      await api.getTranscript('video1');
 
       expect(getMock).toHaveBeenCalledWith('videos/video1/transcript', {
         searchParams: { mode: 'formatted', source: 'best' },
-      })
-    })
+        timeout: 60_000,
+      });
+    });
+
+    it('can prefer the persisted Whisper transcript', async () => {
+      const getMock = vi.fn().mockReturnValue({
+        json: vi.fn().mockResolvedValue({ video_id: 'video1', segments: [] }),
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
+
+      await api.getTranscript('video1', 'whisper');
+
+      expect(getMock).toHaveBeenCalledWith('videos/video1/transcript', {
+        searchParams: { mode: 'formatted', source: 'whisper' },
+        timeout: 60_000,
+      });
+    });
 
     it('returns transcript data', async () => {
       const mockResponse = {
         video_id: 'video1',
-        segments: [
-          { start_ms: 0, end_ms: 1000, text: 'Hello world', speaker_label: null },
-        ],
-      }
+        segments: [{ start_ms: 0, end_ms: 1000, text: 'Hello world', speaker_label: null }],
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.getTranscript('video1')
-      expect(result).toEqual(mockResponse)
-    })
-  })
+      const result = await api.getTranscript('video1');
+      expect(result).toEqual(mockResponse);
+    });
+  });
 
   describe('getVideo', () => {
     it('calls correct endpoint', async () => {
@@ -285,16 +319,16 @@ describe('api service', () => {
         youtube_id: 'abc123',
         title: 'Test Video',
         duration_seconds: 120,
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      await api.getVideo('video1')
+      await api.getVideo('video1');
 
-      expect(getMock).toHaveBeenCalledWith('videos/video1')
-    })
+      expect(getMock).toHaveBeenCalledWith('videos/video1');
+    });
 
     it('returns video info', async () => {
       const mockResponse = {
@@ -302,16 +336,16 @@ describe('api service', () => {
         youtube_id: 'abc123',
         title: 'Test Video',
         duration_seconds: 120,
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.getVideo('video1')
-      expect(result).toEqual(mockResponse)
-    })
-  })
+      const result = await api.getVideo('video1');
+      expect(result).toEqual(mockResponse);
+    });
+  });
 
   describe('listRecentVideos', () => {
     it('unwraps paginated response items', async () => {
@@ -330,19 +364,19 @@ describe('api service', () => {
           previous_cursor: null,
           total_count: 1,
         },
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.listRecentVideos(12)
+      const result = await api.listRecentVideos(12);
 
-      expect(result).toEqual(mockResponse.items)
+      expect(result).toEqual(mockResponse.items);
       expect(getMock).toHaveBeenCalledWith('videos', {
         searchParams: { completed_only: 'true', limit: '12' },
-      })
-    })
+      });
+    });
 
     it('tolerates legacy array video response', async () => {
       const legacyResponse = [
@@ -351,17 +385,17 @@ describe('api service', () => {
           youtube_id: 'abc123',
           title: 'Legacy Video',
         },
-      ]
+      ];
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(legacyResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.listRecentVideos(12)
+      const result = await api.listRecentVideos(12);
 
-      expect(result).toEqual(legacyResponse)
-    })
-  })
+      expect(result).toEqual(legacyResponse);
+    });
+  });
 
   describe('listStreamLibrary', () => {
     it('lists stream library with filters', async () => {
@@ -374,11 +408,11 @@ describe('api service', () => {
           previous_cursor: null,
           total_count: 0,
         },
-      }
+      };
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(mockResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
       const result = await api.listStreamLibrary({
         limit: 24,
@@ -389,9 +423,9 @@ describe('api service', () => {
         date_field: 'uploaded_at',
         date_from: '2026-05-01',
         date_to: '2026-05-31',
-      })
+      });
 
-      expect(result).toEqual(mockResponse)
+      expect(result).toEqual(mockResponse);
       expect(getMock).toHaveBeenCalledWith('videos', {
         searchParams: {
           limit: '24',
@@ -403,8 +437,8 @@ describe('api service', () => {
           date_from: '2026-05-01',
           date_to: '2026-05-31',
         },
-      })
-    })
+      });
+    });
 
     it('normalizes legacy array response for stream library', async () => {
       const legacyResponse = [
@@ -413,33 +447,37 @@ describe('api service', () => {
           youtube_id: 'abc123',
           title: 'Legacy Video',
         },
-      ]
+      ];
       const getMock = vi.fn().mockReturnValue({
         json: vi.fn().mockResolvedValue(legacyResponse),
-      })
-      vi.spyOn(http, 'get').mockImplementation(getMock)
+      });
+      vi.spyOn(http, 'get').mockImplementation(getMock);
 
-      const result = await api.listStreamLibrary({ limit: 12 })
+      const result = await api.listStreamLibrary({ limit: 12 });
 
-      expect(result.items).toEqual(legacyResponse)
-      expect(result.page_info.total_count).toBe(1)
-    })
-  })
+      expect(result.items).toEqual(legacyResponse);
+      expect(result.page_info.total_count).toBe(1);
+    });
+  });
 
   describe('buildApiUrl', () => {
     it('uses the default api base for relative urls', () => {
-      expect(buildApiUrl('auth/login/google')).toBe('/api/auth/login/google')
-      expect(buildApiUrl('/videos/test/transcript.srt')).toBe('/api/videos/test/transcript.srt')
-    })
+      expect(buildApiUrl('auth/login/google')).toBe('/api/auth/login/google');
+      expect(buildApiUrl('/videos/test/transcript.srt')).toBe('/api/videos/test/transcript.srt');
+    });
 
     it('handles a root api base without adding a double slash', () => {
-      expect(buildApiUrl('auth/me', undefined, '/')).toBe('/auth/me')
-    })
+      expect(buildApiUrl('auth/me', undefined, '/')).toBe('/auth/me');
+    });
 
     it('supports absolute api bases and query params', () => {
       expect(
-        buildApiUrl('admin/events.csv', { type: 'export', start: '2026-06-01' }, 'https://api.example.com/api')
-      ).toBe('https://api.example.com/api/admin/events.csv?type=export&start=2026-06-01')
-    })
-  })
-})
+        buildApiUrl(
+          'admin/events.csv',
+          { type: 'export', start: '2026-06-01' },
+          'https://api.example.com/api'
+        )
+      ).toBe('https://api.example.com/api/admin/events.csv?type=export&start=2026-06-01');
+    });
+  });
+});

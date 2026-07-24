@@ -14,6 +14,17 @@ function mockJsonResponse<T>(value: T) {
   };
 }
 
+function requestUrl(value: unknown): string {
+  return String(value);
+}
+
+function requestOptions(value: unknown): {
+  json?: Record<string, unknown>;
+  searchParams?: URLSearchParams;
+} {
+  return (value as { json?: Record<string, unknown>; searchParams?: URLSearchParams }) ?? {};
+}
+
 vi.mock('../services/api', () => ({
   http: {
     get: vi.fn(),
@@ -68,20 +79,21 @@ describe('AdminVideoMetadata', () => {
       },
     ];
 
-    vi.mocked(http.get).mockImplementation((url: any, options?: any) => {
-      if (url === 'admin/archive/metadata/people') {
+    vi.mocked(http.get).mockImplementation((url: unknown, options?: unknown) => {
+      if (requestUrl(url) === 'admin/archive/metadata/people') {
         return mockJsonResponse({ items: people }) as never;
       }
-      if (url === 'admin/archive/metadata/tags') {
+      if (requestUrl(url) === 'admin/archive/metadata/tags') {
         return mockJsonResponse({ items: tags }) as never;
       }
-      if (url === 'admin/archive/metadata/videos') {
-        const searchParams: URLSearchParams | undefined = options?.searchParams;
+      if (requestUrl(url) === 'admin/archive/metadata/videos') {
+        const searchParams = requestOptions(options).searchParams;
         const query = searchParams?.get('q')?.toLowerCase() ?? '';
         const filtered = query
           ? videos.filter(
               (video) =>
-                (video.title ?? '').toLowerCase().includes(query) || video.youtube_id.toLowerCase().includes(query)
+                (video.title ?? '').toLowerCase().includes(query) ||
+                video.youtube_id.toLowerCase().includes(query)
             )
           : videos;
         return mockJsonResponse({ items: filtered, total: filtered.length }) as never;
@@ -89,12 +101,24 @@ describe('AdminVideoMetadata', () => {
       return mockJsonResponse({ items: [] }) as never;
     });
 
-    vi.mocked(http.post).mockImplementation((url: any, options?: any) => {
-      if (url === 'admin/archive/metadata/people') {
-        const payload = options?.json as Record<string, any>;
+    vi.mocked(http.post).mockImplementation((url: unknown, options?: unknown) => {
+      if (requestUrl(url) === 'admin/archive/metadata/people') {
+        const payload = requestOptions(options).json as unknown as {
+          slug?: string;
+          display_name: string;
+          aliases?: string[];
+          description?: string | null;
+          status?: string;
+          sort_order?: number;
+        };
         const row = {
           id: `person-${people.length + 1}`,
-          slug: payload.slug || payload.display_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+          slug:
+            payload.slug ||
+            payload.display_name
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, ''),
           display_name: payload.display_name,
           aliases: payload.aliases ?? [],
           description: payload.description ?? null,
@@ -107,11 +131,23 @@ describe('AdminVideoMetadata', () => {
         return mockJsonResponse(row) as never;
       }
 
-      if (url === 'admin/archive/metadata/tags') {
-        const payload = options?.json as Record<string, any>;
+      if (requestUrl(url) === 'admin/archive/metadata/tags') {
+        const payload = requestOptions(options).json as unknown as {
+          slug?: string;
+          label: string;
+          kind?: string;
+          description?: string | null;
+          status?: string;
+          sort_order?: number;
+        };
         const row = {
           id: `tag-${tags.length + 1}`,
-          slug: payload.slug || payload.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+          slug:
+            payload.slug ||
+            payload.label
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, ''),
           label: payload.label,
           kind: payload.kind ?? 'category',
           description: payload.description ?? null,
@@ -124,7 +160,7 @@ describe('AdminVideoMetadata', () => {
         return mockJsonResponse(row) as never;
       }
 
-      if (url === 'admin/archive/metadata/seed-tags') {
+      if (requestUrl(url) === 'admin/archive/metadata/seed-tags') {
         tags = [
           ...tags,
           {
@@ -145,9 +181,9 @@ describe('AdminVideoMetadata', () => {
       return mockJsonResponse({ ok: true }) as never;
     });
 
-    vi.mocked(http.put).mockImplementation((url: any, options?: any) => {
-      if (url === 'admin/archive/metadata/videos/video-1') {
-        const payload = options?.json as {
+    vi.mocked(http.put).mockImplementation((url: unknown, options?: unknown) => {
+      if (requestUrl(url) === 'admin/archive/metadata/videos/video-1') {
+        const payload = requestOptions(options).json as unknown as {
           people: Array<{ slug: string; role?: string }>;
           tags: Array<{ slug: string }>;
         };
@@ -155,7 +191,8 @@ describe('AdminVideoMetadata', () => {
           ...videos[0],
           people: payload.people.map((person) => ({
             slug: person.slug,
-            display_name: people.find((entry) => entry.slug === person.slug)?.display_name || person.slug,
+            display_name:
+              people.find((entry) => entry.slug === person.slug)?.display_name || person.slug,
             aliases: [],
             description: null,
             role: person.role,

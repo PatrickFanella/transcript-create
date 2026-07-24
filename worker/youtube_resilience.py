@@ -436,6 +436,12 @@ def get_circuit_breaker(name: str = "youtube") -> CircuitBreaker:
         return _circuit_breakers[name]
 
 
+def reset_circuit_breakers_for_tests() -> None:
+    """Clear process-global circuit breakers for deterministic test isolation."""
+    with _breaker_lock:
+        _circuit_breakers.clear()
+
+
 def retry_with_backoff(
     func: Callable[[], T],
     max_attempts: int = 3,

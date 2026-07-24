@@ -57,36 +57,35 @@ class TestWorkerVideoProcessing:
         assert video["state"] == "pending"
 
     @pytest.mark.timeout(60)
-    def test_skip_locked_prevents_double_processing(self, integration_db, clean_test_data):
+    def test_skip_locked_prevents_double_processing(self, integration_engine, clean_test_data):
         """Test that SKIP LOCKED prevents multiple workers from picking same video."""
         # Create job and video
         job_id = uuid.uuid4()
         video_id = uuid.uuid4()
 
-        integration_db.execute(
-            text(
-                """
-                INSERT INTO jobs (id, kind, state, input_url)
-                VALUES (:job_id, 'single', 'expanded', 'https://youtube.com/watch?v=test')
-            """
-            ),
-            {"job_id": str(job_id)},
-        )
-
-        integration_db.execute(
-            text(
-                """
-                INSERT INTO videos (id, job_id, youtube_id, idx, title, duration_seconds, state)
-                VALUES (:video_id, :job_id, 'test123', 0, 'Test Video', 180, 'pending')
-            """
-            ),
-            {"video_id": str(video_id), "job_id": str(job_id)},
-        )
-        integration_db.commit()
+        with integration_engine.begin() as setup_conn:
+            setup_conn.execute(
+                text(
+                    """
+                    INSERT INTO jobs (id, kind, state, input_url)
+                    VALUES (:job_id, 'single', 'expanded', 'https://youtube.com/watch?v=test')
+                    """
+                ),
+                {"job_id": job_id},
+            )
+            setup_conn.execute(
+                text(
+                    """
+                    INSERT INTO videos (id, job_id, youtube_id, idx, title, duration_seconds, state)
+                    VALUES (:video_id, :job_id, 'test123', 0, 'Test Video', 180, 'pending')
+                    """
+                ),
+                {"video_id": video_id, "job_id": job_id},
+            )
 
         # Start a transaction that locks the video
-        conn1 = integration_db.connection()
-        trans1 = conn1.begin_nested()
+        conn1 = integration_engine.connect()
+        trans1 = conn1.begin()
 
         result1 = conn1.execute(
             text(
@@ -102,7 +101,7 @@ class TestWorkerVideoProcessing:
         assert video1 is not None
 
         # Try to pick video from another session (should skip locked)
-        conn2 = integration_db.get_bind().connect()
+        conn2 = integration_engine.connect()
         trans2 = conn2.begin()
 
         result2 = conn2.execute(
@@ -123,6 +122,7 @@ class TestWorkerVideoProcessing:
         # Clean up
         trans1.rollback()
         trans2.rollback()
+        conn1.close()
         conn2.close()
 
     @pytest.mark.timeout(60)

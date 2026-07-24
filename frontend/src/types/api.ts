@@ -1,11 +1,68 @@
 export type UUID = string;
 
+export type OAuthProvider = 'google' | 'twitch';
+export type UserRole = 'user' | 'moderator' | 'admin';
+
+export interface AccountUser {
+  id: UUID;
+  email?: string | null;
+  name?: string | null;
+  avatar_url?: string | null;
+  role?: UserRole | null;
+  plan?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface LinkedIdentity {
+  id: UUID;
+  provider: OAuthProvider;
+  email?: string | null;
+  name?: string | null;
+  avatar_url?: string | null;
+  created_at?: string | null;
+  last_login_at?: string | null;
+}
+
+export interface ActiveSession {
+  id: UUID;
+  user_agent: string;
+  created_at?: string | null;
+  last_seen_at?: string | null;
+  expires_at?: string | null;
+  current: boolean;
+}
+
+export interface AccountResponse {
+  user: AccountUser;
+  identities: LinkedIdentity[];
+  sessions: ActiveSession[];
+}
+
+export interface ProfileResponse {
+  user: AccountUser;
+}
+
+export interface LinkProviderResponse {
+  authorization_url: string;
+}
+
+export interface AdminUser extends AccountUser {
+  created_at: string;
+}
+
+export interface HighlightRange {
+  start: number;
+  end: number;
+}
+
 export interface SearchHit {
   id: number;
   video_id: UUID;
   start_ms: number;
   end_ms: number;
   snippet: string;
+  highlights?: HighlightRange[];
   source?: 'whisper' | 'youtube' | 'merged';
 }
 
@@ -15,6 +72,7 @@ export interface SearchMoment {
   start_ms: number;
   end_ms: number;
   snippet: string;
+  highlights?: HighlightRange[];
   source?: 'whisper' | 'youtube' | 'merged';
 }
 
@@ -46,6 +104,21 @@ export interface MentionMapResponse {
   query_time_ms?: number | null;
 }
 
+export interface MentionExportItem {
+  video_id: UUID;
+  youtube_id?: string | null;
+  video_title: string;
+  start_ms: number;
+  end_ms: number;
+  snippet: string;
+  source: string;
+  deep_link: string;
+}
+
+export interface MentionCollectionResponse {
+  items: MentionExportItem[];
+}
+
 export interface ArchivePopularSearch {
   term: string;
   frequency: number;
@@ -66,6 +139,7 @@ export interface ArchiveEvidenceMoment {
   start_ms: number;
   end_ms: number;
   snippet: string;
+  highlights?: HighlightRange[];
   topic?: string | null;
 }
 
@@ -305,6 +379,72 @@ export interface TimelineResponse {
   query_time_ms?: number | null;
 }
 
+export interface TopicTimelineBucket {
+  period: string;
+  label: string;
+  mention_count: number;
+  episode_count: number;
+  evidence: ArchiveEvidenceMoment[];
+}
+
+export interface TopicTimelineResponse {
+  topic: string;
+  granularity: 'week' | 'month';
+  date_from?: string | null;
+  date_to?: string | null;
+  buckets: TopicTimelineBucket[];
+}
+
+export interface OpinionEvidence {
+  video_id: UUID;
+  start_ms: number;
+  end_ms: number;
+  excerpt: string;
+}
+export interface OpinionRevision {
+  revision: number;
+  stance: string;
+  summary: string;
+  confidence: number;
+  model_version: string;
+  prompt_version: string;
+  time_bucket: string;
+  evidence: OpinionEvidence[];
+  model_generated: boolean;
+  status: 'candidate' | 'published' | 'corrected' | 'retracted';
+  correction_reason?: string | null;
+  created_at: string;
+}
+export interface OpinionHistoryItem {
+  id: UUID;
+  subject_slug: string;
+  normalized_claim: string;
+  status: 'candidate' | 'published' | 'corrected' | 'retracted';
+  current_revision: number;
+  revisions: OpinionRevision[];
+}
+export interface OpinionHistoryResponse {
+  items: OpinionHistoryItem[];
+}
+export interface RelatedEpisode {
+  video: VideoInfo;
+  score: number;
+  reasons: string[];
+}
+export interface RelatedEpisodesResponse {
+  items: RelatedEpisode[];
+}
+export interface QuotedMoment {
+  start_ms: number;
+  end_ms: number;
+  snippet: string;
+  quote_count: number;
+}
+export interface QuotedMomentsResponse {
+  video_id: UUID;
+  items: QuotedMoment[];
+}
+
 export interface SavedSearchFilters {
   source?: 'best' | 'native' | 'youtube';
   category?: string;
@@ -441,5 +581,9 @@ export interface ArchiveSearchFilters {
   date_to?: string;
   min_duration?: number;
   max_duration?: number;
-  sort_by?: string;
+  sort_by?: 'relevance' | 'date_asc' | 'date_desc' | 'duration_asc' | 'duration_desc';
+}
+
+export interface SearchSuggestionsResponse {
+  suggestions: Array<{ term: string; frequency: number }>;
 }

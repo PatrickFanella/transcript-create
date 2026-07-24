@@ -92,7 +92,7 @@ class TestBuildClientStrategies:
         strategies = _build_client_strategies()
 
         assert len(strategies) == 1
-        assert strategies[0].name == "web_safari"
+        assert strategies[0].name == "default"
 
     @patch("worker.audio.settings")
     def test_web_safari_has_hls_args(self, mock_settings):
@@ -104,7 +104,7 @@ class TestBuildClientStrategies:
         assert len(strategies) == 1
         strategy = strategies[0]
         assert "youtube:player_client=web_safari" in " ".join(strategy.extractor_args)
-        assert "Referer" in " ".join(strategy.headers)
+        assert strategy.headers == []
 
     @patch("worker.audio.settings")
     def test_tv_client_uses_tv_embedded(self, mock_settings):
@@ -177,7 +177,7 @@ class TestYtDlpCmd:
 
         assert cmd[0] == "yt-dlp"
         assert "-f" in cmd
-        assert "bestaudio" in cmd
+        assert cmd[cmd.index("-f") + 1] == "bestaudio/best"
         assert "-o" in cmd
         assert str(out) in cmd
         assert url in cmd
@@ -245,7 +245,10 @@ class TestDownloadAudio:
         mock_settings.YTDLP_CLIENT_ORDER = "web_safari,ios,android,tv"
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_TRIES_PER_CLIENT = 2
-        mock_settings.YTDLP_RETRY_SLEEP = 0.1
+        mock_settings.YTDLP_BACKOFF_BASE_DELAY = 0.01
+        mock_settings.YTDLP_BACKOFF_MAX_DELAY = 0.1
+        mock_settings.YTDLP_CIRCUIT_BREAKER_ENABLED = False
+        mock_settings.YTDLP_REQUEST_TIMEOUT = 30.0
         mock_settings.YTDLP_COOKIES_PATH = ""
         mock_settings.YTDLP_EXTRA_ARGS = ""
 
@@ -269,7 +272,10 @@ class TestDownloadAudio:
         mock_settings.YTDLP_CLIENT_ORDER = "web_safari,ios,android"
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_TRIES_PER_CLIENT = 1
-        mock_settings.YTDLP_RETRY_SLEEP = 0.1
+        mock_settings.YTDLP_BACKOFF_BASE_DELAY = 0.01
+        mock_settings.YTDLP_BACKOFF_MAX_DELAY = 0.1
+        mock_settings.YTDLP_CIRCUIT_BREAKER_ENABLED = False
+        mock_settings.YTDLP_REQUEST_TIMEOUT = 30.0
         mock_settings.YTDLP_COOKIES_PATH = ""
         mock_settings.YTDLP_EXTRA_ARGS = ""
 
@@ -296,7 +302,10 @@ class TestDownloadAudio:
         mock_settings.YTDLP_CLIENT_ORDER = "web_safari,ios"
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_TRIES_PER_CLIENT = 1
-        mock_settings.YTDLP_RETRY_SLEEP = 0.1
+        mock_settings.YTDLP_BACKOFF_BASE_DELAY = 0.01
+        mock_settings.YTDLP_BACKOFF_MAX_DELAY = 0.1
+        mock_settings.YTDLP_CIRCUIT_BREAKER_ENABLED = False
+        mock_settings.YTDLP_REQUEST_TIMEOUT = 30.0
         mock_settings.YTDLP_COOKIES_PATH = ""
         mock_settings.YTDLP_EXTRA_ARGS = ""
 

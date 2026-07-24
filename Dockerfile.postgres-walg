@@ -1,0 +1,16 @@
+FROM postgres:16
+
+ARG WALG_VERSION=3.0.8
+ARG WALG_SHA256=f30544c5ce93cf83b87578e3c4a2e9c0e0ffc3d160ef89ecddaf75f397d98deb
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates cron rsync \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --fail --location --silent --show-error \
+        --output /tmp/wal-g \
+        "https://github.com/wal-g/wal-g/releases/download/v${WALG_VERSION}/wal-g-pg-22.04-amd64" \
+    && echo "${WALG_SHA256}  /tmp/wal-g" | sha256sum --check --status \
+    && install -m 0755 /tmp/wal-g /usr/local/bin/wal-g \
+    && rm /tmp/wal-g \
+    && wal-g --version

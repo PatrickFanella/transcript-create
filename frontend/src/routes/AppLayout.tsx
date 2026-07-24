@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth, useTheme } from '../services';
 
@@ -6,6 +6,7 @@ const navItems = [
   { to: '/', label: 'Home' },
   { to: '/search', label: 'Search' },
   { to: '/explore', label: 'Explore' },
+  { to: '/timeline', label: 'Timeline' },
   { to: '/episodes', label: 'VODs' },
   { to: '/saved', label: 'Saved' },
 ];
@@ -14,6 +15,19 @@ export default function AppLayout() {
   const { user, loading, login, loginTwitch, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [mobileMenuOpen]);
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas text-ink transition-colors">
@@ -34,6 +48,8 @@ export default function AppLayout() {
               <img
                 src="/icon.svg"
                 alt=""
+                width="40"
+                height="40"
                 className="h-10 w-10 rounded-lg border border-border bg-surface object-cover"
               />
               <span>
@@ -60,6 +76,16 @@ export default function AppLayout() {
                 {item.label}
               </NavLink>
             ))}
+            {user && (
+              <NavLink
+                to="/account"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? 'bg-surface-muted text-ink' : ''}`
+                }
+              >
+                Account
+              </NavLink>
+            )}
             <button
               type="button"
               onClick={toggleTheme}
@@ -112,6 +138,8 @@ export default function AppLayout() {
                       <img
                         src={user.avatar_url}
                         alt={`${user.name || user.email} avatar`}
+                        width="32"
+                        height="32"
                         className="h-8 w-8 rounded-full border border-border"
                       />
                     )}
@@ -137,6 +165,7 @@ export default function AppLayout() {
           </nav>
 
           <button
+            ref={menuButtonRef}
             type="button"
             className="icon-button lg:hidden"
             onClick={() => setMobileMenuOpen((current) => !current)}
@@ -170,124 +199,136 @@ export default function AppLayout() {
           </button>
         </div>
 
-        <nav
-          id="mobile-menu"
-          className={`border-t border-border/80 bg-canvas/95 px-4 backdrop-blur-2xl transition-all duration-300 ease-out lg:hidden ${mobileMenuOpen ? 'max-h-[36rem] opacity-100' : 'max-h-0 overflow-hidden opacity-0'}`}
-          aria-label="Mobile navigation"
-          aria-hidden={!mobileMenuOpen}
-        >
-          <div className="mx-auto flex max-w-[100rem] flex-col gap-2 py-4">
-            <div className="archive-eyebrow mb-2 self-start">Navigation deck</div>
-            {navItems.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                className="nav-link block"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                {item.label}
-              </Link>
-            ))}
+        {mobileMenuOpen && (
+          <nav
+            id="mobile-menu"
+            className="border-t border-border/80 bg-canvas/95 px-4 backdrop-blur-2xl lg:hidden"
+            aria-label="Mobile navigation"
+          >
+            <div className="mx-auto flex max-w-[100rem] flex-col gap-2 py-4">
+              <div className="archive-eyebrow mb-2 self-start">Navigation deck</div>
+              {navItems.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="nav-link block"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  {item.label}
+                </Link>
+              ))}
+              {user && (
+                <Link
+                  to="/account"
+                  className="nav-link block"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Account
+                </Link>
+              )}
 
-            <div className="mt-3 border-t border-border pt-3">
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="nav-link flex w-full items-center gap-2 text-left"
-              >
-                {theme === 'light' ? (
+              <div className="mt-3 border-t border-border pt-3">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className="nav-link flex w-full items-center gap-2 text-left"
+                >
+                  {theme === 'light' ? (
+                    <>
+                      <svg
+                        className="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                        />
+                      </svg>
+                      Dark mode
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                        />
+                      </svg>
+                      Light mode
+                    </>
+                  )}
+                </button>
+
+                {loading ? (
+                  <span className="block py-2 text-subtle" aria-live="polite">
+                    Loading…
+                  </span>
+                ) : user ? (
                   <>
-                    <svg
-                      className="h-5 w-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                      aria-hidden="true"
+                    <div className="flex items-center gap-3 py-2">
+                      {user.avatar_url && (
+                        <img
+                          src={user.avatar_url}
+                          alt={`${user.name || user.email} avatar`}
+                          width="32"
+                          height="32"
+                          className="h-8 w-8 rounded-full border border-border"
+                        />
+                      )}
+                      <span className="text-muted">{user.name || user.email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logout();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="nav-link block w-full text-left"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
-                      />
-                    </svg>
-                    Dark mode
+                      Logout
+                    </button>
                   </>
                 ) : (
                   <>
-                    <svg
-                      className="h-5 w-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                      aria-hidden="true"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        login();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="nav-link block w-full text-left"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
-                      />
-                    </svg>
-                    Light mode
+                      Google
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loginTwitch();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="nav-link block w-full text-left"
+                    >
+                      Twitch
+                    </button>
                   </>
                 )}
-              </button>
-
-              {loading ? (
-                <span className="block py-2 text-subtle" aria-live="polite">
-                  Loading…
-                </span>
-              ) : user ? (
-                <>
-                  <div className="flex items-center gap-3 py-2">
-                    {user.avatar_url && (
-                      <img
-                        src={user.avatar_url}
-                        alt={`${user.name || user.email} avatar`}
-                        className="h-8 w-8 rounded-full border border-border"
-                      />
-                    )}
-                    <span className="text-muted">{user.name || user.email}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      logout();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="nav-link block w-full text-left"
-                  >
-                    Logout
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      login();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="nav-link block w-full text-left"
-                  >
-                    Google
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      loginTwitch();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="nav-link block w-full text-left"
-                  >
-                    Twitch
-                  </button>
-                </>
-              )}
+              </div>
             </div>
-          </div>
-        </nav>
+          </nav>
+        )}
       </header>
 
       <main

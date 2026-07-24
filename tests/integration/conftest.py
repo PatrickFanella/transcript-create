@@ -4,6 +4,7 @@ import logging
 import os
 import time
 import uuid
+from hashlib import sha256
 from typing import Generator
 
 import pytest
@@ -11,7 +12,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import NullPool
 
+from app.csrf import csrf_token
 from app.db import SessionLocal
+from app.settings import settings
 
 try:
     from app.main import app
@@ -46,11 +49,13 @@ def integration_db(integration_engine) -> Generator:
 
     connection = integration_engine.connect()
     transaction = connection.begin()
+    SessionLocal.remove()
     session = SessionLocal(bind=connection)
 
     yield session
 
     session.close()
+    SessionLocal.remove()
     transaction.rollback()
     connection.close()
 
@@ -76,6 +81,44 @@ def integration_client(integration_db) -> Generator:
             yield c
     finally:
         app.dependency_overrides.pop(real_get_db, None)
+
+
+@pytest.fixture(scope="function")
+def authenticated_client(integration_client, integration_db) -> Generator:
+    """Provide a current authenticated user session for protected workflows."""
+    user_id = uuid.uuid4()
+    token = f"test-session-{uuid.uuid4()}"
+    integration_db.execute(
+        text(
+            """
+            INSERT INTO users (id, email, name, oauth_provider, oauth_subject, plan, role)
+            VALUES (:id, :email, 'Integration User', 'google', :subject, 'pro', 'user')
+            """
+        ),
+        {
+            "id": user_id,
+            "email": f"integration-{user_id}@example.com",
+            "subject": f"integration-{user_id}",
+        },
+    )
+    integration_db.execute(
+        text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:user_id, :token_hash, now() + interval '1 day')"),
+        {"user_id": user_id, "token_hash": sha256(token.encode()).hexdigest()},
+    )
+    integration_db.commit()
+    integration_client.cookies.set("tc_session", token)
+    integration_client.headers.update(
+        {
+            "Origin": settings.FRONTEND_ORIGIN,
+            "X-CSRF-Token": csrf_token(token),
+        }
+    )
+    try:
+        yield integration_client
+    finally:
+        integration_client.cookies.delete("tc_session")
+        integration_client.headers.pop("Origin", None)
+        integration_client.headers.pop("X-CSRF-Token", None)
 
 
 @pytest.fixture(scope="function")

@@ -12,8 +12,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.archive.intelligence_repository import (
     autopublish_search_topics,
-    refresh_period_summaries,
     refresh_named_period_stats,
+    refresh_period_summaries,
     refresh_search_trends,
     refresh_topic_mentions,
     refresh_topic_period_stats,
@@ -23,10 +23,35 @@ from app.archive.intelligence_repository import (
 from app.db import session_scope
 
 
-def main(*, seed_topics: bool = False, seed_periods: bool = False, auto_topics: bool = False, rebuild_mentions: bool = False, refresh_stats: bool = False, refresh_periods: bool = False, refresh_search: bool = False, refresh_summaries: bool = False, all_steps: bool = False, quick: bool = False) -> None:
-    selected = any([seed_topics, seed_periods, auto_topics, rebuild_mentions, refresh_stats, refresh_periods, refresh_search, refresh_summaries])
+def main(
+    *,
+    seed_topics: bool = False,
+    seed_periods: bool = False,
+    auto_topics: bool = False,
+    rebuild_mentions: bool = False,
+    refresh_stats: bool = False,
+    refresh_periods: bool = False,
+    refresh_search: bool = False,
+    refresh_summaries: bool = False,
+    all_steps: bool = False,
+    quick: bool = False,
+) -> None:
+    selected = any(
+        [
+            seed_topics,
+            seed_periods,
+            auto_topics,
+            rebuild_mentions,
+            refresh_stats,
+            refresh_periods,
+            refresh_search,
+            refresh_summaries,
+        ]
+    )
     if all_steps or not selected:
-        seed_topics = seed_periods = auto_topics = rebuild_mentions = refresh_stats = refresh_periods = refresh_search = refresh_summaries = True
+        seed_topics = seed_periods = auto_topics = rebuild_mentions = refresh_stats = refresh_periods = (
+            refresh_search
+        ) = refresh_summaries = True
 
     stats: dict[str, int] = {}
     with session_scope() as db:
@@ -54,11 +79,12 @@ def main(*, seed_topics: bool = False, seed_periods: bool = False, auto_topics: 
                 stats[f"search_trends_{key}"] = value
         if refresh_summaries:
             for granularity in ("month", "week"):
-                for key, value in refresh_period_summaries(db, granularity=granularity, limit=72 if quick else 120).items():
+                for key, value in refresh_period_summaries(
+                    db, granularity=granularity, limit=72 if quick else 120
+                ).items():
                     stats[f"period_summaries_{granularity}_{key}"] = value
     print(
-        "archive intelligence backfill complete: "
-        + " ".join(f"{key}={value}" for key, value in sorted(stats.items()))
+        "archive intelligence backfill complete: " + " ".join(f"{key}={value}" for key, value in sorted(stats.items()))
     )
 
 
@@ -67,12 +93,16 @@ if __name__ == "__main__":
     parser.add_argument("--seed-topics", action="store_true", help="Seed curated archive topics")
     parser.add_argument("--seed-periods", action="store_true", help="Seed predefined archive periods")
     parser.add_argument("--auto-topics", action="store_true", help="Publish automatic topics from search suggestions")
-    parser.add_argument("--rebuild-mentions", action="store_true", help="Rebuild topic mentions from native transcript segments")
+    parser.add_argument(
+        "--rebuild-mentions", action="store_true", help="Rebuild topic mentions from native transcript segments"
+    )
     parser.add_argument("--refresh-stats", action="store_true", help="Refresh per-topic period stats")
     parser.add_argument("--refresh-periods", action="store_true", help="Refresh predefined period stats")
     parser.add_argument("--refresh-search-trends", action="store_true", help="Refresh search trend summaries")
     parser.add_argument("--refresh-summaries", action="store_true", help="Refresh period summaries")
-    parser.add_argument("--all", action="store_true", dest="all_steps", help="Run every archive intelligence refresh step")
+    parser.add_argument(
+        "--all", action="store_true", dest="all_steps", help="Run every archive intelligence refresh step"
+    )
     parser.add_argument("--quick", action="store_true", help="Use bounded segment scans for faster smoke backfills")
     args = parser.parse_args()
     main(

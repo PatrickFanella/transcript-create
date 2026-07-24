@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import re
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from app.archive.labeling.normalization import is_junk_phrase, normalized_alias
-
 
 QualityAction = Literal["keep", "review", "mark_noise"]
 
@@ -242,7 +241,9 @@ def assess_label_quality(
         reasons.append("weak_closer")
         score -= 0.25
 
-    if len(terms) <= 4 and all(term in _WEAK_OPENERS | _CONTEXT_OPENERS | _WEAK_CLOSERS | _HELPER_VERBS for term in terms):
+    if len(terms) <= 4 and all(
+        term in _WEAK_OPENERS | _CONTEXT_OPENERS | _WEAK_CLOSERS | _HELPER_VERBS for term in terms
+    ):
         reasons.append("mostly_function_words")
         score -= 0.40
 

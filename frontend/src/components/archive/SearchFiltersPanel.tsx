@@ -1,13 +1,24 @@
 import type { FormEvent } from 'react';
+import type { ArchiveSearchFilters } from '../../types/api';
 type SearchFiltersPanelProps = {
   q: string;
   dateFrom: string;
   dateTo: string;
+  source: ArchiveSearchFilters['source'];
+  category: string;
+  minDuration: string;
+  maxDuration: string;
+  sortBy: NonNullable<ArchiveSearchFilters['sort_by']>;
   loading: boolean;
   canSubmitSearch: boolean;
   onQChange: (value: string) => void;
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
+  onSourceChange: (value: ArchiveSearchFilters['source']) => void;
+  onCategoryChange: (value: string) => void;
+  onMinDurationChange: (value: string) => void;
+  onMaxDurationChange: (value: string) => void;
+  onSortByChange: (value: NonNullable<ArchiveSearchFilters['sort_by']>) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onReset: () => void;
 };
@@ -16,48 +27,169 @@ export default function SearchFiltersPanel({
   q,
   dateFrom,
   dateTo,
+  source,
+  category,
+  minDuration,
+  maxDuration,
+  sortBy,
   loading,
   canSubmitSearch,
   onQChange,
   onDateFromChange,
   onDateToChange,
+  onSourceChange,
+  onCategoryChange,
+  onMinDurationChange,
+  onMaxDurationChange,
+  onSortByChange,
   onSubmit,
   onReset,
 }: SearchFiltersPanelProps) {
   return (
-    <form onSubmit={onSubmit} className="space-y-3">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_10rem_10rem_auto]">
-        <div>
-          <label className="sr-only" htmlFor="search-query">
-            Search query
-          </label>
-          <input
-            id="search-query"
-            type="search"
-            value={q}
-            onChange={(event) => onQChange(event.target.value)}
-            placeholder="Search HasanAbi VODs..."
-            className="form-control min-h-[48px] px-4 text-base tracking-[-0.02em]"
-          />
-        </div>
-
-        <input id="search-date-from" type="date" className="form-control min-h-[48px]" value={dateFrom} onChange={(event) => onDateFromChange(event.target.value)} aria-label="From date" />
-        <input id="search-date-to" type="date" className="form-control min-h-[48px]" value={dateTo} onChange={(event) => onDateToChange(event.target.value)} aria-label="To date" />
-
-        <div className="flex gap-2 lg:justify-end">
-          <button type="submit" className="btn min-h-[48px] px-5" disabled={!canSubmitSearch || loading}>
-            Search
-          </button>
-          <button type="button" className="btn-secondary min-h-[48px] px-4" onClick={onReset}>
-            Reset
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div className="archive-command">
+        <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="flex min-w-0 items-center gap-3 px-3">
+            <svg
+              className="h-5 w-5 shrink-0 text-subtle"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7" strokeWidth="1.8" />
+              <path d="m20 20-4-4" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <label className="sr-only" htmlFor="search-query">
+              Search query
+            </label>
+            <input
+              id="search-query"
+              name="q"
+              type="search"
+              autoComplete="off"
+              value={q}
+              onChange={(event) => onQChange(event.target.value)}
+              placeholder="Search a topic, quote, guest, or exact phrase…"
+              className="min-h-[54px] w-full bg-transparent text-lg text-ink outline-none placeholder:text-subtle"
+            />
+          </div>
+          <button
+            type="submit"
+            className="btn min-h-[54px] px-7"
+            disabled={!canSubmitSearch || loading}
+          >
+            {loading ? 'Searching…' : 'Search archive'}
           </button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1.5 text-sm text-muted">
-        <span className="source-pill">grouped by VOD</span>
-        <span className="source-pill">timestamp pills</span>
-        <span className="match-pill">highlighted snippets</span>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1.5 text-xs text-muted" htmlFor="search-date-from">
+            <span className="meta-label">From</span>
+            <input
+              id="search-date-from"
+              name="date_from"
+              type="date"
+              className="form-control min-h-[42px]"
+              value={dateFrom}
+              onChange={(event) => onDateFromChange(event.target.value)}
+            />
+          </label>
+          <label className="space-y-1.5 text-xs text-muted" htmlFor="search-date-to">
+            <span className="meta-label">To</span>
+            <input
+              id="search-date-to"
+              name="date_to"
+              type="date"
+              className="form-control min-h-[42px]"
+              value={dateTo}
+              onChange={(event) => onDateToChange(event.target.value)}
+            />
+          </label>
+        </div>
+        {(q ||
+          dateFrom ||
+          dateTo ||
+          source !== 'best' ||
+          category ||
+          minDuration ||
+          maxDuration ||
+          sortBy !== 'relevance') && (
+          <button
+            type="button"
+            className="btn-ghost self-start text-sm sm:self-auto"
+            onClick={onReset}
+          >
+            Clear query and dates
+          </button>
+        )}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Transcript</span>
+          <select
+            name="source"
+            className="form-control min-h-11 w-full"
+            value={source ?? 'best'}
+            onChange={(event) =>
+              onSourceChange(event.target.value as ArchiveSearchFilters['source'])
+            }
+          >
+            <option value="best">Best available</option>
+            <option value="native">Whisper</option>
+            <option value="youtube">YouTube</option>
+          </select>
+        </label>
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Category</span>
+          <input
+            name="category"
+            className="form-control min-h-11 w-full"
+            value={category}
+            onChange={(event) => onCategoryChange(event.target.value)}
+          />
+        </label>
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Minimum seconds</span>
+          <input
+            name="min_duration"
+            type="number"
+            min="0"
+            className="form-control min-h-11 w-full"
+            value={minDuration}
+            onChange={(event) => onMinDurationChange(event.target.value)}
+          />
+        </label>
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Maximum seconds</span>
+          <input
+            name="max_duration"
+            type="number"
+            min="0"
+            className="form-control min-h-11 w-full"
+            value={maxDuration}
+            onChange={(event) => onMaxDurationChange(event.target.value)}
+          />
+        </label>
+        <label className="space-y-1.5 text-xs text-muted">
+          <span className="meta-label">Sort</span>
+          <select
+            name="sort_by"
+            className="form-control min-h-11 w-full"
+            value={sortBy}
+            onChange={(event) =>
+              onSortByChange(event.target.value as NonNullable<ArchiveSearchFilters['sort_by']>)
+            }
+          >
+            <option value="relevance">Relevance</option>
+            <option value="date_desc">Newest</option>
+            <option value="date_asc">Oldest</option>
+            <option value="duration_desc">Longest</option>
+            <option value="duration_asc">Shortest</option>
+          </select>
+        </label>
       </div>
     </form>
   );

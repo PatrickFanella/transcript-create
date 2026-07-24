@@ -1,5 +1,13 @@
 # Disaster Recovery Plan
 
+> **Status: generic/local reference; superseded for HasanAra production.** The
+> direct Compose and destructive recovery commands below are not approved for
+> the HasanAra host and must not be executed there. Use the guarded
+> [private-beta deployment and recovery procedure](../deployment/private-beta.md)
+> and the [S3-compatible PITR runbook](pitr-s3.md). Production recovery requires
+> an isolated empty target, immutable release inputs, operator approval, and
+> recorded integrity evidence before writers start.
+
 ## Overview
 
 This document outlines the disaster recovery procedures for the transcript-create system, including backup strategies, recovery procedures, and runbooks for common failure scenarios.

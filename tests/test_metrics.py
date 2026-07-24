@@ -66,6 +66,15 @@ def test_metrics_middleware_tracks_requests(client):
     assert "http_requests_total" in content or "http_request_duration_seconds" in content
 
 
+def test_metrics_use_route_templates_instead_of_resource_ids(client):
+    resource_id = "123e4567-e89b-12d3-a456-426614174000"
+    client.get(f"/videos/{resource_id}")
+
+    content = client.get("/metrics").text
+    assert 'endpoint="/videos/{video_id}"' in content
+    assert resource_id not in content
+
+
 def test_metrics_not_recursive(client):
     """Test that /metrics endpoint doesn't track itself."""
     # Get metrics twice
@@ -78,7 +87,7 @@ def test_metrics_not_recursive(client):
     assert response.status_code == 200
 
 
-def test_job_creation_increments_metric(client, db):
+def test_job_creation_increments_metric(client, db_session):
     """Test that creating a job increments the jobs_created_total metric."""
     from app import crud
     from app.metrics import jobs_created_total
@@ -87,14 +96,14 @@ def test_job_creation_increments_metric(client, db):
     before = jobs_created_total.labels(kind="single")._value.get()
 
     # Create a job
-    crud.create_job(db, kind="single", url="https://www.youtube.com/watch?v=test")
+    crud.create_job(db_session, kind="single", url="https://www.youtube.com/watch?v=test")
 
     # Check metric increased
     after = jobs_created_total.labels(kind="single")._value.get()
     assert after > before
 
 
-def test_search_increments_metric(client, db):
+def test_search_increments_metric(client, db_session):
     """Test that search queries increment the search_queries_total metric."""
     from app import crud
     from app.metrics import search_queries_total
@@ -104,7 +113,7 @@ def test_search_increments_metric(client, db):
 
     # Perform a search (even if no results)
     try:
-        crud.search_segments(db, q="test query", limit=10)
+        crud.search_segments(db_session, q="test query", limit=10)
     except Exception:
         # Search may fail if tables don't exist, that's ok for this test
         pass

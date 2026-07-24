@@ -11,12 +11,27 @@ global:
 image:
   repository: transcript-create
   tag: latest
+  # Set to sha256:... to pin every workload to an immutable verified image.
+  digest: ""
   pullPolicy: IfNotPresent
   pullSecrets: []
+
+analyticsRetention:
+  enabled: true
+  schedule: "17 3 * * *"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 # API configuration
 api:
   enabled: true
+  # Exact browser origin allowed by FastAPI CORS. Replace before deployment.
+  frontendOrigin: "https://your-frontend-domain.com"
   replicaCount: 3
   
   resources:
@@ -51,7 +66,6 @@ api:
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
       nginx.ingress.kubernetes.io/limit-rps: "100"
       nginx.ingress.kubernetes.io/limit-connections: "50"
-      nginx.ingress.kubernetes.io/enable-cors: "true"
       nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     hosts:
       - host: api.your-domain.com
@@ -179,6 +193,9 @@ config:
   # Search backend
   search:
     backend: opensearch
+    indexNative: segments
+    indexYoutube: youtube_segments
+    verifySsl: true
   
   # Cleanup settings
   cleanup:
@@ -196,9 +213,15 @@ config:
   
   # Quotas
   quotas:
-    freeDailySearchLimit: 10
-    freeDailyExportLimit: 2
     proPlanName: pro
+
+  # OAuth/account settings. Replace callback URLs with the exact HTTPS values
+  # registered with each provider before deployment.
+  oauth:
+    googleRedirectUri: "REQUIRED_OAUTH_GOOGLE_REDIRECT_URI"
+    twitchRedirectUri: "REQUIRED_OAUTH_TWITCH_REDIRECT_URI"
+    # Comma-separated immutable provider:subject identities, for example google:1234567890.
+    bootstrapAdminIdentities: ""
   
   # Security
   security:
@@ -235,6 +258,8 @@ secrets:
   # oauthGoogleClientSecret: ""
   # oauthTwitchClientId: ""
   # oauthTwitchClientSecret: ""
+  # Add optional opensearch-user and opensearch-password keys to this secret
+  # when the OpenSearch endpoint requires basic authentication.
   # stripeApiKey: ""
   # stripeWebhookSecret: ""
 
@@ -253,9 +278,13 @@ externalServices:
 # Migrations
 migrations:
   enabled: true
+  # 0200 is destructive. Keep false for normal installs/upgrades; set true only
+  # for the documented drained maintenance cutover.
+  allowSessionTokenContractMigration: false
   image:
     repository: transcript-create
     tag: latest
+    digest: ""
   resources:
     requests:
       cpu: 100m

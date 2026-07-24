@@ -110,7 +110,7 @@ describe('AdminDashboard', () => {
       return mockJsonResponse(response);
     });
 
-    render(
+    const { container } = render(
       <BrowserRouter>
         <AdminDashboard />
       </BrowserRouter>
@@ -136,6 +136,17 @@ describe('AdminDashboard', () => {
 
     // Check that refresh button exists
     expect(screen.getByText('Refresh Now')).toBeInTheDocument();
+
+    // Charts must remain meaningful without runtime style attributes so the
+    // production CSP can reject inline styles.
+    const progressBars = screen.getAllByRole('progressbar');
+    expect(progressBars).toHaveLength(mockExportBreakdown.data.length);
+    expect(progressBars[0]).toHaveAttribute('value', '25');
+    expect(progressBars[0]).toHaveAttribute('max', '25');
+    expect(container.querySelectorAll('.admin-chart-swatch')).toHaveLength(
+      mockJobStatusBreakdown.data.length
+    );
+    expect(container.querySelectorAll('[style]')).toHaveLength(0);
   });
 
   it('handles API errors gracefully', async () => {

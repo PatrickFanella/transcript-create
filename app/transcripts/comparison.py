@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any
 
@@ -82,15 +82,26 @@ def _compare_bucket_maps(whisper_buckets: dict[int, str], youtube_buckets: dict[
         "total_bucket_count": total_buckets,
         "missing_bucket_count": missing_bucket_count,
         "average_similarity": sum(pairwise_similarity) / len(pairwise_similarity) if pairwise_similarity else 0.0,
-        "average_length_ratio": sum(pairwise_length_ratio) / len(pairwise_length_ratio) if pairwise_length_ratio else 0.0,
+        "average_length_ratio": (
+            sum(pairwise_length_ratio) / len(pairwise_length_ratio) if pairwise_length_ratio else 0.0
+        ),
         "buckets": [
-            {"bucket": bucket, "whisper_text": whisper_buckets.get(bucket, ""), "youtube_text": youtube_buckets.get(bucket, "")}
+            {
+                "bucket": bucket,
+                "whisper_text": whisper_buckets.get(bucket, ""),
+                "youtube_text": youtube_buckets.get(bucket, ""),
+            }
             for bucket in all_buckets
         ],
     }
 
 
-def compare_sources(video_id: str, whisper_segments: Sequence[TranscriptSegment], youtube_segments: Sequence[TranscriptSegment], bucket_ms: int = 10000) -> dict[str, Any]:
+def compare_sources(
+    video_id: str,
+    whisper_segments: Sequence[TranscriptSegment],
+    youtube_segments: Sequence[TranscriptSegment],
+    bucket_ms: int = 10000,
+) -> dict[str, Any]:
     whisper_buckets = bucket_segments(whisper_segments, bucket_ms)
     youtube_buckets = bucket_segments(youtube_segments, bucket_ms)
     bucket_metrics = _compare_bucket_maps(whisper_buckets, youtube_buckets)
@@ -98,8 +109,12 @@ def compare_sources(video_id: str, whisper_segments: Sequence[TranscriptSegment]
     whisper_stats = _source_stats(whisper_buckets, total_buckets)
     youtube_stats = _source_stats(youtube_buckets, total_buckets)
 
-    whisper_only_bucket_count = sum(1 for row in bucket_metrics["buckets"] if row["whisper_text"].strip() and not row["youtube_text"].strip())
-    youtube_only_bucket_count = sum(1 for row in bucket_metrics["buckets"] if row["youtube_text"].strip() and not row["whisper_text"].strip())
+    whisper_only_bucket_count = sum(
+        1 for row in bucket_metrics["buckets"] if row["whisper_text"].strip() and not row["youtube_text"].strip()
+    )
+    youtube_only_bucket_count = sum(
+        1 for row in bucket_metrics["buckets"] if row["youtube_text"].strip() and not row["whisper_text"].strip()
+    )
 
     whisper_coverage = whisper_stats["coverage_ratio"]
     youtube_coverage = youtube_stats["coverage_ratio"]

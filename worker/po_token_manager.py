@@ -114,7 +114,7 @@ class POTokenCache:
 
     def _make_key(self, token_type: TokenType, context: Optional[dict] = None) -> str:
         """Generate cache key from token type and context.
-        
+
         Uses URL encoding to handle special characters in context values.
         """
         if context is None:
@@ -185,9 +185,7 @@ class POTokenCache:
         """
         key = self._make_key(token.token_type, context)
         self._cache[key] = TokenCacheEntry(token=token)
-        logger.debug(
-            "Token cached", extra={"token_type": token.token_type.value, "key": key, "source": token.source}
-        )
+        logger.debug("Token cached", extra={"token_type": token.token_type.value, "key": key, "source": token.source})
 
     def mark_failure(self, token_type: TokenType, context: Optional[dict] = None):
         """Mark a token as failed to trigger cooldown.
@@ -304,7 +302,9 @@ class POTokenManager:
             self._provider_attempts[provider_name] = self._provider_attempts.get(provider_name, 0) + 1
 
             if not provider.is_available():
-                logger.debug("Provider not available", extra={"provider": provider_name, "token_type": token_type.value})
+                logger.debug(
+                    "Provider not available", extra={"provider": provider_name, "token_type": token_type.value}
+                )
                 continue
 
             try:

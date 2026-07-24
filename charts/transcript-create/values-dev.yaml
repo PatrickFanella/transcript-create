@@ -5,11 +5,16 @@ global:
   environment: development
   domain: localhost
 
+# Controlled fresh dev installs only; generic and production values remain false.
+migrations:
+  allowSessionTokenContractMigration: true
+
 image:
   tag: latest
   pullPolicy: Never  # Don't pull from registry in dev
 
 api:
+  frontendOrigin: "http://localhost:5173"
   replicaCount: 1
   
   resources:

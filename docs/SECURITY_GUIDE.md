@@ -36,24 +36,22 @@ The API supports two authentication methods:
 Three user roles are supported:
 
 - **user** - Default role for authenticated users
-- **pro** - Pro plan subscribers (inherits user permissions)
-- **admin** - Administrators (inherits pro permissions)
+- **moderator** - Moderation role
+- **admin** - Administrator role
+
+Roles are stored durably in the database and are the source of authorization. Plans (including `pro`) are entitlements, not roles. Email is mutable account metadata and never grants privileges. While a `provider:subject` remains in `BOOTSTRAP_ADMIN_IDENTITIES`, each verified sign-in reasserts its admin role; remove it from configuration before demoting that identity. Administrators otherwise manage roles through the admin API/UI.
 
 #### Using RBAC in Endpoints
 
 ```python
 from fastapi import Depends
-from app.security import require_role, ROLE_ADMIN, ROLE_PRO
+from app.security import require_role, ROLE_ADMIN
 
 @router.get("/admin/dashboard")
 def admin_dashboard(user=Depends(require_role(ROLE_ADMIN))):
     """Admin-only endpoint."""
     return {"message": "Admin access granted"}
 
-@router.get("/pro/feature")
-def pro_feature(user=Depends(require_role(ROLE_PRO))):
-    """Pro users and admins can access this."""
-    return {"message": "Pro feature"}
 ```
 
 ## API Key Management
@@ -65,6 +63,8 @@ def pro_feature(user=Depends(require_role(ROLE_PRO))):
 ```bash
 curl -X POST https://api.example.com/api-keys \
   -H "Cookie: tc_session=YOUR_SESSION_TOKEN" \
+  -H "Origin: https://app.example.com" \
+  -H "X-CSRF-Token: $CSRF_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My API Key",
@@ -118,8 +118,18 @@ curl https://api.example.com/api-keys \
 
 ```bash
 curl -X DELETE https://api.example.com/api-keys/KEY_ID \
-  -H "Cookie: tc_session=YOUR_SESSION_TOKEN"
+  -H "Cookie: tc_session=YOUR_SESSION_TOKEN" \
+  -H "Origin: https://app.example.com" \
+  -H "X-CSRF-Token: $CSRF_TOKEN"
 ```
+
+For cookie-authenticated unsafe requests, acquire a session-bound token first (and use an origin approved by `FRONTEND_ORIGIN` or `CORS_ALLOW_ORIGINS`):
+
+```bash
+CSRF_TOKEN="$(curl -s https://api.example.com/auth/csrf -H "Cookie: tc_session=YOUR_SESSION_TOKEN" | jq -r '.csrf_token')"
+```
+
+API-key-only requests that do not include a session cookie are exempt from the Origin and CSRF-token requirements.
 
 ## Session Security
 
@@ -153,12 +163,7 @@ This extends the session lifetime without requiring re-authentication.
 
 ### CSRF Protection
 
-OAuth flows use the `state` parameter to prevent CSRF attacks:
-
-1. Random state token generated before redirect
-2. State stored in secure session
-3. State validated on callback
-4. One-time use (cleared after validation)
+OAuth flows use a random `state` parameter to prevent CSRF attacks. HasanAra stores PostgreSQL-authoritative hashes of single-use, expiring state records and, for Google, nonce records. On callback, the record must match the provider and intent, and link flows must also match the initiating user. The Authlib cookie is retained only for protocol compatibility and is not authoritative state.
 
 Enable/disable state validation:
 ```bash
@@ -168,7 +173,7 @@ OAUTH_STATE_VALIDATION=true
 
 ### Nonce for Replay Protection
 
-Nonces are generated and can be used for additional replay protection in OAuth flows.
+Google OpenID Connect flows generate and validate a nonce for replay protection. Twitch flows do not use a nonce.
 
 ### OAuth Configuration
 
@@ -311,8 +316,10 @@ OAUTH_STATE_VALIDATION=true
 FRONTEND_ORIGIN=https://app.example.com
 CORS_ALLOW_ORIGINS=https://admin.example.com,https://mobile.example.com
 
-# Admin Access
-ADMIN_EMAILS=admin@example.com,security@example.com
+# Optional bootstrap admin identities: immutable provider:subject values only.
+# Each configured identity is reasserted as admin on every verified sign-in; remove it before demotion.
+# Use no real provider subjects in tracked configuration.
+BOOTSTRAP_ADMIN_IDENTITIES=
 ```
 
 ### Production Checklist
@@ -320,7 +327,7 @@ ADMIN_EMAILS=admin@example.com,security@example.com
 - [ ] Set `ENVIRONMENT=production`
 - [ ] Generate secure `SESSION_SECRET` (min 32 bytes)
 - [ ] Enable `OAUTH_STATE_VALIDATION=true`
-- [ ] Configure `ADMIN_EMAILS` with actual admin emails
+- [ ] If needed, configure `BOOTSTRAP_ADMIN_IDENTITIES` with immutable verified `provider:subject` values; each remains reasserted as admin at verified sign-in until removed from configuration
 - [ ] Use HTTPS only (required for secure cookies)
 - [ ] Set strong OAuth client secrets
 - [ ] Enable `ENABLE_RATE_LIMITING=true`

@@ -1,5 +1,6 @@
 """Tests for archive and grouped search routes."""
 
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,12 @@ from app.schemas import (
 )
 from app.archive.video_metadata_repository import create_person, create_tag, set_video_metadata
 from app.routes import archive as archive_routes
+from app.csrf import csrf_token
+from app.settings import settings
+
+
+def _csrf_headers(token: str) -> dict[str, str]:
+    return {"Origin": settings.FRONTEND_ORIGIN, "X-CSRF-Token": csrf_token(token)}
 
 
 def _create_completed_video(db_session, *, youtube_id: str, title: str, uploaded_at: datetime, duration_seconds: int = 120):
@@ -61,8 +68,8 @@ def _create_user_session(db_session, *, email: str = "user@example.com") -> str:
         {"id": str(user_id), "email": email, "subject": f"{email}-subject"},
     )
     db_session.execute(
-        text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-        {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+        text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+        {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
     )
     db_session.commit()
     return session_token
@@ -144,7 +151,7 @@ class TestArchiveRoutes:
             text(
                 """
                 INSERT INTO archive_labels (id, slug, label, kind, status, source, publish_tier, confidence_score)
-                VALUES (:id, 'okbuddy', 'Okbuddy', 'series', 'published', 'automatic', 'gold', 0.91)
+                VALUES (:id, 'okbuddy', 'Okbuddy', 'series', 'published', 'hybrid', 'gold', 0.91)
                 """
             ),
             {"id": str(label_id)},
@@ -206,19 +213,33 @@ class TestArchiveRoutes:
         assert data["periods"][0]["evidence"]
         assert data["periods"][0]["evidence"][0]["video"]["youtube_id"] == "explore1"
         assert data["periods"][0]["evidence"][0]["video"]["people"] == [
-            {"slug": "guest-one", "display_name": "Guest One", "aliases": [], "description": None, "role": "guest"}
+            {
+                "slug": "guest-one",
+                "display_name": "Guest One",
+                "aliases": [],
+                "description": None,
+                "default_role": None,
+                "role": "guest",
+            }
         ]
         assert data["periods"][0]["evidence"][0]["video"]["tags"] == [
             {"slug": "chadvice", "label": "Chadvice", "kind": "category", "description": None}
         ]
         assert data["people"] == [
-            {"slug": "guest-one", "display_name": "Guest One", "aliases": [], "description": None, "role": "guest"}
+            {
+                "slug": "guest-one",
+                "display_name": "Guest One",
+                "aliases": [],
+                "description": None,
+                "default_role": None,
+                "role": "guest",
+            }
         ]
         assert data["tags"] == [{"slug": "chadvice", "label": "Chadvice", "kind": "category", "description": None}]
         assert {person["slug"] for person in data["people"]} == {"guest-one"}
         assert {tag["slug"] for tag in data["tags"]} == {"chadvice"}
 
-    @patch("app.routes.archive.invalidate_cache")
+    @patch("app.routes.archive.invalidate_video_data")
     def test_admin_set_archive_video_metadata_invalidates_video_cache(self, mock_invalidate_cache, db_session):
         video_id = _create_completed_video(
             db_session,
@@ -241,7 +262,7 @@ class TestArchiveRoutes:
         )
 
         assert response.model_dump()["people"][0]["slug"] == "guest-one"
-        mock_invalidate_cache.assert_called_once_with("video", video_id)
+        mock_invalidate_cache.assert_called_once_with(video_id)
 
     @patch("app.routes.archive.invalidate_cache_pattern")
     def test_admin_person_and_tag_updates_invalidate_video_cache_pattern(self, mock_invalidate_cache_pattern, db_session):
@@ -362,6 +383,7 @@ class TestArchiveRoutes:
     def test_admin_archive_period_routes_require_admin(self, client: TestClient, db_session):
         session_token = _create_user_session(db_session, email="not-admin@example.com")
         cookies = {"tc_session": session_token}
+        headers = _csrf_headers(session_token)
 
         assert client.get("/admin/archive/periods", cookies=cookies).status_code == 403
         assert (
@@ -369,22 +391,23 @@ class TestArchiveRoutes:
                 "/admin/archive/periods",
                 json={"label": "Test Period", "kind": "event", "date_from": "2026-01-01", "date_to": "2026-01-02"},
                 cookies=cookies,
+                headers=headers,
             ).status_code
             == 403
         )
-        assert client.patch("/admin/archive/periods/test-period", json={"label": "Updated"}, cookies=cookies).status_code == 403
-        assert client.post("/admin/archive/periods/test-period/refresh", cookies=cookies).status_code == 403
-        assert client.post("/admin/archive/periods/seed", cookies=cookies).status_code == 403
+        assert client.patch("/admin/archive/periods/test-period", json={"label": "Updated"}, cookies=cookies, headers=headers).status_code == 403
+        assert client.post("/admin/archive/periods/test-period/refresh", cookies=cookies, headers=headers).status_code == 403
+        assert client.post("/admin/archive/periods/seed", cookies=cookies, headers=headers).status_code == 403
         assert client.get("/admin/archive/metadata/people", cookies=cookies).status_code == 403
-        assert client.post("/admin/archive/metadata/people", json={"display_name": "Test"}, cookies=cookies).status_code == 403
-        assert client.patch("/admin/archive/metadata/people/test", json={"display_name": "Updated"}, cookies=cookies).status_code == 403
+        assert client.post("/admin/archive/metadata/people", json={"display_name": "Test"}, cookies=cookies, headers=headers).status_code == 403
+        assert client.patch("/admin/archive/metadata/people/test", json={"display_name": "Updated"}, cookies=cookies, headers=headers).status_code == 403
         assert client.get("/admin/archive/metadata/tags", cookies=cookies).status_code == 403
-        assert client.post("/admin/archive/metadata/tags", json={"label": "Test"}, cookies=cookies).status_code == 403
-        assert client.patch("/admin/archive/metadata/tags/test", json={"label": "Updated"}, cookies=cookies).status_code == 403
+        assert client.post("/admin/archive/metadata/tags", json={"label": "Test"}, cookies=cookies, headers=headers).status_code == 403
+        assert client.patch("/admin/archive/metadata/tags/test", json={"label": "Updated"}, cookies=cookies, headers=headers).status_code == 403
         assert client.get("/admin/archive/metadata/videos", cookies=cookies).status_code == 403
         assert client.get(f"/admin/archive/metadata/videos/{uuid.uuid4()}", cookies=cookies).status_code == 403
-        assert client.put(f"/admin/archive/metadata/videos/{uuid.uuid4()}", json={"people": [], "tags": []}, cookies=cookies).status_code == 403
-        assert client.post("/admin/archive/metadata/seed-tags", cookies=cookies).status_code == 403
+        assert client.put(f"/admin/archive/metadata/videos/{uuid.uuid4()}", json={"people": [], "tags": []}, cookies=cookies, headers=headers).status_code == 403
+        assert client.post("/admin/archive/metadata/seed-tags", cookies=cookies, headers=headers).status_code == 403
 
     def test_video_info_includes_public_metadata_arrays(self, client: TestClient, db_session):
         video_id = _create_completed_video(
@@ -408,7 +431,14 @@ class TestArchiveRoutes:
         assert response.status_code == 200
         data = response.json()
         assert data["people"] == [
-            {"slug": "guest-one", "display_name": "Guest One", "aliases": [], "description": None, "role": "guest"}
+            {
+                "slug": "guest-one",
+                "display_name": "Guest One",
+                "aliases": [],
+                "description": None,
+                "default_role": None,
+                "role": "guest",
+            }
         ]
         assert data["tags"] == [{"slug": "chadvice", "label": "Chadvice", "kind": "category", "description": None}]
 
@@ -443,7 +473,15 @@ class TestArchiveRoutes:
     @patch("app.crud.get_grouped_search")
     def test_grouped_search_route(self, mock_grouped_search, client: TestClient):
         video = VideoInfo(id=uuid.uuid4(), youtube_id="yt123", title="Grouped Video", duration_seconds=120)
-        moment = SearchMoment(id=1, video_id=video.id, start_ms=1000, end_ms=2000, snippet="match here", source="whisper")
+        moment = SearchMoment(
+            id=1,
+            video_id=video.id,
+            start_ms=1000,
+            end_ms=2000,
+            snippet="match here",
+            highlights=[{"start": 0, "end": 5}],
+            source="whisper",
+        )
         mock_grouped_search.return_value = GroupedSearchResponse(total_moments=1, total_videos=1, groups=[EpisodeSearchGroup(video=video, moments=[moment])], query_time_ms=7)
 
         response = client.get("/search/grouped?q=match&source=native")
@@ -452,11 +490,20 @@ class TestArchiveRoutes:
         assert data["total_moments"] == 1
         assert data["groups"][0]["video"]["youtube_id"] == "yt123"
         assert data["groups"][0]["moments"][0]["snippet"] == "match here"
+        assert data["groups"][0]["moments"][0]["highlights"] == [{"start": 0, "end": 5}]
 
     @patch("app.crud.get_mention_map")
     def test_mention_map_route(self, mock_mention_map, client: TestClient):
         video = VideoInfo(id=uuid.uuid4(), youtube_id="yt456", title="Mention Video", duration_seconds=90)
-        moment = SearchMoment(id=2, video_id=video.id, start_ms=500, end_ms=1500, snippet="mention here", source="youtube")
+        moment = SearchMoment(
+            id=2,
+            video_id=video.id,
+            start_ms=500,
+            end_ms=1500,
+            snippet="mention here",
+            highlights=[{"start": 0, "end": 7}],
+            source="youtube",
+        )
         grouped = EpisodeSearchGroup(video=video, moments=[moment])
         mock_mention_map.return_value = MentionMap(
             query="mention",
@@ -484,4 +531,5 @@ class TestArchiveRoutes:
         assert data["related_topics"] == ["copyright", "openai"]
         assert data["top_episodes_count"] == 1
         assert data["first_mention"]["snippet"] == "mention here"
+        assert data["first_mention"]["highlights"] == [{"start": 0, "end": 7}]
         assert data["top_episodes"][0]["video"]["youtube_id"] == "yt456"

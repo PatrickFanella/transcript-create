@@ -1,4 +1,4 @@
-import { buildApiUrl, http } from './api';
+import { http } from './api';
 
 export type EventPayload = {
   type:
@@ -46,7 +46,10 @@ async function flush() {
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
     if (queue.length) {
-      navigator.sendBeacon?.(buildApiUrl('events/batch'), JSON.stringify({ events: queue }));
+      // sendBeacon cannot send the CSRF header. Ky's existing unsafe-request
+      // hook injects the memory-only token while keepalive preserves unload
+      // delivery semantics.
+      void http.post('events/batch', { json: { events: queue }, keepalive: true });
     }
   });
 }

@@ -108,7 +108,12 @@ describe('StreamsPage', () => {
     expect(screen.getByText('Guest One')).toBeInTheDocument();
     expect(screen.getByText('Chadvice')).toBeInTheDocument();
     expect(listMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ limit: 24, offset: 0, completed_only: false, date_field: 'uploaded_at' })
+      expect.objectContaining({
+        limit: 24,
+        offset: 0,
+        completed_only: false,
+        date_field: 'uploaded_at',
+      })
     );
 
     await user.click(screen.getByRole('button', { name: /next page/i }));
@@ -118,7 +123,12 @@ describe('StreamsPage', () => {
     });
 
     expect(listMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ limit: 24, offset: 24, completed_only: false, date_field: 'uploaded_at' })
+      expect.objectContaining({
+        limit: 24,
+        offset: 24,
+        completed_only: false,
+        date_field: 'uploaded_at',
+      })
     );
     expect(screen.getByText('Second stream')).toBeInTheDocument();
   });
@@ -137,11 +147,7 @@ describe('StreamsPage', () => {
 
     const user = userEvent.setup();
     render(
-      <MemoryRouter
-        initialEntries={[
-          '/streams?q=alpha&date_from=2026-05-01&date_to=2026-05-31',
-        ]}
-      >
+      <MemoryRouter initialEntries={['/streams?q=alpha&date_from=2026-05-01&date_to=2026-05-31']}>
         <StreamsPage />
       </MemoryRouter>
     );

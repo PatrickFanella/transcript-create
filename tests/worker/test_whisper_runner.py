@@ -1,10 +1,101 @@
 """Tests for worker.whisper_runner module."""
 
+import builtins
+import importlib
+import types
 from unittest.mock import Mock, patch
 
 import pytest
 
 from worker import whisper_runner
+
+TRANSCRIBE_KWARGS = {
+    "language": "",
+    "beam_size": 5,
+    "temperature": 0.0,
+    "word_timestamps": False,
+    "vad_filter": False,
+}
+
+
+class TestLazyBackendImports:
+    """Backend dependencies are imported only when their backend is selected."""
+
+    def test_module_import_does_not_require_torch(self):
+        original_import = builtins.__import__
+
+        def block_torch(name, *args, **kwargs):
+            if name == "torch" or name.startswith("torch."):
+                raise ImportError("torch intentionally unavailable")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=block_torch):
+            importlib.reload(whisper_runner)
+
+    @patch("worker.whisper_runner.settings")
+    def test_faster_whisper_loads_when_torch_is_unavailable(self, mock_settings):
+        mock_settings.WHISPER_BACKEND = "faster-whisper"
+        fake_faster_whisper = types.ModuleType("faster_whisper")
+        ct2_model = Mock()
+        fake_faster_whisper.__dict__["WhisperModel"] = ct2_model
+        original_import = builtins.__import__
+
+        def block_torch(name, *args, **kwargs):
+            if name == "torch" or name.startswith("torch."):
+                raise ImportError("torch intentionally unavailable")
+            return original_import(name, *args, **kwargs)
+
+        with patch.object(whisper_runner, "_ct2", None), patch.object(whisper_runner, "_torch", None), patch.dict(
+            "sys.modules", {"faster_whisper": fake_faster_whisper}
+        ), patch("builtins.__import__", side_effect=block_torch):
+            whisper_runner._lazy_imports()
+            assert whisper_runner._ct2 is ct2_model
+            assert whisper_runner._torch is None
+
+            model = Mock()
+            model.transcribe.return_value = ([], Mock())
+            with patch.object(whisper_runner, "_get_model", return_value=model):
+                segments, _language_info = whisper_runner.transcribe_chunk(
+                    "sample.wav",
+                    language="",
+                    beam_size=5,
+                    temperature=0.0,
+                    word_timestamps=False,
+                    vad_filter=False,
+                )
+
+            assert segments == []
+            model.transcribe.assert_called_once()
+
+    @patch("worker.whisper_runner.settings")
+    def test_openai_whisper_fails_clearly_without_torch(self, mock_settings):
+        mock_settings.WHISPER_BACKEND = "whisper"
+        original_import = builtins.__import__
+
+        def block_torch(name, *args, **kwargs):
+            if name == "torch" or name.startswith("torch."):
+                raise ImportError("torch intentionally unavailable")
+            return original_import(name, *args, **kwargs)
+
+        with patch.object(whisper_runner, "_torch", None), patch.object(whisper_runner, "_torch_whisper", None), patch(
+            "builtins.__import__", side_effect=block_torch
+        ), pytest.raises(RuntimeError, match="requires torch"):
+            whisper_runner._try_load_torch("base", force_gpu=False)
+
+    @patch("worker.whisper_runner.settings")
+    def test_ct2_fallback_loader_imports_when_whisper_backend_is_selected(self, mock_settings):
+        mock_settings.WHISPER_BACKEND = "whisper"
+        fake_faster_whisper = types.ModuleType("faster_whisper")
+        ct2_model = Mock()
+        fake_faster_whisper.__dict__["WhisperModel"] = ct2_model
+
+        with patch.object(whisper_runner, "_ct2", None), patch.dict(
+            "sys.modules", {"faster_whisper": fake_faster_whisper}
+        ):
+            whisper_runner._try_load_ct2("base", device="auto", compute_type="float32")
+            assert whisper_runner._ct2 is ct2_model
+
+        ct2_model.assert_called_once_with("base", device="auto", compute_type="float32")
 
 
 class TestTranscribeChunkFasterWhisper:
@@ -33,7 +124,7 @@ class TestTranscribeChunkFasterWhisper:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert len(result) == 1
         assert result[0]["start"] == 0.0
@@ -70,7 +161,7 @@ class TestTranscribeChunkFasterWhisper:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert len(result) == 3
         for i, seg in enumerate(result):
@@ -100,7 +191,7 @@ class TestTranscribeChunkFasterWhisper:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert result[0]["text"] == "Text with spaces"
 
@@ -132,7 +223,7 @@ class TestTranscribeChunkPyTorch:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert len(result) == 1
         assert result[0]["start"] == 0.0
@@ -155,7 +246,7 @@ class TestTranscribeChunkPyTorch:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        whisper_runner.transcribe_chunk(wav_path)
+        whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         # Verify transcribe was called with fp16=False
         call_kwargs = mock_model.transcribe.call_args[1]
@@ -191,7 +282,7 @@ class TestTranscribeChunkPyTorch:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         # Should have fallen back to CT2
         assert len(result) == 1
@@ -226,7 +317,7 @@ class TestTranscribeChunkPyTorch:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         assert len(result) == 1
         assert result[0]["text"] == "HIP fallback"
@@ -245,7 +336,7 @@ class TestTranscribeChunkPyTorch:
         wav_path.touch()
 
         with pytest.raises(RuntimeError, match="Some other error"):
-            whisper_runner.transcribe_chunk(wav_path)
+            whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
 
 class TestSegmentFormatting:
@@ -273,7 +364,7 @@ class TestSegmentFormatting:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         segment = result[0]
         assert "start" in segment
@@ -306,7 +397,7 @@ class TestSegmentFormatting:
         wav_path = tmp_path / "test.wav"
         wav_path.touch()
 
-        result = whisper_runner.transcribe_chunk(wav_path)
+        result, _language_info = whisper_runner.transcribe_chunk(wav_path, **TRANSCRIBE_KWARGS)
 
         # Should handle gracefully - getattr with None default
         assert "confidence" in result[0]

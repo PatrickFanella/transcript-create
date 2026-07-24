@@ -2,17 +2,18 @@ import functools
 import json
 import time
 import uuid
+from datetime import date
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
-from app.cache import cache
 from app.archive.repository import archive_repository
 from app.archive.video_metadata_repository import get_video_metadata_map
+from app.cache import cache
 from app.logging_config import get_logger
+from app.search.highlights import POSTGRES_HEADLINE_OPTIONS, normalize_search_rows
 from app.search.segment_repository import SearchRepository
 from app.settings import settings
-from sqlalchemy import bindparam
 
 logger = get_logger(__name__)
 _search_repository = SearchRepository()
@@ -33,6 +34,9 @@ def _retry_on_transient_error(func):
                 return func(*args, **kwargs)
             except OperationalError as e:
                 last_error = e
+                db = args[0] if args else kwargs.get("db")
+                if hasattr(db, "rollback"):
+                    db.rollback()
                 error_msg = str(e).lower()
                 # Check if it's a transient error worth retrying
                 if any(
@@ -68,17 +72,39 @@ def _retry_on_transient_error(func):
     return wrapper
 
 
+def normalize_job_ownership_meta(
+    meta: dict | None, *, owner_user_id: uuid.UUID | str | None = None, api_key_id: uuid.UUID | str | None = None
+) -> dict:
+    """Remove caller-controlled ownership keys and derive them from FK/auth data."""
+    normalized = dict(meta or {})
+    normalized.pop("owner_user_id", None)
+    normalized.pop("api_key_id", None)
+    if owner_user_id is not None:
+        normalized["owner_user_id"] = str(owner_user_id)
+    if api_key_id is not None:
+        normalized["api_key_id"] = str(api_key_id)
+    return normalized
+
+
 @_retry_on_transient_error
-def create_job(db, kind: str, url: str, meta: dict | None = None):
+def create_job(
+    db,
+    kind: str,
+    url: str,
+    meta: dict | None = None,
+    *,
+    owner_user_id: uuid.UUID | str | None = None,
+    api_key_id: uuid.UUID | str | None = None,
+):
     import json
 
     from app.metrics import jobs_created_total
 
     job_id = uuid.uuid4()
-    meta_json = json.dumps(meta) if meta else "{}"
+    meta_json = json.dumps(normalize_job_ownership_meta(meta, owner_user_id=owner_user_id, api_key_id=api_key_id))
     db.execute(
-        text("INSERT INTO jobs (id, kind, input_url, meta) VALUES (:i,:k,:u,:m)"),
-        {"i": str(job_id), "k": kind, "u": url, "m": meta_json},
+        text("INSERT INTO jobs (id, kind, input_url, meta, owner_user_id) VALUES (:i,:k,:u,:m,:owner)"),
+        {"i": str(job_id), "k": kind, "u": url, "m": meta_json, "owner": str(owner_user_id) if owner_user_id else None},
     )
     db.commit()
 
@@ -96,27 +122,52 @@ def fetch_job(db, job_id: uuid.UUID):
 
 
 @_retry_on_transient_error
-@cache(prefix="segments", ttl=settings.CACHE_TRANSCRIPT_TTL if settings.ENABLE_CACHING else 0)
+@cache(
+    prefix="segments",
+    ttl=settings.CACHE_TRANSCRIPT_TTL if settings.ENABLE_CACHING else 0,
+    should_cache=bool,
+)
 def list_segments(db, video_id):
-    # Support both schemas: segments linked directly to video_id, or indirectly via transcripts
-    sql = """
-        SELECT s.start_ms, s.end_ms, s.text, s.speaker_label
-        FROM segments s
-        LEFT JOIN transcripts t ON t.id = s.transcript_id
-        WHERE s.video_id = :v OR (s.transcript_id IS NOT NULL AND t.video_id = :v)
-        ORDER BY s.start_ms
-    """
-    rows = db.execute(text(sql), {"v": str(video_id)}).all()
-    return rows
+    # Keep the common direct-video lookup indexable. Combining this with the
+    # legacy transcript relationship via OR forced PostgreSQL to scan the full
+    # segments table for every transcript request.
+    params = {"v": str(video_id)}
+    direct_rows = db.execute(
+        text("""
+            SELECT s.start_ms, s.end_ms, s.text, s.speaker_label
+            FROM segments s
+            WHERE s.video_id = :v
+            ORDER BY s.start_ms
+            """),
+        params,
+    ).all()
+    if direct_rows:
+        return [list(row) for row in direct_rows]
+
+    # Compatibility fallback for older rows linked only through transcripts.
+    rows = db.execute(
+        text("""
+            SELECT s.start_ms, s.end_ms, s.text, s.speaker_label
+            FROM segments s
+            JOIN transcripts t ON t.id = s.transcript_id
+            WHERE t.video_id = :v
+            ORDER BY s.start_ms
+            """),
+        params,
+    ).all()
+    return [list(row) for row in rows]
 
 
 @_retry_on_transient_error
-@cache(prefix="video", ttl=settings.CACHE_VIDEO_TTL if settings.ENABLE_CACHING else 0)
+@cache(
+    prefix="video",
+    ttl=settings.CACHE_VIDEO_TTL if settings.ENABLE_CACHING else 0,
+    should_cache=lambda value: isinstance(value, dict) and value.get("state") == "completed",
+)
 def get_video(db, video_id: uuid.UUID):
     row = (
         db.execute(
-            text(
-                """
+            text("""
                 SELECT
                     v.id, v.youtube_id, v.title, v.duration_seconds, v.state,
                     v.caption_ingest_state, v.diarization_state, v.uploaded_at,
@@ -125,8 +176,7 @@ def get_video(db, video_id: uuid.UUID):
                     EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id) AS has_youtube_transcript
                 FROM videos v
                 WHERE v.id=:v
-                """
-            ),
+                """),
             {"v": str(video_id)},
         )
         .mappings()
@@ -253,8 +303,7 @@ def get_videos_by_ids(db, video_ids):
     if not video_ids:
         return []
 
-    sql = text(
-        """
+    sql = text("""
         SELECT
             v.id, v.youtube_id, v.title, v.duration_seconds, v.state,
             v.caption_ingest_state, v.diarization_state, v.uploaded_at,
@@ -264,8 +313,7 @@ def get_videos_by_ids(db, video_ids):
         FROM videos v
         WHERE v.id IN :video_ids
         ORDER BY v.uploaded_at DESC NULLS LAST, v.created_at DESC
-        """
-    ).bindparams(bindparam("video_ids", expanding=True))
+        """).bindparams(bindparam("video_ids", expanding=True))
     rows = db.execute(sql, {"video_ids": [str(video_id) for video_id in video_ids]}).mappings().all()
     metadata_map = _safe_video_metadata_map(db, [row["id"] for row in rows])
     return _video_info_rows_to_models(_attach_video_metadata_rows(rows, metadata_map))
@@ -284,16 +332,30 @@ def get_archive_summary(db, recent_limit: int = 6, popular_limit: int = 8):
 
 
 @_retry_on_transient_error
-def get_archive_timeline(db, limit: int = 100, granularity: str = "month"):
+def get_archive_timeline(
+    db,
+    limit: int = 100,
+    granularity: str = "month",
+    date_from: date | None = None,
+    date_to: date | None = None,
+):
     from app.schemas import ArchiveTimelineResponse, TimelineBucket
 
     archive_filter = _archive_video_filter_sql()
     bucket_trunc = "year" if granularity == "year" else ("week" if granularity == "week" else "month")
+    date_filters = []
+    params: dict[str, object] = {"limit": limit}
+    if date_from is not None:
+        date_filters.append("v.uploaded_at >= CAST(:date_from AS DATE)")
+        params["date_from"] = date_from
+    if date_to is not None:
+        date_filters.append("v.uploaded_at < CAST(:date_to AS DATE) + INTERVAL '1 day'")
+        params["date_to"] = date_to
+    date_filter_sql = "" if not date_filters else f" AND {' AND '.join(date_filters)}"
 
     rows = (
         db.execute(
-            text(
-                f"""
+            text(f"""
                 SELECT
                     v.id, v.youtube_id, v.title, v.duration_seconds, v.state,
                     v.caption_ingest_state, v.diarization_state, v.uploaded_at,
@@ -304,11 +366,11 @@ def get_archive_timeline(db, limit: int = 100, granularity: str = "month"):
                 FROM videos v
                 WHERE ({archive_filter})
                   AND v.uploaded_at IS NOT NULL
+                  {date_filter_sql}
                 ORDER BY bucket_start DESC NULLS LAST, v.uploaded_at DESC NULLS LAST, v.created_at DESC
                 LIMIT :limit
-                """
-            ),
-            {"limit": limit},
+                """),
+            params,
         )
         .mappings()
         .all()
@@ -375,7 +437,16 @@ def _search_rows_for_grouping(db, q, source, video_id, limit, offset, sort_by, f
 
 
 @_retry_on_transient_error
-def get_grouped_search(db, q: str, source: str = "best", video_id: str | None = None, limit: int = 50, offset: int = 0, sort_by: str = "relevance", filters: dict | None = None):
+def get_grouped_search(
+    db,
+    q: str,
+    source: str = "best",
+    video_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    sort_by: str = "relevance",
+    filters: dict | None = None,
+):
     from app.schemas import EpisodeSearchGroup, GroupedSearchResponse, SearchMoment
 
     filters = filters or {}
@@ -405,6 +476,7 @@ def get_grouped_search(db, q: str, source: str = "best", video_id: str | None = 
                 start_ms=int(row["start_ms"]),
                 end_ms=int(row["end_ms"]),
                 snippet=row["snippet"] or "",
+                highlights=row.get("highlights") or [],
                 source=row["source"] if "source" in row else ("whisper" if source == "native" else source),
                 video_title=video.title,
                 channel_name=video.channel_name,
@@ -422,12 +494,25 @@ def get_grouped_search(db, q: str, source: str = "best", video_id: str | None = 
 
 
 @_retry_on_transient_error
-def get_mention_map(db, q: str, source: str = "best", video_id: str | None = None, limit: int = 50, offset: int = 0, sort_by: str = "relevance", filters: dict | None = None, top_limit: int = 5):
-    from app.schemas import MentionMap
-    from datetime import datetime, timedelta, timezone
+def get_mention_map(
+    db,
+    q: str,
+    source: str = "best",
+    video_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    sort_by: str = "relevance",
+    filters: dict | None = None,
+    top_limit: int = 5,
+):
     import re
+    from datetime import datetime, timedelta, timezone
 
-    grouped = get_grouped_search(db, q=q, source=source, video_id=video_id, limit=limit, offset=offset, sort_by=sort_by, filters=filters)
+    from app.schemas import MentionMap
+
+    grouped = get_grouped_search(
+        db, q=q, source=source, video_id=video_id, limit=limit, offset=offset, sort_by=sort_by, filters=filters
+    )
     moments = [moment for group in grouped.groups for moment in group.moments]
 
     baseline = datetime.min.replace(tzinfo=timezone.utc)
@@ -454,19 +539,65 @@ def get_mention_map(db, q: str, source: str = "best", video_id: str | None = Non
         period_counts[period] = period_counts.get(period, 0) + 1
     most_discussed_period, most_discussed_count = (None, 0)
     if period_counts:
-        most_discussed_period, most_discussed_count = sorted(period_counts.items(), key=lambda item: (-item[1], item[0]))[0]
+        most_discussed_period, most_discussed_count = sorted(
+            period_counts.items(), key=lambda item: (-item[1], item[0])
+        )[0]
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=90)
     recent_mentions_90d = sum(1 for _moment, uploaded_at in dated_moments if uploaded_at >= cutoff)
 
     stopwords = {
-        "about", "after", "again", "also", "because", "being", "between", "could", "every", "first", "from", "have", "into", "just", "like", "more", "most", "much", "only", "other", "over", "really", "right", "some", "than", "that", "their", "them", "then", "there", "these", "they", "thing", "this", "those", "through", "time", "very", "what", "when", "where", "which", "with", "would", "your"
+        "about",
+        "after",
+        "again",
+        "also",
+        "because",
+        "being",
+        "between",
+        "could",
+        "every",
+        "first",
+        "from",
+        "have",
+        "into",
+        "just",
+        "like",
+        "more",
+        "most",
+        "much",
+        "only",
+        "other",
+        "over",
+        "really",
+        "right",
+        "some",
+        "than",
+        "that",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "thing",
+        "this",
+        "those",
+        "through",
+        "time",
+        "very",
+        "what",
+        "when",
+        "where",
+        "which",
+        "with",
+        "would",
+        "your",
     }
     query_terms = {term.lower() for term in re.findall(r"[A-Za-z][A-Za-z0-9'-]{2,}", q)}
     term_counts: dict[str, int] = {}
     for moment in moments:
-        text_value = re.sub(r"<[^>]+>", " ", moment.snippet or "")
+        text_value = moment.snippet or ""
         seen: set[str] = set()
         for raw_term in re.findall(r"[A-Za-z][A-Za-z0-9'-]{3,}", text_value):
             term = raw_term.strip("'-").lower()
@@ -505,21 +636,22 @@ def list_saved_searches(db, user_id):
 
     rows = (
         db.execute(
-            text(
-                """
+            text("""
                 SELECT id, query, filters, created_at
                 FROM saved_searches
                 WHERE user_id = :user_id
                 ORDER BY created_at DESC
-                """
-            ),
+                """),
             {"user_id": str(user_id)},
         )
         .mappings()
         .all()
     )
     return SavedSearchesResponse(
-        items=[SavedSearch(id=row["id"], query=row["query"], filters=row["filters"] or {}, created_at=row["created_at"]) for row in rows]
+        items=[
+            SavedSearch(id=row["id"], query=row["query"], filters=row["filters"] or {}, created_at=row["created_at"])
+            for row in rows
+        ]
     )
 
 
@@ -530,16 +662,14 @@ def create_saved_search(db, user_id, query: str, filters: dict | None = None):
     payload = filters or {}
     row = (
         db.execute(
-            text(
-                """
+            text("""
                 INSERT INTO saved_searches (id, user_id, query, filters)
                 VALUES (:id, :user_id, :query, :filters)
                 ON CONFLICT (user_id, query)
                 DO UPDATE SET filters = EXCLUDED.filters,
                               created_at = now()
                 RETURNING id, query, filters, created_at
-                """
-            ),
+                """),
             {"id": str(uuid.uuid4()), "user_id": str(user_id), "query": query.strip(), "filters": json.dumps(payload)},
         )
         .mappings()
@@ -563,16 +693,14 @@ def delete_saved_search(db, user_id, saved_search_id):
 def list_completed_videos(db, limit: int = 12, offset: int = 0):
     return (
         db.execute(
-            text(
-                """
+            text("""
             SELECT v.id, v.youtube_id, v.title, v.duration_seconds
             FROM videos v
             WHERE v.state = 'completed'
               AND EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.id)
             ORDER BY v.updated_at DESC, v.created_at DESC
             LIMIT :limit OFFSET :offset
-        """
-            ),
+        """),
             {"limit": limit, "offset": offset},
         )
         .mappings()
@@ -605,8 +733,7 @@ def replace_transcript_blocks(conn, video_id, blocks):
     conn.execute(text("DELETE FROM transcript_blocks WHERE video_id = :v"), {"v": str(video_id)})
     for block in blocks:
         conn.execute(
-            text(
-                """
+            text("""
                 INSERT INTO transcript_blocks (
                     video_id, block_index, start_ms, end_ms, speaker_label,
                     text, segment_ids, kind, formatter_version
@@ -615,8 +742,7 @@ def replace_transcript_blocks(conn, video_id, blocks):
                     :video_id, :block_index, :start_ms, :end_ms, :speaker_label,
                     :text, :segment_ids, :kind, :formatter_version
                 )
-                """
-            ),
+                """),
             {
                 "video_id": str(video_id),
                 "block_index": block.block_index,
@@ -636,15 +762,13 @@ def list_transcript_blocks(db, video_id):
     try:
         return (
             db.execute(
-                text(
-                    """
+                text("""
                     SELECT block_index, start_ms, end_ms, speaker_label, text,
                            segment_ids, kind, formatter_version
                     FROM transcript_blocks
                     WHERE video_id = :v
                     ORDER BY block_index
-                    """
-                ),
+                    """),
                 {"v": str(video_id)},
             )
             .mappings()
@@ -667,7 +791,9 @@ def search_segments(db, q: str, video_id: str | None = None, limit: int = 50, of
 
     sql = """
         SELECT id, video_id, start_ms, end_ms,
-               ts_headline('english', text, websearch_to_tsquery('english', :q)) AS snippet,
+               ts_headline(
+                   'english', text, websearch_to_tsquery('english', :q), :headline_options
+               ) AS snippet,
                ts_rank_cd(text_tsv, websearch_to_tsquery('english', :q)) AS rank
         FROM segments
         WHERE text_tsv @@ websearch_to_tsquery('english', :q)
@@ -676,7 +802,12 @@ def search_segments(db, q: str, video_id: str | None = None, limit: int = 50, of
         LIMIT :limit OFFSET :offset
     """
     video_filter = ""
-    params = {"q": q, "limit": limit, "offset": offset}
+    params = {
+        "q": q,
+        "limit": limit,
+        "offset": offset,
+        "headline_options": POSTGRES_HEADLINE_OPTIONS,
+    }
     if video_id:
         video_filter = "AND video_id = :vid"
         params["vid"] = str(video_id)
@@ -685,14 +816,16 @@ def search_segments(db, q: str, video_id: str | None = None, limit: int = 50, of
     # Track search query metric
     search_queries_total.labels(backend="postgres").inc()
 
-    return rows
+    return normalize_search_rows(rows)
 
 
 @_retry_on_transient_error
 def search_youtube_segments(db, q: str, video_id: str | None = None, limit: int = 50, offset: int = 0):
     sql = """
         SELECT ys.id, yt.video_id, ys.start_ms, ys.end_ms,
-               ts_headline('english', ys.text, websearch_to_tsquery('english', :q)) AS snippet,
+               ts_headline(
+                   'english', ys.text, websearch_to_tsquery('english', :q), :headline_options
+               ) AS snippet,
                ts_rank_cd(ys.text_tsv, websearch_to_tsquery('english', :q)) AS rank
         FROM youtube_segments ys
         JOIN youtube_transcripts yt ON yt.id = ys.youtube_transcript_id
@@ -702,12 +835,17 @@ def search_youtube_segments(db, q: str, video_id: str | None = None, limit: int 
         LIMIT :limit OFFSET :offset
     """
     video_filter = ""
-    params = {"q": q, "limit": limit, "offset": offset}
+    params = {
+        "q": q,
+        "limit": limit,
+        "offset": offset,
+        "headline_options": POSTGRES_HEADLINE_OPTIONS,
+    }
     if video_id:
         video_filter = "AND yt.video_id = :vid"
         params["vid"] = str(video_id)
     rows = db.execute(text(sql.format(video_filter=video_filter)), params).mappings().all()
-    return rows
+    return normalize_search_rows(rows)
 
 
 @_retry_on_transient_error

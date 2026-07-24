@@ -230,6 +230,9 @@ frontend/.tsbuildinfo
 **/node_modules/
 **/dist/
 
+# Local deepwork orchestration state
+.blacktower/deepwork/
+
 # Frontend env and local overrides
 frontend/.env
 frontend/.env.*
@@ -256,3 +259,8 @@ docker-volumes/
 
 # YouTube cookies (sensitive authentication data)
 cookies.txt
+
+# Downloaded release manifest (local deployment state)
+release-images.json
+.release-commit
+deploy-backups/

@@ -1,143 +1,284 @@
-name: Release
+name: Release candidate artifacts
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*-rc.*'
+      - 'v*-beta.*'
 
 permissions:
-  contents: write
-  packages: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Fetch all history for changelog generation
+      - name: Reject non-prerelease tags
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+(\.[0-9]+)*-(rc|beta)\.[0-9]+([-.][0-9A-Za-z]+)*$ ]]
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
-          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Extract version from tag
-        id: get_version
+      - name: Install Python dependencies
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          "${{ steps.python.outputs.python-path }}" -m pip install --upgrade pip
+          "${{ steps.python.outputs.python-path }}" -m pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Generate changelog for release
-        id: changelog
+      - name: Install frontend and end-to-end dependencies
         run: |
-          # Extract the current version section from CHANGELOG.md
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          
-          # Find the section for this version and extract it
-          CHANGELOG_SECTION=$(awk "/## \[$VERSION\]/,/## \[/" CHANGELOG.md | sed '$d' | tail -n +2)
-          
-          if [ -z "$CHANGELOG_SECTION" ]; then
-            echo "No changelog section found for version $VERSION"
-            CHANGELOG_SECTION="See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
-          fi
-          
-          # Save to file for GitHub release
-          echo "$CHANGELOG_SECTION" > /tmp/release_notes.md
-          
-          # Also output for debugging
-          echo "CHANGELOG_SECTION<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG_SECTION" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          npm ci --prefix frontend
+          npm ci --prefix e2e
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
-          name: Release ${{ steps.get_version.outputs.TAG_NAME }}
-          body_path: /tmp/release_notes.md
-          draft: false
-          prerelease: ${{ contains(steps.get_version.outputs.TAG_NAME, '-alpha') || contains(steps.get_version.outputs.TAG_NAME, '-beta') || contains(steps.get_version.outputs.TAG_NAME, '-rc') }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Chromium
+        run: npx --prefix e2e playwright install --with-deps chromium
 
-  docker:
+      - name: Run canonical verification
+        env:
+          PYTHON_BIN: ${{ steps.python.outputs.python-path }}
+        run: make verify
+
+  cross-browser:
     runs-on: ubuntu-latest
-    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: firefox
+            project: firefox
+          - browser: webkit
+            project: webkit
+          - browser: chromium
+            project: Mobile Chrome
+          - browser: webkit
+            project: Mobile Safari
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend and end-to-end dependencies
+        run: |
+          npm ci --prefix frontend
+          npm ci --prefix e2e
+
+      - name: Install ${{ matrix.browser }}
+        run: npx --prefix e2e playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run seeded archive smoke test
+        working-directory: e2e
+        run: npx playwright test tests/archive-smoke.spec.ts --project="${{ matrix.project }}"
+
+      - name: Upload browser artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cross-browser-${{ matrix.browser }}-${{ matrix.project }}
+          if-no-files-found: warn
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+
+  images:
+    runs-on: ubuntu-latest
+    needs: [verify, cross-browser]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - role: api
+            dockerfile: Dockerfile.api
+          - role: ingest-cuda
+            dockerfile: Dockerfile.ingest.cuda
+          - role: ml-cuda
+            dockerfile: Dockerfile.cuda
+          - role: frontend
+            dockerfile: frontend/Dockerfile
+          - role: postgres-walg
+            dockerfile: Dockerfile.postgres-walg
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
-        id: get_version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          
-          # Extract major and minor versions
-          MAJOR=$(echo $VERSION | cut -d. -f1)
-          MINOR=$(echo $VERSION | cut -d. -f1-2)
-          echo "MAJOR=$MAJOR" >> $GITHUB_OUTPUT
-          echo "MINOR=$MINOR" >> $GITHUB_OUTPUT
-          
-          # Generate build timestamp
-          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_OUTPUT
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref, '-alpha') && !contains(github.ref, '-beta') && !contains(github.ref, '-rc') }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      - name: Build ${{ matrix.role }} for scanning
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: |
-            org.opencontainers.image.title=Transcript Create
-            org.opencontainers.image.description=YouTube video transcription service
-            org.opencontainers.image.version=${{ steps.get_version.outputs.VERSION }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            GIT_COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ steps.get_version.outputs.BUILD_DATE }}
-            VERSION=${{ steps.get_version.outputs.VERSION }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            hasanara-${{ matrix.role }}:security-scan
+            ghcr.io/${{ github.repository }}/${{ matrix.role }}:${{ github.ref_name }}
+          cache-from: type=gha,scope=release-${{ matrix.role }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.role }}
 
-  notify:
-    runs-on: ubuntu-latest
-    needs: [release, docker]
-    if: always()
-    steps:
-      - name: Release notification
+      - name: Block high and critical application-library vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: hasanara-${{ matrix.role }}:security-scan
+          format: sarif
+          output: trivy-${{ matrix.role }}-library.sarif
+          severity: CRITICAL,HIGH
+          pkg-types: library
+          exit-code: '1'
+
+      - name: Upload application-library vulnerability report
+        if: always()
+        uses: github/codeql-action/upload-sarif@adfda868f108ac4222129de456ea554034a27db7 # v4
+        with:
+          sarif_file: trivy-${{ matrix.role }}-library.sarif
+          category: trivy-release-${{ matrix.role }}-library
+
+      - name: Report base-image OS vulnerabilities
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: hasanara-${{ matrix.role }}:security-scan
+          format: sarif
+          output: trivy-${{ matrix.role }}-os.sarif
+          severity: CRITICAL,HIGH
+          pkg-types: os
+          exit-code: '0'
+
+      - name: Upload OS vulnerability report
+        if: always()
+        uses: github/codeql-action/upload-sarif@adfda868f108ac4222129de456ea554034a27db7 # v4
+        with:
+          sarif_file: trivy-${{ matrix.role }}-os.sarif
+          category: trivy-release-${{ matrix.role }}-os
+
+      - name: Push verified ${{ matrix.role }} image without rebuilding
+        id: publish
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.role }}
+          TAG: ${{ github.ref_name }}
         run: |
-          echo "Release workflow completed for ${{ github.ref_name }}"
-          echo "GitHub Release: ${{ needs.release.result }}"
-          echo "Docker Build: ${{ needs.docker.result }}"
+          set -euo pipefail
+          docker push "$IMAGE:$TAG"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest ${{ matrix.role }} image
+        uses: actions/attest-build-provenance@78e6cbd37d0ac1a40113c04f2037dacf1ea3f12e # v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}/${{ matrix.role }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      - name: Write digest fragment and summary
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.role }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          ROLE: ${{ matrix.role }}
+        run: |
+          set -euo pipefail
+          printf '{"role":"%s","image":"%s@%s"}\n' "$ROLE" "$IMAGE" "$DIGEST" > "${ROLE}.json"
+          printf '### %s\n`%s@%s`\n' "$ROLE" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload ${{ matrix.role }} digest fragment
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-digest-${{ matrix.role }}
+          path: ${{ matrix.role }}.json
+
+  release:
+    runs-on: ubuntu-latest
+    needs: images
+    permissions:
+      contents: write
+    steps:
+      - name: Download image digest fragments
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: image-digest-*
+          path: image-digests
+          merge-multiple: true
+
+      - name: Generate immutable release manifest
+        env:
+          REDIS_IMAGE: ${{ vars.HASANARA_REDIS_IMAGE }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          roles = {"api", "ingest-cuda", "ml-cuda", "frontend", "postgres-walg"}
+          fragments = {}
+          reference = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
+          for path in Path("image-digests").glob("*.json"):
+              fragment = json.loads(path.read_text())
+              if set(fragment) != {"role", "image"} or fragment["role"] not in roles:
+                  raise SystemExit("invalid image digest fragment")
+              if not reference.fullmatch(fragment["image"]):
+                  raise SystemExit("invalid image digest fragment reference")
+              if fragment["role"] in fragments:
+                  raise SystemExit("duplicate image digest fragment")
+              fragments[fragment["role"]] = fragment["image"]
+          if set(fragments) != roles or not reference.fullmatch(os.environ["REDIS_IMAGE"]):
+              raise SystemExit("missing or invalid release image reference")
+          manifest = {
+              "schema_version": 1,
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "images": {**dict(sorted(fragments.items())), "redis": os.environ["REDIS_IMAGE"]},
+              "services": {
+                  "db": "postgres-walg", "backup": "postgres-walg", "migrations": "api",
+                  "api": "api", "analytics-retention": "api", "summary-refresher": "api",
+                  "archive-intelligence-refresher": "api", "worker": "ingest-cuda",
+                  "diarization-worker": "ml-cuda", "frontend": "frontend", "redis": "redis",
+              },
+          }
+          Path("release-images.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+          printf 'Redis is a third-party image and is not attested by this repository.\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create prerelease
+        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
+        with:
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            Immutable deployment image manifest attached.
+
+            Redis is third-party and is not attested by this repository.
+          prerelease: true
+          draft: false
+          files: release-images.json
+          token: ${{ secrets.GITHUB_TOKEN }}

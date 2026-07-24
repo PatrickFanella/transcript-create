@@ -1,6 +1,19 @@
 import type { ArchiveSearchFilters } from '../../types/api';
 
 export type SearchFilters = ArchiveSearchFilters & { q: string };
+const SORT_VALUES = new Set<NonNullable<ArchiveSearchFilters['sort_by']>>([
+  'relevance',
+  'date_asc',
+  'date_desc',
+  'duration_asc',
+  'duration_desc',
+]);
+
+function readSort(value: string | null): ArchiveSearchFilters['sort_by'] {
+  return value && SORT_VALUES.has(value as NonNullable<ArchiveSearchFilters['sort_by']>)
+    ? (value as NonNullable<ArchiveSearchFilters['sort_by']>)
+    : undefined;
+}
 
 export function readFilters(params: URLSearchParams): SearchFilters {
   return {
@@ -11,7 +24,7 @@ export function readFilters(params: URLSearchParams): SearchFilters {
     date_to: params.get('date_to') ?? undefined,
     min_duration: params.get('min_duration') ? Number(params.get('min_duration')) : undefined,
     max_duration: params.get('max_duration') ? Number(params.get('max_duration')) : undefined,
-    sort_by: params.get('sort_by') ?? undefined,
+    sort_by: readSort(params.get('sort_by')),
     video_id: params.get('video_id') ?? undefined,
     limit: params.get('limit') ? Number(params.get('limit')) : undefined,
     offset: params.get('offset') ? Number(params.get('offset')) : undefined,
@@ -25,12 +38,16 @@ export function serializeFilters(filters: SearchFilters) {
   if (filters.category) next.set('category', filters.category);
   if (filters.date_from) next.set('date_from', filters.date_from);
   if (filters.date_to) next.set('date_to', filters.date_to);
-  if (filters.min_duration != null && !Number.isNaN(filters.min_duration)) next.set('min_duration', String(filters.min_duration));
-  if (filters.max_duration != null && !Number.isNaN(filters.max_duration)) next.set('max_duration', String(filters.max_duration));
+  if (filters.min_duration != null && !Number.isNaN(filters.min_duration))
+    next.set('min_duration', String(filters.min_duration));
+  if (filters.max_duration != null && !Number.isNaN(filters.max_duration))
+    next.set('max_duration', String(filters.max_duration));
   if (filters.sort_by) next.set('sort_by', filters.sort_by);
   if (filters.video_id) next.set('video_id', filters.video_id);
-  if (filters.limit != null && !Number.isNaN(filters.limit)) next.set('limit', String(filters.limit));
-  if (filters.offset != null && !Number.isNaN(filters.offset)) next.set('offset', String(filters.offset));
+  if (filters.limit != null && !Number.isNaN(filters.limit))
+    next.set('limit', String(filters.limit));
+  if (filters.offset != null && !Number.isNaN(filters.offset))
+    next.set('offset', String(filters.offset));
   return next;
 }
 
@@ -42,7 +59,7 @@ export function buildCurrentFilters(
   category: string,
   minDuration: string,
   maxDuration: string,
-  sortBy: string,
+  sortBy: NonNullable<ArchiveSearchFilters['sort_by']>,
   existing: ArchiveSearchFilters & { video_id?: string; limit?: number; offset?: number }
 ) {
   return serializeFilters({

@@ -1,0 +1,95 @@
+# Final production overlay. It is intentionally applied last by compose_prod.sh.
+# Every release image is required and immutable; local builds are never permitted.
+services:
+    db:
+        build: !reset null
+        image: ${HASANARA_POSTGRES_IMAGE:?HASANARA_POSTGRES_IMAGE is required}
+        environment:
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+
+    migrations:
+        build: !reset null
+        image: ${HASANARA_API_IMAGE:?HASANARA_API_IMAGE is required}
+        env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+            ENVIRONMENT: production
+            LOG_LEVEL: INFO
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"
+
+    api:
+        build: !reset null
+        image: ${HASANARA_API_IMAGE:?HASANARA_API_IMAGE is required}
+        env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+            ENVIRONMENT: production
+            LOG_LEVEL: INFO
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"
+
+    redis:
+        build: !reset null
+        image: ${HASANARA_REDIS_IMAGE:?HASANARA_REDIS_IMAGE is required}
+
+    worker:
+        build: !reset null
+        image: ${HASANARA_INGEST_IMAGE:?HASANARA_INGEST_IMAGE is required}
+        env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+            ENVIRONMENT: production
+            LOG_LEVEL: INFO
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"
+
+    analytics-retention:
+        build: !reset null
+        image: ${HASANARA_API_IMAGE:?HASANARA_API_IMAGE is required}
+        env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+            ENVIRONMENT: production
+            LOG_LEVEL: INFO
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"
+
+    summary-refresher:
+        build: !reset null
+        image: ${HASANARA_API_IMAGE:?HASANARA_API_IMAGE is required}
+        env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+            ENVIRONMENT: production
+            LOG_LEVEL: INFO
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"
+
+    archive-intelligence-refresher:
+        build: !reset null
+        image: ${HASANARA_API_IMAGE:?HASANARA_API_IMAGE is required}
+        env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+            ENVIRONMENT: production
+            LOG_LEVEL: INFO
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"
+
+    diarization-worker:
+        build: !reset null
+        image: ${HASANARA_ML_IMAGE:?HASANARA_ML_IMAGE is required}
+        env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+            ENVIRONMENT: production
+            LOG_LEVEL: INFO
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"
+
+    frontend:
+        build: !reset null
+        image: ${HASANARA_FRONTEND_IMAGE:?HASANARA_FRONTEND_IMAGE is required}
+
+    backup:
+        build: !reset null
+        image: ${HASANARA_POSTGRES_IMAGE:?HASANARA_POSTGRES_IMAGE is required}
+        env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]
+        environment:
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+            PGPASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+            ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"

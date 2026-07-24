@@ -25,7 +25,7 @@ spec:
         {{- include "transcript-create.podSecurityContext" . | nindent 8 }}
       containers:
       - name: migrations
-        image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag | default .Chart.AppVersion }}"
+        image: {{ include "transcript-create.migrationsImage" . | quote }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command: ["python3", "scripts/run_migrations.py", "upgrade"]
         env:
@@ -36,6 +36,8 @@ spec:
               key: database-url
         - name: LOG_LEVEL
           value: "INFO"
+        - name: ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION
+          value: {{ .Values.migrations.allowSessionTokenContractMigration | quote }}
         resources:
           {{- toYaml .Values.migrations.resources | nindent 10 }}
         securityContext:

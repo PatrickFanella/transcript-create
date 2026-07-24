@@ -8,7 +8,6 @@ type Props = {
   activeBlockIndex: number | null;
   activeSegId: number | null;
   activeSentenceId: string | null;
-  currentMs: number | null;
   isSavedSegment: (segment: Segment, segIndex: number) => boolean;
   onClickSentence: (segment: Segment, segIndex: number, sentenceId: string) => void;
   onSaveMoment: (segment: Segment, segIndex: number, text: string) => void;
@@ -164,23 +163,44 @@ function sentenceDomId(piece: SentencePiece) {
   return `seg-${piece.firstSegIndex}-s-${suffix ?? 0}`;
 }
 
-export default function FormattedTranscriptDocument({
+function FormattedTranscriptDocument({
   blocks,
   transcriptSegments,
   hits,
   activeBlockIndex,
   activeSegId,
   activeSentenceId,
-  currentMs,
   isSavedSegment,
   onClickSentence,
   onSaveMoment,
   onCopyQuote,
 }: Props) {
+  const preparedBlocks = useMemo(
+    () =>
+      blocks.map((block) => ({ block, pieces: buildSentencePieces(block, transcriptSegments) })),
+    [blocks, transcriptSegments]
+  );
+  const hitSegmentIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const hit of hits ?? []) {
+      let low = 0;
+      let high = transcriptSegments.length - 1;
+      while (low <= high) {
+        const middle = (low + high) >> 1;
+        const segment = transcriptSegments[middle];
+        if (hit.start_ms < segment.start_ms) high = middle - 1;
+        else if (hit.start_ms >= segment.end_ms) low = middle + 1;
+        else {
+          ids.add(middle);
+          break;
+        }
+      }
+    }
+    return ids;
+  }, [hits, transcriptSegments]);
   return (
     <article className="transcript-document" aria-label="Readable transcript">
-      {blocks.map((block) => {
-        const pieces = buildSentencePieces(block, transcriptSegments);
+      {preparedBlocks.map(({ block, pieces }) => {
         const selectedPiece =
           pieces.find((piece) => activeSentenceId === piece.id) ??
           pieces.find((piece) => piece.segmentIds.some((segIdx) => activeSegId === segIdx + 1));
@@ -193,7 +213,7 @@ export default function FormattedTranscriptDocument({
           <section
             key={block.block_index}
             id={`block-${block.block_index}`}
-            className="transcript-block"
+            className="transcript-block content-auto"
             data-active={isActiveBlock ? 'true' : undefined}
           >
             <div className="transcript-block-meta">
@@ -218,15 +238,9 @@ export default function FormattedTranscriptDocument({
                   const pieceActive = activeSentenceId
                     ? activeSentenceId === piece.id
                     : piece.segmentIds.some((segIdx) => activeSegId === segIdx + 1);
-                  const pieceCurrent =
-                    currentMs != null && currentMs >= piece.startMs && currentMs < piece.endMs;
                   const pieceSaved = isSavedSegment(piece.firstSegment, piece.firstSegIndex);
                   const pieceHighlighted = piece.segmentIds.some((segIdx) =>
-                    hits?.some(
-                      (h) =>
-                        h.start_ms >= transcriptSegments[segIdx]?.start_ms &&
-                        h.start_ms < transcriptSegments[segIdx]?.end_ms
-                    )
+                    hitSegmentIds.has(segIdx)
                   );
 
                   return (
@@ -234,8 +248,10 @@ export default function FormattedTranscriptDocument({
                       <span
                         id={sentenceDomId(piece)}
                         role="button"
+                        data-transcript-sentence="true"
+                        data-start-ms={piece.startMs}
+                        data-end-ms={piece.endMs}
                         tabIndex={0}
-                        data-current-sentence={pieceCurrent ? 'true' : undefined}
                         onClick={() =>
                           onClickSentence(piece.firstSegment, piece.firstSegIndex, piece.id)
                         }
@@ -245,7 +261,7 @@ export default function FormattedTranscriptDocument({
                             onClickSentence(piece.firstSegment, piece.firstSegIndex, piece.id);
                           }
                         }}
-                        className={`transcript-sentence ${pieceActive ? 'transcript-sentence-active' : ''} ${pieceCurrent && !pieceActive ? 'transcript-sentence-current' : ''} ${pieceHighlighted && !pieceActive ? 'transcript-sentence-match' : ''} ${pieceSaved ? 'underline decoration-warning decoration-2 underline-offset-4' : ''}`}
+                        className={`transcript-sentence ${pieceActive ? 'transcript-sentence-active' : ''} ${pieceHighlighted && !pieceActive ? 'transcript-sentence-match' : ''} ${pieceSaved ? 'underline decoration-warning decoration-2 underline-offset-4' : ''}`}
                         aria-label={`Play sentence from ${msToHms(piece.startMs)}`}
                       >
                         {piece.text}
@@ -295,3 +311,6 @@ export default function FormattedTranscriptDocument({
     </article>
   );
 }
+
+export default memo(FormattedTranscriptDocument);
+import { memo, useMemo } from 'react';

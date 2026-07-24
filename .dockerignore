@@ -41,6 +41,7 @@ cache/
 docker-volumes/
 
 # Frontend build artifacts
+**/node_modules
 frontend/node_modules
 frontend/dist
 frontend/dist-ssr
@@ -68,10 +69,19 @@ e2e/
 *.log
 *.log.*
 
-# Environment files
+# Secret and local release state (never send credentials or host state to builds)
 .env
 .env.*
 .envrc
+*.local
+.pypirc
+.streamlit/secrets.toml
+cookies*.txt
+*.cookies
+.blacktower/
+release-images.json
+.release-commit
+deploy-backups/
 
 # Pre-commit and config files
 .pre-commit-config.yaml

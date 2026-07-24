@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, useAuth } from '../services';
+import { api } from '../services';
 import type { ArchiveSummary } from '../types/api';
-import { buildTimestampLink, formatDate, formatDuration, formatNumber } from '../features/archive/format';
-import { StatCard, VideoCard } from '../components/archive';
+import {
+  buildTimestampLink,
+  formatDate,
+  formatDuration,
+  formatNumber,
+} from '../features/archive/format';
+import { VideoCard } from '../components/archive';
+
+const searchExamples = ['labor', 'Gaza', 'housing', 'election'];
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const { login, loginTwitch } = useAuth();
   const [summary, setSummary] = useState<ArchiveSummary | null>(null);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -32,141 +38,210 @@ export default function HomePage() {
 
   const recentVideos = summary?.recent_videos ?? [];
   const suggested = summary?.popular_searches ?? [];
+  const newestVideo = recentVideos[0];
 
   return (
-    <div className="space-y-6 lg:space-y-8">
-      <section className="surface-card space-y-7 overflow-hidden">
-        <div className="flex flex-col justify-between gap-7 lg:flex-row lg:items-end">
-          <div className="max-w-3xl space-y-4">
-            <div className="archive-eyebrow">HasAnAra</div>
-            <h1 className="page-title max-w-4xl">Search the HasanAbi broadcast archive.</h1>
-            <p className="max-w-2xl text-lg leading-8 text-muted">
-              Trace topics, timestamped quotes, debates, guests, and recurring stream moments across HasanAbi VODs.
-            </p>
+    <div className="space-y-5 lg:space-y-7">
+      <section className="archive-masthead">
+        <div className="relative z-10 grid min-h-[34rem] gap-10 px-5 py-8 sm:px-8 sm:py-10 lg:grid-cols-[minmax(0,1.15fr)_minmax(24rem,0.85fr)] lg:items-end lg:px-12 lg:py-14">
+          <div className="space-y-8">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="archive-eyebrow">HasanAbi broadcast archive</span>
+              <span className="source-pill">searchable transcripts</span>
+            </div>
+
+            <div className="space-y-6">
+              <h1 className="archive-display">Find the moment. Read the record.</h1>
+              <p className="max-w-2xl text-lg leading-8 text-muted sm:text-xl">
+                Search years of broadcasts by topic or exact phrase, then move from the result
+                straight into the cited transcript and VOD.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+              <Link to="/explore" className="action-link font-semibold">
+                Explore the archive →
+              </Link>
+              <Link to="/episodes" className="text-muted transition-colors hover:text-ink">
+                Browse every VOD
+              </Link>
+            </div>
           </div>
 
-          <div className="w-full max-w-2xl space-y-4 lg:min-w-[28rem]">
-            <form onSubmit={onSubmit} className="space-y-3">
+          <div className="space-y-4 lg:pb-1">
+            <div className="archive-rule-title">Search the record</div>
+            <form onSubmit={onSubmit} className="archive-command">
               <label className="sr-only" htmlFor="home-search">
                 Search the HasanAbi archive
               </label>
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-                <input
-                  id="home-search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search any topic, line, guest, or phrase…"
-                  className="form-control min-h-[52px] px-4 text-base tracking-[-0.02em] placeholder:text-subtle"
-                />
-                <button type="submit" className="btn min-h-[52px] px-6 text-base">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="flex min-w-0 items-center gap-3 px-3">
+                  <svg
+                    className="h-5 w-5 shrink-0 text-subtle"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <circle cx="11" cy="11" r="7" strokeWidth="1.8" />
+                    <path d="m20 20-4-4" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                  <input
+                    id="home-search"
+                    name="q"
+                    type="search"
+                    autoComplete="off"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="A topic, quote, guest, or phrase…"
+                    className="min-h-[54px] w-full bg-transparent text-lg text-ink outline-none placeholder:text-subtle"
+                  />
+                </div>
+                <button type="submit" className="btn min-h-[54px] px-7">
                   Search archive
                 </button>
               </div>
-
-              <div className="flex flex-wrap gap-2 text-sm text-muted">
-                <span className="source-pill">timestamped results</span>
-                <span className="source-pill">VOD dossiers</span>
-                <span className="match-pill">highlighted matches</span>
-              </div>
             </form>
 
-            <div className="flex flex-wrap justify-start gap-3 text-sm lg:justify-end">
-              <Link to="/episodes" className="nav-link">
-                Browse VODs
-              </Link>
-              <Link to="/saved" className="nav-link">
-                Saved moments
-              </Link>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-subtle">
+              <span className="mr-1 uppercase tracking-[0.18em]">Try</span>
+              {searchExamples.map((term) => (
+                <Link
+                  key={term}
+                  to={`/search?q=${encodeURIComponent(term)}`}
+                  className="source-pill hover:border-accent/50 hover:text-ink"
+                >
+                  {term}
+                </Link>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.7fr)] lg:items-stretch">
-          <div className="archive-panel grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-              <StatCard label="VODs" value={loading ? '—' : summary ? formatNumber(summary.video_count) : '—'} />
-              <StatCard label="Duration" value={loading ? '—' : summary ? formatDuration(summary.total_duration_seconds) : '—'} />
-              <StatCard label="Transcript words" value={loading ? '—' : summary ? formatNumber(summary.transcript_word_count) : '—'} />
-              <StatCard
-                label="Updated"
-                value={loading ? 'Loading…' : formatDate(summary?.updated_at ?? null)}
-                className="sm:col-span-1"
-                valueClassName="meta-value text-sm"
-              />
+        <div className="archive-data-strip relative z-10">
+          <div className="archive-data-cell">
+            <div className="meta-label">Archived VODs</div>
+            <div className="mt-2 font-mono text-xl font-semibold text-ink">
+              {loading ? '—' : summary ? formatNumber(summary.video_count) : '—'}
+            </div>
           </div>
-
-          <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
-              <div className="archive-eyebrow mb-2">Get started</div>
-              <h2 className="text-xl font-semibold tracking-[-0.03em] text-ink">Create an account to save searches and favorites.</h2>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                Use your existing Google or Twitch login to keep your archive trail in sync.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" onClick={login} className="btn min-h-[44px] px-4 text-sm">
-                  Continue with Google
-                </button>
-                <button type="button" onClick={loginTwitch} className="btn-secondary min-h-[44px] px-4 text-sm">
-                  Continue with Twitch
-                </button>
-              </div>
+          <div className="archive-data-cell">
+            <div className="meta-label">Recorded runtime</div>
+            <div className="mt-2 font-mono text-xl font-semibold text-ink">
+              {loading ? '—' : summary ? formatDuration(summary.total_duration_seconds) : '—'}
+            </div>
+          </div>
+          <div className="archive-data-cell">
+            <div className="meta-label">Transcript words</div>
+            <div className="mt-2 font-mono text-xl font-semibold text-ink">
+              {loading ? '—' : summary ? formatNumber(summary.transcript_word_count) : '—'}
+            </div>
+          </div>
+          <div className="archive-data-cell">
+            <div className="meta-label">Index refreshed</div>
+            <div className="mt-2 font-mono text-sm font-semibold text-ink">
+              {loading ? 'Checking…' : formatDate(summary?.updated_at ?? null)}
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
-        <div className="surface-card space-y-5">
-          <div className="flex items-center justify-between gap-3">
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="archive-section space-y-5">
+          <div className="flex items-end justify-between gap-4">
             <div>
-              <div className="archive-eyebrow mb-2">Latest signal</div>
-              <h2 className="section-title">Recent VODs</h2>
+              <div className="archive-eyebrow">Latest signal</div>
+              <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-ink">
+                Recently indexed
+              </h2>
             </div>
             <Link to="/episodes" className="action-link text-sm">
-              View all
+              All VODs →
             </Link>
           </div>
 
           {recentVideos.length > 0 ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {recentVideos.map((video) => (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {recentVideos.slice(0, 6).map((video) => (
                 <VideoCard key={video.id} video={video} />
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted">
-              Recent VODs will appear here once the archive summary endpoint is available.
+            <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted">
+              {loading
+                ? 'Loading recent VODs…'
+                : 'Recent VODs will appear when the archive summary is available.'}
             </div>
           )}
         </div>
 
-        <aside className="surface-card space-y-5">
+        <aside className="archive-section flex flex-col gap-6">
           <div>
-            <div className="archive-eyebrow mb-2">Popular signal</div>
-            <h2 className="section-title">Suggested searches</h2>
-            <p className="mt-2 text-sm text-muted">Real archive terms with fast jump links into the search engine.</p>
+            <div className="archive-eyebrow">Open a thread</div>
+            <h2 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-ink">
+              Popular searches
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Recurring archive terms, ready to open as timestamped evidence.
+            </p>
           </div>
 
-          {suggested.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {suggested.map((item) => (
-                <Link key={item.term} to={`/search?q=${encodeURIComponent(item.term)}`} className="badge-warning">
-                  {item.term}
+          <div className="flex flex-wrap gap-2">
+            {suggested.length > 0 ? (
+              suggested.slice(0, 12).map((item, index) => (
+                <Link
+                  key={item.term}
+                  to={`/search?q=${encodeURIComponent(item.term)}`}
+                  className="group inline-flex items-center gap-2 rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-ink transition-colors hover:border-accent/60"
+                >
+                  <span className="font-mono text-[10px] text-subtle">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <span className="group-hover:text-accent">{item.term}</span>
                 </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted">
-              Search a topic above to start building a useful archive trail.
-            </div>
-          )}
+              ))
+            ) : (
+              <p className="text-sm text-muted">
+                Search activity will surface useful starting points here.
+              </p>
+            )}
+          </div>
 
-          {recentVideos[0] && (
+          {newestVideo && (
             <Link
-              to={buildTimestampLink(recentVideos[0].id, 0)}
-              className="block rounded-lg border border-border bg-surface-muted p-4 text-sm text-muted transition-colors hover:border-accent/70 hover:text-ink"
+              to={buildTimestampLink(newestVideo.id, 0)}
+              className="mt-auto rounded-xl border border-accent/20 bg-accent-soft/55 p-4 transition-colors hover:border-accent/50"
             >
-              Open the newest VOD in the player.
+              <div className="meta-label text-accent">Newest transcript</div>
+              <div className="mt-2 line-clamp-2 font-semibold text-ink">
+                {newestVideo.title || 'Open the newest VOD'}
+              </div>
+              <div className="mt-3 text-sm text-accent">Start reading →</div>
             </Link>
           )}
         </aside>
+      </section>
+
+      <section className="archive-section grid gap-6 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)] lg:items-center">
+        <div>
+          <div className="archive-eyebrow">How it works</div>
+          <h2 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-ink">
+            From broadcast to evidence.
+          </h2>
+        </div>
+        <ol className="grid gap-3 sm:grid-cols-3">
+          {[
+            ['01', 'Search', 'Use a subject, name, or exact phrase.'],
+            ['02', 'Inspect', 'Compare matching moments across VODs.'],
+            ['03', 'Read', 'Open the transcript at the cited timestamp.'],
+          ].map(([number, title, copy]) => (
+            <li key={number} className="border-l border-border pl-4">
+              <div className="font-mono text-xs text-accent">{number}</div>
+              <div className="mt-2 font-semibold text-ink">{title}</div>
+              <p className="mt-1 text-sm leading-6 text-muted">{copy}</p>
+            </li>
+          ))}
+        </ol>
       </section>
     </div>
   );

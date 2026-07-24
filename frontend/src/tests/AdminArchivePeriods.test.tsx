@@ -9,6 +9,14 @@ function mockJsonResponse<T>(value: T) {
   };
 }
 
+function requestUrl(value: unknown): string {
+  return String(value);
+}
+
+function requestJson(value: unknown): Record<string, unknown> {
+  return (value as { json?: Record<string, unknown> } | undefined)?.json ?? {};
+}
+
 vi.mock('../services/api', () => ({
   http: {
     get: vi.fn(),
@@ -44,12 +52,14 @@ describe('AdminArchivePeriods', () => {
   });
 
   it('renders the list and creates a period', async () => {
-    vi.mocked(http.get).mockImplementation(() => mockJsonResponse({ items: [basePeriod] }) as never);
-    vi.mocked(http.post).mockImplementation((url: any, options?: any) => {
-      if (url === 'admin/archive/periods') {
-        return mockJsonResponse({ ...basePeriod, ...(options?.json as object) }) as never;
+    vi.mocked(http.get).mockImplementation(
+      () => mockJsonResponse({ items: [basePeriod] }) as never
+    );
+    vi.mocked(http.post).mockImplementation((url: unknown, options?: unknown) => {
+      if (requestUrl(url) === 'admin/archive/periods') {
+        return mockJsonResponse({ ...basePeriod, ...requestJson(options) }) as never;
       }
-      if (url === 'admin/archive/periods/seed') {
+      if (requestUrl(url) === 'admin/archive/periods/seed') {
         return mockJsonResponse({ created: 2, updated: 1 }) as never;
       }
       return mockJsonResponse(basePeriod) as never;
@@ -105,8 +115,8 @@ describe('AdminArchivePeriods', () => {
     let currentLabel: string = basePeriod.label;
     let currentStatus: 'published' | 'hidden' = 'published';
 
-    vi.mocked(http.get).mockImplementation((url: any) => {
-      if (url === 'admin/archive/periods') {
+    vi.mocked(http.get).mockImplementation((url: unknown) => {
+      if (requestUrl(url) === 'admin/archive/periods') {
         return mockJsonResponse({
           items: [{ ...basePeriod, label: currentLabel, status: currentStatus }],
         }) as never;
@@ -114,20 +124,28 @@ describe('AdminArchivePeriods', () => {
       return mockJsonResponse({ items: [] }) as never;
     });
 
-    vi.mocked(http.patch).mockImplementation((url: any, options?: any) => {
-      if (url === 'admin/archive/periods/launch-day') {
-        const payload = options?.json as Record<string, unknown> | undefined;
+    vi.mocked(http.patch).mockImplementation((url: unknown, options?: unknown) => {
+      if (requestUrl(url) === 'admin/archive/periods/launch-day') {
+        const payload = requestJson(options);
         if (payload?.label) currentLabel = String(payload.label);
         if (payload?.status === 'hidden' || payload?.status === 'published') {
           currentStatus = payload.status as 'published' | 'hidden';
         }
       }
-      return mockJsonResponse({ ...basePeriod, label: currentLabel, status: currentStatus }) as never;
+      return mockJsonResponse({
+        ...basePeriod,
+        label: currentLabel,
+        status: currentStatus,
+      }) as never;
     });
 
-    vi.mocked(http.post).mockImplementation((url: any) => {
-      if (url === 'admin/archive/periods/launch-day/refresh') {
-        return mockJsonResponse({ ...basePeriod, label: currentLabel, status: currentStatus }) as never;
+    vi.mocked(http.post).mockImplementation((url: unknown) => {
+      if (requestUrl(url) === 'admin/archive/periods/launch-day/refresh') {
+        return mockJsonResponse({
+          ...basePeriod,
+          label: currentLabel,
+          status: currentStatus,
+        }) as never;
       }
       return mockJsonResponse({ created: 0 }) as never;
     });
@@ -180,9 +198,11 @@ describe('AdminArchivePeriods', () => {
   });
 
   it('seeds curated periods', async () => {
-    vi.mocked(http.get).mockImplementation(() => mockJsonResponse({ items: [basePeriod] }) as never);
-    vi.mocked(http.post).mockImplementation((url: any) => {
-      if (url === 'admin/archive/periods/seed') {
+    vi.mocked(http.get).mockImplementation(
+      () => mockJsonResponse({ items: [basePeriod] }) as never
+    );
+    vi.mocked(http.post).mockImplementation((url: unknown) => {
+      if (requestUrl(url) === 'admin/archive/periods/seed') {
         return mockJsonResponse({ created: 4, skipped: 2 }) as never;
       }
       return mockJsonResponse(basePeriod) as never;

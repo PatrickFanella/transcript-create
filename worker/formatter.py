@@ -42,6 +42,8 @@ HALLUCINATION_PATTERNS = [
     r"^Thanks for watching\.$",
 ]
 
+KNOWN_ACRONYMS = {"CIA", "EU", "FBI", "ICE", "NASA", "NATO", "UK", "UN", "USA"}
+
 
 def _is_repetitive_gibberish(text: str) -> bool:
     """Detect repeated-character/syllable artifacts produced during music or silence."""
@@ -266,20 +268,12 @@ class TranscriptFormatter:
             words = text.split()
 
             def is_likely_acronym(word):
-                # Preserve words that are all uppercase and 2-4 chars (likely acronyms like NASA, FBI, USA)
-                # Longer words are probably just shouting, not acronyms
-                return 2 <= len(word) <= 4 and word.isupper()
+                normalized = re.sub(r"[^A-Z]", "", word)
+                return normalized in KNOWN_ACRONYMS
 
             if not words:
                 return text
 
-            # If more than 50% of words would be preserved as acronyms, treat the whole text as shouting
-            acronym_count = sum(1 for w in words if is_likely_acronym(w))
-            if acronym_count > len(words) / 2:
-                # Just capitalize normally
-                return text.capitalize()
-
-            # Otherwise, preserve acronyms
             new_words = [w if is_likely_acronym(w) else w.lower() for w in words]
             # Capitalize the first word (unless it's a preserved acronym)
             if not is_likely_acronym(words[0]):

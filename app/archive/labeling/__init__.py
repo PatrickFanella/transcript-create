@@ -1,5 +1,17 @@
 """Label extraction schema foundation."""
 
+from .extractors import extract_alias_candidates, extract_keyphrase_candidates
+from .normalization import is_junk_phrase, normalize_label, normalized_alias, slugify_label
+from .pipeline import extract_labels_for_video
+from .policy import classify_candidate
+from .repository import (
+    ASSIGNMENT_SOURCES,
+    assignment_key,
+    create_extraction_run,
+    finish_extraction_run,
+    insert_assignment,
+    upsert_label_candidate,
+)
 from .types import (
     AssignmentSource,
     AssignmentStatus,
@@ -21,18 +33,6 @@ from .windows import (
     build_windows_from_segments,
     load_source_segments,
     persist_windows,
-)
-from .extractors import extract_alias_candidates, extract_keyphrase_candidates
-from .normalization import is_junk_phrase, normalize_label, normalized_alias, slugify_label
-from .policy import classify_candidate
-from .pipeline import extract_labels_for_video
-from .repository import (
-    ASSIGNMENT_SOURCES,
-    assignment_key,
-    create_extraction_run,
-    finish_extraction_run,
-    insert_assignment,
-    upsert_label_candidate,
 )
 
 __all__ = [

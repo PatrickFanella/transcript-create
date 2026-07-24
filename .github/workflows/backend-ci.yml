@@ -9,6 +9,17 @@ on:
       - 'worker/**'
       - '*.py'
       - 'requirements.txt'
+      - 'requirements-dev.txt'
+      - 'requirements-ml-runtime.txt'
+      - 'constraints.txt'
+      - 'Makefile'
+      - 'docker-compose*.yml'
+      - '.python-version'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'alembic/**'
+      - 'sql/**'
+      - 'mypy-baseline.json'
       - 'pyproject.toml'
       - '.github/workflows/backend-ci.yml'
   pull_request:
@@ -17,6 +28,17 @@ on:
       - 'worker/**'
       - '*.py'
       - 'requirements.txt'
+      - 'requirements-dev.txt'
+      - 'requirements-ml-runtime.txt'
+      - 'constraints.txt'
+      - 'Makefile'
+      - 'docker-compose*.yml'
+      - '.python-version'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'alembic/**'
+      - 'sql/**'
+      - 'mypy-baseline.json'
       - 'pyproject.toml'
       - '.github/workflows/backend-ci.yml'
   workflow_dispatch:
@@ -25,25 +47,21 @@ jobs:
   lint-and-format:
     name: Lint & Format Check
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
           cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff black isort mypy
-          pip install -r requirements.txt
+          pip install -c constraints.txt -r requirements.txt
+          pip install -c constraints.txt -r requirements-dev.txt
 
       - name: Run ruff check
         run: |
@@ -59,8 +77,7 @@ jobs:
 
       - name: Run mypy type check
         run: |
-          mypy app/ worker/
-        continue-on-error: true  # Don't fail the build for mypy initially
+          python scripts/check_mypy_baseline.py
 
   security-scan:
     name: Security Scan
@@ -79,19 +96,20 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pip-audit bandit[toml]
-          pip install -r requirements.txt
+          pip install 'pip-audit==2.8.0' 'bandit[toml]==1.8.0'
+          pip install -c constraints.txt -r requirements.txt
 
       - name: Run pip-audit for dependency vulnerabilities
         run: |
-          pip-audit --desc --skip-editable
-        continue-on-error: true  # Don't fail on vulnerabilities initially
+          PIP_AUDIT_IGNORE_OUTPUT="$(python scripts/check_security_exceptions.py --pip-audit-args)"
+          read -r -a PIP_AUDIT_IGNORE <<< "$PIP_AUDIT_IGNORE_OUTPUT"
+          pip-audit --local --desc --skip-editable \
+            "${PIP_AUDIT_IGNORE[@]}"
 
       - name: Run bandit for code security issues
         run: |
-          bandit -r app/ worker/ -f json -o bandit-report.json || true
-          bandit -r app/ worker/ -f screen
-        continue-on-error: true  # Don't fail on security issues initially
+          bandit -r app/ worker/ -lll -ii -f json -o bandit-report.json
+          bandit -r app/ worker/ -lll -ii -f screen
 
       - name: Upload bandit report
         if: always()
@@ -107,7 +125,7 @@ jobs:
     
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -133,8 +151,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-cov pytest-asyncio httpx
-          pip install -r requirements.txt
+          pip install -c constraints.txt -r requirements.txt
+          pip install -c constraints.txt -r requirements-dev.txt
 
       - name: Apply database schema
         env:
@@ -145,6 +163,7 @@ jobs:
       - name: Run pytest with coverage
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          ANALYTICS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
           SESSION_SECRET: test-secret-key-for-ci-only
           FRONTEND_ORIGIN: http://localhost:5173
         run: |
@@ -170,7 +189,7 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          coverage report --fail-under=70 || echo "⚠️ Coverage is below 70% threshold"
+          coverage report --fail-under=70
 
   docker-build:
     name: Docker Build
@@ -181,17 +200,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image (CPU-compatible check)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile.cpu
           push: false
           tags: transcript-create:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Intentionally using the CPU PyTorch wheel index for CI builds to ensure CPU compatibility.
-          build-args: |
-            ROCM_WHEEL_INDEX=https://download.pytorch.org/whl/cpu

@@ -2,7 +2,9 @@ version: '3.8'
 
 # Production Docker Compose Configuration
 # This extends docker-compose.yml with production-specific settings
-# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Usage: docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml up -d
+# OAuth callback variables are interpolated by Compose, so --env-file is required
+# to keep their values aligned with this overlay's service env_file.
 
 services:
   db:
@@ -35,6 +37,8 @@ services:
     env_file: .env.prod
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+      # Never enable for an ordinary rolling deployment.
+      ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: ${ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION:-false}
 
   api:
     ports: !reset []
@@ -43,6 +47,9 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
       REDIS_URL: redis://redis:6379/0
       OPENSEARCH_URL: http://opensearch:9200
+      OAUTH_GOOGLE_REDIRECT_URI: ${OAUTH_GOOGLE_REDIRECT_URI:?OAUTH_GOOGLE_REDIRECT_URI is required}
+      OAUTH_TWITCH_REDIRECT_URI: ${OAUTH_TWITCH_REDIRECT_URI:?OAUTH_TWITCH_REDIRECT_URI is required}
+      BOOTSTRAP_ADMIN_IDENTITIES: ${BOOTSTRAP_ADMIN_IDENTITIES:-}
       ENVIRONMENT: production
       LOG_LEVEL: INFO
       LOG_FORMAT: json
@@ -84,6 +91,12 @@ services:
           memory: 8G
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
+  analytics-retention:
+    env_file: .env.prod
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
+      RETENTION_INTERVAL_SECONDS: ${RETENTION_INTERVAL_SECONDS:-86400}
 
   opensearch:
     ports: !reset []
@@ -130,7 +143,7 @@ services:
 
   # Automated backups service
   backup:
-    image: hasanara:latest
+    image: postgres:16
     env_file: .env.prod
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts
@@ -144,28 +157,6 @@ services:
       - ./data:/data:ro
       - ./backups:/backups
       - ./scripts:/scripts:ro
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        # Install cron if not present
-        apt-get update && apt-get install -y cron postgresql-client
-        
-        # Create cron jobs
-        echo "0 2 * * * /scripts/backup_db.sh >> /backups/backup.log 2>&1" > /etc/cron.d/backup-db
-        echo "0 3 * * * /scripts/backup_media.sh >> /backups/backup.log 2>&1" > /etc/cron.d/backup-media
-        echo "0 4 * * 0 /scripts/verify_backup.sh >> /backups/verify.log 2>&1" > /etc/cron.d/verify-backup
-        
-        # Set permissions
-        chmod 0644 /etc/cron.d/*
-        
-        # Apply cron jobs
-        crontab /etc/cron.d/backup-db
-        crontab /etc/cron.d/backup-media
-        crontab /etc/cron.d/verify-backup
-        
-        # Start cron in foreground
-        echo "Backup service started. Logs in /backups/backup.log"
-        cron && tail -f /backups/backup.log
     depends_on:
       - db
     restart: unless-stopped

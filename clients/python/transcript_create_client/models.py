@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
 class JobCreate(BaseModel):
@@ -84,6 +84,19 @@ class VideoInfo(BaseModel):
     duration_seconds: Optional[int] = Field(None, ge=0)
 
 
+class HighlightRange(BaseModel):
+    """A half-open search highlight measured in Unicode code points."""
+
+    start: int = Field(..., ge=0)
+    end: int = Field(..., ge=0)
+
+    @model_validator(mode="after")
+    def validate_positive_width(self) -> "HighlightRange":
+        if self.end <= self.start:
+            raise ValueError("highlight end must be greater than start")
+        return self
+
+
 class SearchHit(BaseModel):
     """A search result."""
 
@@ -92,7 +105,15 @@ class SearchHit(BaseModel):
     start_ms: int = Field(..., ge=0)
     end_ms: int = Field(..., ge=0)
     snippet: str
+    highlights: List[HighlightRange] = Field(default_factory=list)
     source: Literal["whisper", "youtube", "merged"] = "whisper"
+
+    @model_validator(mode="after")
+    def validate_highlights_within_snippet(self) -> "SearchHit":
+        snippet_length = len(self.snippet)
+        if any(highlight.end > snippet_length for highlight in self.highlights):
+            raise ValueError("highlight end must not exceed snippet length in Unicode code points")
+        return self
 
 
 class SearchResponse(BaseModel):

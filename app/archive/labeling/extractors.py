@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict
 import re
+from collections import Counter, defaultdict
 
 from app.archive.intelligence_repository import alias_matches_text
 
@@ -76,7 +76,12 @@ def extract_keyphrase_candidates(
 
     return sorted(
         candidates,
-        key=lambda candidate: (-candidate.confidence_score, -candidate.component_scores.get("distinct_videos", 0.0), -candidate.component_scores.get("occurrences", 0.0), candidate.label),
+        key=lambda candidate: (
+            -candidate.confidence_score,
+            -candidate.component_scores.get("distinct_videos", 0.0),
+            -candidate.component_scores.get("occurrences", 0.0),
+            candidate.label,
+        ),
     )
 
 
@@ -136,7 +141,13 @@ def extract_alias_candidates(windows: list[dict], aliases: list[dict]) -> list[L
         alias_terms = tuple(sorted(alias_terms_by_label[label_id]))
         evidence_count = len(evidence)
         distinct_videos = len({item["video_id"] for item in evidence})
-        confidence = min(0.98, 0.72 + (0.05 * min(evidence_count, 5)) + (0.03 * min(len(alias_terms), 5)) + (0.02 * min(distinct_videos, 5)))
+        confidence = min(
+            0.98,
+            0.72
+            + (0.05 * min(evidence_count, 5))
+            + (0.03 * min(len(alias_terms), 5))
+            + (0.02 * min(distinct_videos, 5)),
+        )
 
         candidates.append(
             LabelCandidate(
@@ -155,7 +166,11 @@ def extract_alias_candidates(windows: list[dict], aliases: list[dict]) -> list[L
 
     return sorted(
         candidates,
-        key=lambda candidate: (-candidate.confidence_score, -candidate.component_scores.get("evidence_count", 0.0), candidate.label),
+        key=lambda candidate: (
+            -candidate.confidence_score,
+            -candidate.component_scores.get("evidence_count", 0.0),
+            candidate.label,
+        ),
     )
 
 
@@ -261,7 +276,12 @@ def _title_candidate_text(title: str) -> str:
     text = re.sub(r"\([^)]*\)", " ", text)
     text = re.sub(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", " ", text)
     text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", " ", text)
-    text = re.sub(r"\b(?:Jan|Feb|Mar|Apr|April|May|Jun|June|Jul|July|Aug|Sept?|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b", " ", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\b(?:Jan|Feb|Mar|Apr|April|May|Jun|June|Jul|July|Aug|Sept?|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
     text = re.sub(r"\b(?:HasanAbi|Hasan Piker|Hasan)\b", " ", text)
     return text
 

@@ -4,19 +4,28 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from app.main import app
 from app.security import get_user_required
 
 
 @pytest.fixture
-def authenticated_user():
+def authenticated_user(db_session):
     user = {
         "id": str(uuid.uuid4()),
         "email": "errors-user@example.com",
         "name": "Errors User",
         "plan": "free",
     }
+    db_session.execute(
+        text(
+            "INSERT INTO users (id, email, name, oauth_provider, oauth_subject, plan) "
+            "VALUES (:id, :email, :name, 'google', :subject, :plan)"
+        ),
+        {**user, "subject": f"errors-{user['id']}"},
+    )
+    db_session.flush()
     app.dependency_overrides[get_user_required] = lambda: user
     yield user
     app.dependency_overrides.pop(get_user_required, None)
@@ -25,7 +34,7 @@ def authenticated_user():
 class TestErrorHandling:
     """Tests for consistent error handling across routes."""
 
-    def test_job_not_found_returns_404_with_error_format(self, client: TestClient):
+    def test_job_not_found_returns_404_with_error_format(self, client: TestClient, authenticated_user):
         """Test that getting a non-existent job returns proper error format."""
         non_existent_id = uuid.uuid4()
         response = client.get(f"/jobs/{non_existent_id}")
@@ -92,7 +101,7 @@ class TestErrorHandling:
         assert "details" in data
         assert "errors" in data["details"]
 
-    def test_invalid_uuid_returns_422(self, client: TestClient):
+    def test_invalid_uuid_returns_422(self, client: TestClient, authenticated_user):
         """Test that invalid UUID format returns validation error."""
         response = client.get("/jobs/not-a-uuid")
 
@@ -149,7 +158,7 @@ class TestErrorHandling:
         request_id = response.headers["X-Request-ID"]
         assert len(request_id) > 0
 
-    def test_error_response_includes_request_id(self, client: TestClient):
+    def test_error_response_includes_request_id(self, client: TestClient, authenticated_user):
         """Test that error responses include X-Request-ID header."""
         non_existent_id = uuid.uuid4()
         response = client.get(f"/jobs/{non_existent_id}")

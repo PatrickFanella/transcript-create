@@ -1,0 +1,56 @@
+# Opt-in PITR overlay. Use only with docker-compose.yml and explicit R2 settings.
+services:
+    db:
+        build:
+            context: .
+            dockerfile: Dockerfile.postgres-walg
+        image: hasanara-postgres-walg:3.0.8
+        environment:
+            WALG_S3_PREFIX: ${WALG_S3_PREFIX:?WALG_S3_PREFIX is required}
+            AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}
+            AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}
+            AWS_ENDPOINT: ${AWS_ENDPOINT:?AWS_ENDPOINT is required}
+            AWS_REGION: ${AWS_REGION:-auto}
+            AWS_S3_FORCE_PATH_STYLE: "true"
+            WALG_PREVENT_WAL_OVERWRITE: "true"
+            WALG_COMPRESSION_METHOD: zstd
+        networks:
+            - default
+            - dev
+        command:
+            - postgres
+            - -c
+            - archive_mode=on
+            - -c
+            - archive_command=wal-g wal-push '%p'
+            - -c
+            - archive_timeout=300s
+            - -c
+            - checkpoint_timeout=15min
+            - -c
+            - max_wal_size=4GB
+            - -c
+            - min_wal_size=1GB
+
+    backup:
+        build:
+            context: .
+            dockerfile: Dockerfile.postgres-walg
+        image: hasanara-postgres-walg:3.0.8
+        environment:
+            WALG_S3_PREFIX: ${WALG_S3_PREFIX:?WALG_S3_PREFIX is required}
+            AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}
+            AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}
+            AWS_ENDPOINT: ${AWS_ENDPOINT:?AWS_ENDPOINT is required}
+            AWS_REGION: ${AWS_REGION:-auto}
+            AWS_S3_FORCE_PATH_STYLE: "true"
+            WALG_PREVENT_WAL_OVERWRITE: "true"
+            WALG_COMPRESSION_METHOD: zstd
+        networks:
+            - default
+            - dev
+
+networks:
+    dev:
+        name: dev
+        external: true

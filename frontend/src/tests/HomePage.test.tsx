@@ -50,12 +50,14 @@ describe('HomePage', () => {
     renderWithProviders(<HomePage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Search the HasanAbi broadcast archive.')).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { name: 'Find the moment. Read the record.' })
+      ).toBeInTheDocument();
     });
 
-    expect(screen.getByPlaceholderText('Search any topic, line, guest, or phrase…')).toBeInTheDocument();
-    expect(screen.getByText('VODs')).toBeInTheDocument();
-    expect(screen.getByText('Newest VOD')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('A topic, quote, guest, or phrase…')).toBeInTheDocument();
+    expect(screen.getByText('Archived VODs')).toBeInTheDocument();
+    expect(screen.getAllByText('Newest VOD').length).toBeGreaterThan(0);
     expect(screen.getByRole('group', { name: 'VOD metadata' })).toBeInTheDocument();
     expect(screen.getByText('Guest One')).toBeInTheDocument();
     expect(screen.getByText('Guest Two')).toBeInTheDocument();
@@ -63,10 +65,12 @@ describe('HomePage', () => {
     expect(screen.getByText('+1')).toBeInTheDocument();
     expect(screen.queryByText('Gaming')).not.toBeInTheDocument();
     expect(screen.getByText('rent')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue with Twitch' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Explore the archive/ })).toHaveAttribute(
+      'href',
+      '/explore'
+    );
 
-    const input = screen.getByPlaceholderText('Search any topic, line, guest, or phrase…');
+    const input = screen.getByPlaceholderText('A topic, quote, guest, or phrase…');
     await user.type(input, 'archive');
     await user.click(screen.getByRole('button', { name: 'Search archive' }));
     expect(input).toHaveValue('archive');

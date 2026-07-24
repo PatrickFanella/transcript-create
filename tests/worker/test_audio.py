@@ -3,7 +3,19 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from worker.audio import Chunk, chunk_audio, download_audio, ensure_wav_16k, get_duration_seconds
+from worker.youtube_resilience import reset_circuit_breakers_for_tests
+
+
+@pytest.fixture(autouse=True)
+def _isolate_ytdlp_settings(monkeypatch):
+    """Keep unit tests independent of mounted runtime cookies and breaker state."""
+    monkeypatch.setattr("worker.audio.settings.YTDLP_COOKIES_PATH", None)
+    reset_circuit_breakers_for_tests()
+    yield
+    reset_circuit_breakers_for_tests()
 
 
 class TestDownloadAudio:
@@ -26,13 +38,13 @@ class TestDownloadAudio:
         # Verify return path
         expected_out = dest_dir / "raw.m4a"
         assert result == expected_out
-        
+
         # Verify the command structure (at least one call should succeed)
         assert mock_run.call_count >= 1
         first_call_args = mock_run.call_args_list[0][0][0]
         assert first_call_args[0] == "yt-dlp"
         assert "-f" in first_call_args
-        assert "bestaudio" in first_call_args
+        assert first_call_args[first_call_args.index("-f") + 1] == "bestaudio/best"
 
     @patch("worker.audio.subprocess.run")
     def test_download_audio_command_structure(self, mock_run, tmp_path):
@@ -53,7 +65,7 @@ class TestDownloadAudio:
         call_args = mock_run.call_args_list[0][0][0]
         assert call_args[0] == "yt-dlp"
         assert "-f" in call_args
-        assert "bestaudio" in call_args
+        assert call_args[call_args.index("-f") + 1] == "bestaudio/best"
         assert "-o" in call_args
         assert url in call_args
 

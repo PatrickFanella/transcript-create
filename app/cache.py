@@ -11,7 +11,13 @@ This module provides:
 import functools
 import hashlib
 import json
+import uuid
+from collections.abc import Mapping
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Callable, Optional
+
+from pydantic import BaseModel
 
 from app.logging_config import get_logger
 from app.settings import settings
@@ -20,6 +26,28 @@ logger = get_logger(__name__)
 
 # Redis client singleton
 _redis_client = None
+CACHE_DTO_VERSION = 1
+
+
+def _to_json_dto(value):
+    """Convert supported response values to deterministic JSON primitives."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, Mapping):
+        if not all(isinstance(key, str) for key in value):
+            raise TypeError("Cache DTO mappings require string keys")
+        return {key: _to_json_dto(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_json_dto(item) for item in value]
+    raise TypeError(f"Unsupported cache DTO value: {type(value).__name__}")
 
 
 def get_redis_client():
@@ -79,6 +107,7 @@ def cache(
     ttl: int = 300,
     key_func: Optional[Callable] = None,
     skip_none: bool = True,
+    should_cache: Optional[Callable[[object], bool]] = None,
 ):
     """Decorator to cache function results in Redis.
 
@@ -99,30 +128,35 @@ def cache(
         def wrapper(*args, **kwargs):
             redis_client = get_redis_client()
 
-            # If Redis is not available, just call the function
             if redis_client is None:
-                return func(*args, **kwargs)
+                return _to_json_dto(func(*args, **kwargs))
 
             # Generate cache key
             if key_func:
-                cache_key = key_func(*args, **kwargs)
+                cache_key = f"v{CACHE_DTO_VERSION}:{key_func(*args, **kwargs)}"
             else:
                 # Skip 'self' or 'db' parameter for instance/DB methods
                 is_method = args and (hasattr(args[0], "__dict__") or str(type(args[0])).find("Session") >= 0)
                 cache_args = args[1:] if is_method else args
-                cache_key = generate_cache_key(prefix, *cache_args, **kwargs)
+                cache_key = generate_cache_key(f"{prefix}:v{CACHE_DTO_VERSION}", *cache_args, **kwargs)
 
             try:
                 # Try to get from cache
                 cached = redis_client.get(cache_key)
                 if cached is not None:
-                    logger.debug("Cache hit", extra={"key": cache_key})
-                    # Track cache hit metric
-                    if settings.ENABLE_METRICS:
-                        from app.metrics import cache_hits_total
+                    envelope = json.loads(cached)
+                    if (
+                        isinstance(envelope, dict)
+                        and envelope.get("version") == CACHE_DTO_VERSION
+                        and "value" in envelope
+                    ):
+                        logger.debug("Cache hit", extra={"key": cache_key})
+                        if settings.ENABLE_METRICS:
+                            from app.metrics import cache_hits_total
 
-                        cache_hits_total.labels(cache_type=prefix).inc()
-                    return json.loads(cached)
+                            cache_hits_total.labels(cache_type=prefix).inc()
+                        return envelope["value"]
+                    redis_client.delete(cache_key)
 
                 logger.debug("Cache miss", extra={"key": cache_key})
                 # Track cache miss metric
@@ -135,12 +169,14 @@ def cache(
                 logger.warning("Cache read error", extra={"key": cache_key, "error": str(e)})
 
             # Call the actual function
-            result = func(*args, **kwargs)
+            result = _to_json_dto(func(*args, **kwargs))
 
             # Cache the result
-            if result is not None or not skip_none:
+            cacheable = should_cache(result) if should_cache is not None else True
+            if ttl > 0 and cacheable and (result is not None or not skip_none):
                 try:
-                    redis_client.setex(cache_key, ttl, json.dumps(result, default=str))
+                    envelope = {"version": CACHE_DTO_VERSION, "value": result}
+                    redis_client.setex(cache_key, ttl, json.dumps(envelope, separators=(",", ":")))
                     logger.debug("Cached result", extra={"key": cache_key, "ttl": ttl})
                 except Exception as e:
                     logger.warning("Cache write error", extra={"key": cache_key, "error": str(e)})
@@ -152,7 +188,14 @@ def cache(
     return decorator
 
 
-def invalidate_cache(prefix: str, *args, **kwargs):
+def _invalidation_client(*, strict: bool):
+    client = get_redis_client()
+    if client is None and strict and settings.REDIS_URL:
+        raise RuntimeError("Redis cache invalidation unavailable")
+    return client
+
+
+def invalidate_cache(prefix: str, *args, strict: bool = False, **kwargs):
     """Invalidate a specific cache entry.
 
     Args:
@@ -160,19 +203,21 @@ def invalidate_cache(prefix: str, *args, **kwargs):
         *args: Arguments used to generate the original cache key
         **kwargs: Keyword arguments used to generate the original cache key
     """
-    redis_client = get_redis_client()
+    redis_client = _invalidation_client(strict=strict)
     if redis_client is None:
         return
 
-    cache_key = generate_cache_key(prefix, *args, **kwargs)
+    cache_key = generate_cache_key(f"{prefix}:v{CACHE_DTO_VERSION}", *args, **kwargs)
     try:
         redis_client.delete(cache_key)
         logger.debug("Cache invalidated", extra={"key": cache_key})
     except Exception as e:
         logger.warning("Cache invalidation error", extra={"key": cache_key, "error": str(e)})
+        if strict:
+            raise
 
 
-def invalidate_cache_pattern(pattern: str):
+def invalidate_cache_pattern(pattern: str, *, strict: bool = False):
     """Invalidate all cache entries matching a pattern.
 
     Args:
@@ -181,7 +226,7 @@ def invalidate_cache_pattern(pattern: str):
     Warning: This uses SCAN which is more efficient than KEYS but can still
     be expensive on large datasets. Use with caution.
     """
-    redis_client = get_redis_client()
+    redis_client = _invalidation_client(strict=strict)
     if redis_client is None:
         return
 
@@ -193,6 +238,35 @@ def invalidate_cache_pattern(pattern: str):
         logger.info("Cache pattern invalidated", extra={"pattern": pattern, "count": count})
     except Exception as e:
         logger.warning("Cache pattern invalidation error", extra={"pattern": pattern, "error": str(e)})
+        if strict:
+            raise
+
+
+def invalidate_video_data(video_id, *, strict: bool = False) -> None:
+    """Invalidate every DTO derived from a video or its transcripts."""
+    errors: list[Exception] = []
+    invalidate_one: Callable[[str], None] = (
+        (lambda prefix: invalidate_cache(prefix, video_id, strict=True))
+        if strict
+        else (lambda prefix: invalidate_cache(prefix, video_id))
+    )
+    invalidate_pattern: Callable[[str], None] = (
+        (lambda pattern: invalidate_cache_pattern(pattern, strict=True))
+        if strict
+        else (lambda pattern: invalidate_cache_pattern(pattern))
+    )
+    operations: tuple[Callable[[], None], ...] = (
+        lambda: invalidate_one("video"),
+        lambda: invalidate_one("segments"),
+        *(lambda pattern=pattern: invalidate_pattern(pattern) for pattern in ("search:*", "archive:*", "aggregate:*")),
+    )
+    for operation in operations:
+        try:
+            operation()
+        except Exception as exc:
+            errors.append(exc)
+    if errors and strict:
+        raise RuntimeError("Cache invalidation failed") from errors[0]
 
 
 def clear_all_cache():

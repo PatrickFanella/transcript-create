@@ -9,6 +9,14 @@ import pytest
 from worker.po_token_manager import TokenType
 
 
+def _configure_resilience_settings(mock_settings) -> None:
+    mock_settings.YTDLP_TRIES_PER_CLIENT = 1
+    mock_settings.YTDLP_BACKOFF_BASE_DELAY = 0.01
+    mock_settings.YTDLP_BACKOFF_MAX_DELAY = 0.1
+    mock_settings.YTDLP_CIRCUIT_BREAKER_ENABLED = False
+    mock_settings.YTDLP_REQUEST_TIMEOUT = 30.0
+
+
 class TestAudioTokenIntegration:
     """Tests for PO token integration in audio downloads."""
 
@@ -25,7 +33,7 @@ class TestAudioTokenIntegration:
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
         mock_settings.YTDLP_EXTRA_ARGS = ""
-        mock_settings.YTDLP_TRIES_PER_CLIENT = 1
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager to return tokens
         mock_manager = MagicMock()
@@ -78,7 +86,7 @@ class TestAudioTokenIntegration:
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
         mock_settings.YTDLP_EXTRA_ARGS = ""
-        mock_settings.YTDLP_TRIES_PER_CLIENT = 1
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager (should not be called)
         mock_manager = MagicMock()
@@ -112,8 +120,7 @@ class TestAudioTokenIntegration:
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
         mock_settings.YTDLP_EXTRA_ARGS = ""
-        mock_settings.YTDLP_TRIES_PER_CLIENT = 1
-        mock_settings.YTDLP_RETRY_SLEEP = 0.1
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager
         mock_manager = MagicMock()
@@ -153,6 +160,7 @@ class TestCaptionTokenIntegration:
         mock_settings.YTDLP_CLIENT_ORDER = "web_safari"
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager to return Subs token
         mock_manager = MagicMock()
@@ -201,6 +209,7 @@ class TestCaptionTokenIntegration:
         mock_settings.YTDLP_CLIENT_ORDER = "web_safari"
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager (should not be called for tokens)
         mock_manager = MagicMock()
@@ -232,6 +241,7 @@ class TestCaptionTokenIntegration:
         mock_settings.YTDLP_CLIENT_ORDER = "web_safari"
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager
         mock_manager = MagicMock()
@@ -270,6 +280,7 @@ class TestCaptionTokenIntegration:
         mock_settings.YTDLP_CLIENT_ORDER = "web_safari"
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager to return no token
         mock_manager = MagicMock()
@@ -314,7 +325,7 @@ class TestTokenLoggingSafety:
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
         mock_settings.YTDLP_EXTRA_ARGS = ""
-        mock_settings.YTDLP_TRIES_PER_CLIENT = 1
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager with sensitive tokens
         secret_token = "very_secret_player_token_abc123xyz"
@@ -357,6 +368,7 @@ class TestTokenLoggingSafety:
         mock_settings.YTDLP_CLIENT_ORDER = "web_safari"
         mock_settings.YTDLP_CLIENTS_DISABLED = ""
         mock_settings.YTDLP_COOKIES_PATH = ""
+        _configure_resilience_settings(mock_settings)
 
         # Mock token manager with sensitive token
         secret_token = "very_secret_subs_token_def456uvw"

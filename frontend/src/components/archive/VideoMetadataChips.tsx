@@ -10,7 +10,12 @@ type Props = {
   className?: string;
 };
 
-export default function VideoMetadataChips({ label, items, limit = 3, className = 'flex flex-wrap gap-1.5' }: Props) {
+export default function VideoMetadataChips({
+  label,
+  items,
+  limit = 3,
+  className = 'flex flex-wrap gap-1.5',
+}: Props) {
   if (items.length === 0) return null;
 
   const visibleItems = limit == null ? items : items.slice(0, limit);

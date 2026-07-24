@@ -1,0 +1,36 @@
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        python3 \
+        python3-pip \
+        curl \
+        ca-certificates \
+        unzip \
+    && ffmpeg -version \
+    && ffprobe -version \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deno.land/install.sh | sh \
+    && mv /root/.deno/bin/deno /usr/local/bin/deno \
+    && chmod +x /usr/local/bin/deno \
+    && deno --version
+
+WORKDIR /app
+COPY requirements-api.txt requirements-ingest.txt constraints.txt ./
+RUN pip3 install --upgrade setuptools==81.0.0 wheel==0.47.0 \
+    && pip3 install -c constraints.txt -r requirements-ingest.txt \
+    && pip3 check
+
+COPY app ./app
+COPY worker ./worker
+
+CMD ["python3", "-m", "worker.loop"]

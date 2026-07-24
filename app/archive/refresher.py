@@ -8,22 +8,16 @@ from .repository import ARCHIVE_VIDEO_FILTER_SQL
 
 
 def refresh_archive_summary_stats(db) -> ArchiveSummaryStats:
-    stats = db.execute(
-        text(
-            f"""
+    stats = db.execute(text(f"""
             SELECT
                 COUNT(*) AS video_count,
                 COALESCE(SUM(COALESCE(v.duration_seconds, 0)), 0) AS total_duration_seconds,
                 MAX(COALESCE(v.updated_at, v.created_at)) AS archive_updated_at
             FROM videos v
             WHERE {ARCHIVE_VIDEO_FILTER_SQL}
-            """
-        )
-    ).mappings().one()
+            """)).mappings().one()
 
-    native_words = db.execute(
-        text(
-            f"""
+    native_words = db.execute(text(f"""
             SELECT COALESCE(SUM(
                 CASE
                     WHEN btrim(COALESCE(t.full_text, '')) = '' THEN 0
@@ -33,13 +27,9 @@ def refresh_archive_summary_stats(db) -> ArchiveSummaryStats:
             FROM transcripts t
             JOIN videos v ON v.id = t.video_id
             WHERE {ARCHIVE_VIDEO_FILTER_SQL}
-            """
-        )
-    ).scalar_one()
+            """)).scalar_one()
 
-    youtube_words = db.execute(
-        text(
-            f"""
+    youtube_words = db.execute(text(f"""
             SELECT COALESCE(SUM(
                 CASE
                     WHEN btrim(COALESCE(yt.full_text, '')) = '' THEN 0
@@ -49,13 +39,10 @@ def refresh_archive_summary_stats(db) -> ArchiveSummaryStats:
             FROM youtube_transcripts yt
             JOIN videos v ON v.id = yt.video_id
             WHERE {ARCHIVE_VIDEO_FILTER_SQL}
-            """
-        )
-    ).scalar_one()
+            """)).scalar_one()
 
     db.execute(
-        text(
-            """
+        text("""
             INSERT INTO archive_summary_stats (
                 id,
                 video_count,
@@ -73,8 +60,7 @@ def refresh_archive_summary_stats(db) -> ArchiveSummaryStats:
                 transcript_word_count = EXCLUDED.transcript_word_count,
                 archive_updated_at = EXCLUDED.archive_updated_at,
                 calculated_at = now()
-            """
-        ),
+            """),
         {
             "video_count": int(stats["video_count"] or 0),
             "total_duration_seconds": int(stats["total_duration_seconds"] or 0),

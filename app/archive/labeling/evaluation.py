@@ -5,7 +5,6 @@ from typing import Any
 
 from sqlalchemy import text
 
-
 SUPPRESSED_LABEL_STATUSES = {"hidden", "rejected", "merged"}
 
 
@@ -33,13 +32,17 @@ def _normalized(value: str) -> str:
     return " ".join(value.strip().casefold().split())
 
 
-def calculate_label_quality_metrics(labels: list[dict[str, Any]], assignments: list[dict[str, Any]]) -> LabelQualityMetrics:
+def calculate_label_quality_metrics(
+    labels: list[dict[str, Any]], assignments: list[dict[str, Any]]
+) -> LabelQualityMetrics:
     assignment_by_label: dict[str, list[dict[str, Any]]] = {}
     for assignment in assignments:
         label_id = str(assignment.get("label_id") or "")
         assignment_by_label.setdefault(label_id, []).append(assignment)
 
-    reviewed_assignments = [assignment for assignment in assignments if assignment.get("status") in {"admin_approved", "rejected"}]
+    reviewed_assignments = [
+        assignment for assignment in assignments if assignment.get("status") in {"admin_approved", "rejected"}
+    ]
     admin_approved = sum(1 for assignment in reviewed_assignments if assignment.get("status") == "admin_approved")
     rejected = sum(1 for assignment in reviewed_assignments if assignment.get("status") == "rejected")
     reviewed_count = len(reviewed_assignments)
@@ -68,48 +71,38 @@ def calculate_label_quality_metrics(labels: list[dict[str, Any]], assignments: l
         labels_total=len(labels),
         auto_published=sum(1 for assignment in assignments if assignment.get("status") == "auto_published"),
         review_candidates=sum(1 for label in labels if label.get("status") in {"candidate", "review"}),
-        shadow=sum(1 for assignment in assignments if assignment.get("status") == "shadow" or assignment.get("publish_tier") == "shadow"),
+        shadow=sum(
+            1
+            for assignment in assignments
+            if assignment.get("status") == "shadow" or assignment.get("publish_tier") == "shadow"
+        ),
         assignments_total=len(assignments),
-        assignments_without_evidence=sum(1 for assignment in assignments if int(assignment.get("evidence_count") or 0) <= 0),
+        assignments_without_evidence=sum(
+            1 for assignment in assignments if int(assignment.get("evidence_count") or 0) <= 0
+        ),
         admin_approval_rate=round(admin_approved / reviewed_count, 4) if reviewed_count else 0.0,
         rejected_rate=round(rejected / reviewed_count, 4) if reviewed_count else 0.0,
         labels_without_evidence=labels_without_evidence,
         duplicate_collision_candidates=duplicate_collision_candidates,
-        assignment_vods=len({str(assignment.get("video_id")) for assignment in assignments if assignment.get("video_id")}),
+        assignment_vods=len(
+            {str(assignment.get("video_id")) for assignment in assignments if assignment.get("video_id")}
+        ),
         window_assignments=sum(1 for assignment in assignments if assignment.get("unit_type") == "window"),
         chapter_assignments=sum(1 for assignment in assignments if assignment.get("unit_type") == "chapter"),
     )
 
 
 def build_label_quality_report(db) -> LabelQualityMetrics:
-    labels = [
-        dict(row)
-        for row in db.execute(
-            text(
-                """
+    labels = [dict(row) for row in db.execute(text("""
                 SELECT l.id, l.slug, l.label, l.status, COALESCE(json_agg(a.alias) FILTER (WHERE a.alias IS NOT NULL), '[]') AS aliases
                 FROM archive_labels l
                 LEFT JOIN archive_label_aliases a ON a.label_id = l.id AND a.status = 'active'
                 GROUP BY l.id, l.slug, l.label, l.status
-                """
-            )
-        )
-        .mappings()
-        .all()
-    ]
-    assignments = [
-        dict(row)
-        for row in db.execute(
-            text(
-                """
+                """)).mappings().all()]
+    assignments = [dict(row) for row in db.execute(text("""
                 SELECT label_id, video_id, unit_type, status, publish_tier, evidence_count
                 FROM archive_label_assignments
-                """
-            )
-        )
-        .mappings()
-        .all()
-    ]
+                """)).mappings().all()]
     return calculate_label_quality_metrics(labels, assignments)
 
 

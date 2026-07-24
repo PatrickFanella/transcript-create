@@ -21,7 +21,7 @@ def test_cleaned_mode_normalizes_whitespace_and_preserves_speaker():
     response = service.present_cleaned(uuid.uuid4(), [seg])
 
     assert response.segments[0].speaker_label == "Speaker 2"
-    assert response.segments[0].text_cleaned.startswith("Hello world")
+    assert response.segments[0].text_cleaned == "Speaker 2: Hello world."
     assert "  " not in response.segments[0].text_cleaned
 
 

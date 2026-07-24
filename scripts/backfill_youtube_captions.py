@@ -33,17 +33,10 @@ def main(batch: int = 1):
     total = 0
     with engine.begin() as conn:
         # Count videos without yt captions
-        c = (
-            conn.execute(
-                text(
-                    """
+        c = conn.execute(text("""
             SELECT count(*) FROM videos v
             WHERE NOT EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.video_id = v.id)
-            """
-                )
-            ).scalar()
-            or 0
-        )
+            """)).scalar() or 0
         logger.info("Videos without YouTube captions", extra={"count": c})
     while True:
         # Commit after each chunk. For batch=1 this means per-video commit.

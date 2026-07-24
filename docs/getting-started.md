@@ -31,9 +31,14 @@ After authentication, you'll receive a session cookie that authenticates all sub
 Submit a YouTube video or channel URL to start transcription:
 
 ```bash
+CSRF_TOKEN=$(curl -s https://api.example.com/auth/csrf \
+  -H "Cookie: tc_session=your_session_token" | jq -r '.csrf_token')
+
 curl -X POST https://api.example.com/jobs \
   -H "Content-Type: application/json" \
   -H "Cookie: tc_session=your_session_token" \
+  -H "Origin: https://app.example.com" \
+  -H "X-CSRF-Token: $CSRF_TOKEN" \
   -d '{
     "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     "kind": "single"
@@ -119,14 +124,9 @@ The API provides two types of transcripts:
 
 ### Authentication
 
-All API requests (except health check) require authentication via session cookies set during OAuth login.
+Public archive reads and search endpoints are available without authentication. Protected routes accept session cookies set during OAuth login, and some programmatic routes also accept scoped API keys. Cookie-authenticated unsafe requests require an approved `Origin` and `X-CSRF-Token`.
 
-Free plan users have daily quotas for:
-
-- Search requests
-- Export downloads
-
-Upgrade to Pro for unlimited usage.
+`/auth/me` reports the authenticated account's plan and role; it does not report a usage counter.
 
 ## Export Formats
 
@@ -162,21 +162,11 @@ Parameters:
 - `limit` - Max results (1-200, default: 50)
 - `offset` - Pagination offset (default: 0)
 
-## Rate Limits
+## Ingestion Job Quotas
 
-### Free Plan
+Search and transcript exports are not currently differentiated by plan in this API contract. Ingestion job quotas are configurable with the `JOB_CREATE_*` settings: regular and Pro plans have separate limits for single-video and channel jobs within the configured rolling window. Administrators can bypass those quotas when `JOB_CREATE_ADMIN_BYPASS_QUOTAS` is enabled.
 
-- 100 searches per day
-- Limited exports per day
-- Full transcription access
-
-### Pro Plan
-
-- Unlimited searches
-- Unlimited exports
-- Priority processing
-
-Check your current usage:
+Check your authenticated plan and role:
 
 ```bash
 curl https://api.example.com/auth/me \
@@ -202,7 +192,7 @@ Both interfaces provide:
 - Read the [API Reference](api-reference.md) for detailed endpoint documentation
 - Learn about [Authentication](authentication.md) and OAuth flows
 - Explore [Common Examples](examples.md) for typical use cases
-- Set up [Stripe Webhooks](webhooks.md) if integrating billing
+- Review the [webhook status](webhooks.md); no webhook contract is currently active
 
 ## Support
 

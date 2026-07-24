@@ -39,6 +39,9 @@ spec:
               key: database-url
         - name: LOG_LEVEL
           value: "INFO"
+        # 0200 requires a separately planned, fully drained maintenance cutover.
+        - name: ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION
+          value: "false"
         resources:
           requests:
             cpu: 100m

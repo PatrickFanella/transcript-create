@@ -69,8 +69,21 @@ class TestDatabaseIndices:
             )
         ).scalar()
 
-        if result:
-            assert result == "events_user_created_idx"
+        assert result == "events_user_created_idx"
+
+    def test_sessions_user_id_index_exists(self, db_session):
+        """Fresh schema includes the sessions user ownership lookup index."""
+        result = db_session.execute(
+            text(
+                """
+                SELECT indexname FROM pg_indexes
+                WHERE tablename = 'sessions'
+                AND indexname = 'sessions_user_id_idx'
+                """
+            )
+        ).scalar()
+
+        assert result == "sessions_user_id_idx"
 
 
 class TestCachedQueries:
@@ -199,7 +212,7 @@ class TestQueryPerformance:
             {"email": test_email},
         ).scalar()
 
-        assert result == str(user_id)
+        assert result == user_id
 
     def test_quota_check_query_performance(self, db_session):
         """Test that quota check queries are efficient."""

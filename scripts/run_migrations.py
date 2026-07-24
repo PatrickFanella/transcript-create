@@ -34,9 +34,8 @@ from pathlib import Path
 # Add parent directory to path so we can import app modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from alembic.config import Config
-
 from alembic import command
+from alembic.config import Config
 
 
 def run_migrations(alembic_command: str = "upgrade", revision: str = "head"):
@@ -85,6 +84,7 @@ def get_default_revision(cmd: str) -> str:
         return "-1"
     else:
         return ""
+
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "upgrade"

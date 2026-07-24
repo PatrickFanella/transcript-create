@@ -5,7 +5,7 @@ type EventRow = {
   id: number;
   created_at: string;
   user_id?: string | null;
-  session_token?: string | null;
+  analytics_subject_id?: string | null;
   type: string;
   payload: Record<string, unknown>;
 };
@@ -97,7 +97,12 @@ export default function AdminEvents() {
         </button>
         <a
           className="btn"
-          href={buildApiUrl('admin/events.csv', new URLSearchParams(Object.entries({ type, user_email: email, start, end }).filter(([, v]) => !!v)))}
+          href={buildApiUrl(
+            'admin/events.csv',
+            new URLSearchParams(
+              Object.entries({ type, user_email: email, start, end }).filter(([, v]) => !!v)
+            )
+          )}
         >
           Export CSV
         </a>

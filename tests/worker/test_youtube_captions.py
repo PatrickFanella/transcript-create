@@ -16,6 +16,11 @@ from worker.youtube_captions import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _disable_runtime_cookies(monkeypatch):
+    monkeypatch.setattr("worker.youtube_captions.settings.YTDLP_COOKIES_PATH", None)
+
+
 class TestYTDlpJson:
     """Tests for _yt_dlp_json function."""
 

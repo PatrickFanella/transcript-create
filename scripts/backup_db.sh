@@ -156,7 +156,6 @@ fi
 # Start backup process
 log "=== Starting ${BACKUP_TYPE} backup ==="
 log "Backup file: ${BACKUP_PATH}"
-log "Database: ${DATABASE_URL%%@*}@***"  # Log without exposing credentials
 
 # Extract connection parameters from DATABASE_URL
 # Format: postgresql://user:pass@host:port/dbname or postgresql+psycopg://user:pass@host:port/dbname
@@ -174,6 +173,9 @@ else
     log "ERROR: Failed to parse DATABASE_URL"
     exit 1
 fi
+
+# Log only non-secret connection metadata.
+log "Database: ${PGUSER}@${PGHOST}:${PGPORT}/${PGDATABASE}"
 
 # Perform the backup
 log "Running pg_dump..."

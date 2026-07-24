@@ -1,14 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import ExplorePage from '../routes/ExplorePage'
-import { api } from '../services'
-import { render } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import ExplorePage from '../routes/ExplorePage';
+import { api } from '../services';
+import { render } from '@testing-library/react';
+import axe from 'axe-core';
 
 describe('ExplorePage', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   it('renders archive intelligence sections, controls, and evidence links', async () => {
     const weekOption = {
@@ -20,7 +21,7 @@ describe('ExplorePage', () => {
       description: 'A late-May week with fast-moving clips.',
       video_count: 4,
       total_duration_seconds: 8100,
-    }
+    };
 
     const eventOption = {
       slug: 'launch-day',
@@ -31,7 +32,7 @@ describe('ExplorePage', () => {
       description: 'A major event day in the archive.',
       video_count: 2,
       total_duration_seconds: 3600,
-    }
+    };
 
     const monthOption = {
       slug: '2026-05',
@@ -42,7 +43,7 @@ describe('ExplorePage', () => {
       description: 'The main archive slice for the month.',
       video_count: 12,
       total_duration_seconds: 7200,
-    }
+    };
 
     const baseResponse = {
       summary: {
@@ -56,7 +57,9 @@ describe('ExplorePage', () => {
       exploration_modes: ['timeline', 'topics', 'trending', 'suggested'],
       trending_searches: [{ term: 'ice protests', frequency: 7, trend_score: 7, source: 'hybrid' }],
       suggested_searches: [{ term: 'gaza', frequency: 5, trend_score: 5, source: 'search' }],
-      people: [{ slug: 'guest-one', display_name: 'Guest One', aliases: ['guest one'], role: 'guest' }],
+      people: [
+        { slug: 'guest-one', display_name: 'Guest One', aliases: ['guest one'], role: 'guest' },
+      ],
       tags: [{ slug: 'gaming', label: 'Gaming', kind: 'category' }],
       topic_cards: [
         {
@@ -74,7 +77,12 @@ describe('ExplorePage', () => {
           related_topics: [],
           evidence: [
             {
-              video: { id: 'video-2', youtube_id: 'xyz789', title: 'Topic evidence', uploaded_at: '2026-05-01T00:00:00Z' },
+              video: {
+                id: 'video-2',
+                youtube_id: 'xyz789',
+                title: 'Topic evidence',
+                uploaded_at: '2026-05-01T00:00:00Z',
+              },
               start_ms: 9000,
               end_ms: 12000,
               snippet: 'ICE is a recurring topic.',
@@ -97,7 +105,12 @@ describe('ExplorePage', () => {
           related_topics: [],
           evidence: [
             {
-              video: { id: 'video-4', youtube_id: 'okb123', title: 'Okbuddy segment', uploaded_at: '2026-05-03T00:00:00Z' },
+              video: {
+                id: 'video-4',
+                youtube_id: 'okb123',
+                title: 'Okbuddy segment',
+                uploaded_at: '2026-05-03T00:00:00Z',
+              },
               start_ms: 30000,
               end_ms: 42000,
               snippet: 'Okbuddy segment starts here.',
@@ -118,7 +131,9 @@ describe('ExplorePage', () => {
               youtube_id: 'thumb123',
               title: 'Period video',
               uploaded_at: '2026-05-02T00:00:00Z',
-              people: [{ slug: 'guest-one', display_name: 'Guest One', aliases: [], role: 'guest' }],
+              people: [
+                { slug: 'guest-one', display_name: 'Guest One', aliases: [], role: 'guest' },
+              ],
               tags: [{ slug: 'gaming', label: 'Gaming', kind: 'category' }],
             },
           ],
@@ -151,61 +166,77 @@ describe('ExplorePage', () => {
       ],
       selected_period: monthOption,
       period_options: [monthOption, weekOption, eventOption],
-    }
+    };
 
-    const getExploreIntelligence = vi.spyOn(api, 'getExploreIntelligence').mockImplementation(async (opts) => {
-      if (opts?.period === weekOption.slug) {
-        return { ...baseResponse, selected_period: weekOption }
-      }
+    const getExploreIntelligence = vi
+      .spyOn(api, 'getExploreIntelligence')
+      .mockImplementation(async (opts) => {
+        if (opts?.period === weekOption.slug) {
+          return { ...baseResponse, selected_period: weekOption };
+        }
 
-      if (opts?.period === eventOption.slug) {
-        return { ...baseResponse, selected_period: eventOption }
-      }
+        if (opts?.period === eventOption.slug) {
+          return { ...baseResponse, selected_period: eventOption };
+        }
 
-      return baseResponse
-    })
+        return baseResponse;
+      });
 
-    render(
+    const { container } = render(
       <MemoryRouter initialEntries={['/explore']}>
         <ExplorePage />
       </MemoryRouter>
-    )
+    );
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Explore the HasanAbi VOD archive' })).toBeInTheDocument()
-    })
-    expect(screen.getByRole('navigation', { name: /Discovery rail/i })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: /Selected period panel/i })).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Explore the HasanAbi VOD archive' })
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByRole('navigation', { name: /Discovery rail/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /Selected period panel/i })).toBeInTheDocument();
 
-    expect(screen.getByRole('button', { name: 'Latest' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Weeks' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Months' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Leadups' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Fallout' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Holidays' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Anniversaries' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Events' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Dates' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByText('Label discovery')).toBeInTheDocument()
-    expect(screen.getByLabelText('Selected period')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Latest' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Weeks' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Months' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Leadups' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fallout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Holidays' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Anniversaries' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Events' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Dates' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('Label discovery')).toBeInTheDocument();
+    expect(screen.getByLabelText('Selected period')).toBeInTheDocument();
 
-    expect(screen.getByText('2 labels')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Detected topics and stream labels' })).toBeInTheDocument()
-    expect(screen.getByText('Topic')).toBeInTheDocument()
-    expect(screen.getByText('Series')).toBeInTheDocument()
-    expect(screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/topics/ICE')).toBeTruthy()
-    expect(screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/topics/Okbuddy')).toBeTruthy()
-    expect(screen.getAllByText(/May 2026.*best available topics/).length).toBeGreaterThan(0)
-    expect(screen.getByText('May 2026 contains 12 archived VODs and 1 highlighted topic.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Guest One' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Gaming' })).toBeInTheDocument()
-    expect(screen.getByAltText('Period video')).toHaveAttribute('src', expect.stringContaining('thumb123'))
-    expect(screen.getAllByRole('link', { name: /Open cited moment/i }).length).toBeGreaterThan(0)
-    expect(screen.queryByLabelText(/Date from/i)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/Date to/i)).not.toBeInTheDocument()
+    expect(screen.getByText('2 labels')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Detected topics and stream labels' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('Topic')).toBeInTheDocument();
+    expect(screen.getByText('Series')).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/topics/ICE')
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/topics/Okbuddy')
+    ).toBeTruthy();
+    expect(screen.getAllByText(/May 2026.*best available topics/).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText('May 2026 contains 12 archived VODs and 1 highlighted topic.')
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Guest One' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Gaming' })).toBeInTheDocument();
+    expect(screen.getByAltText('Period video')).toHaveAttribute(
+      'src',
+      expect.stringContaining('thumb123')
+    );
+    expect(screen.getAllByRole('link', { name: /Open cited moment/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText(/Date from/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Date to/i)).not.toBeInTheDocument();
 
-    expect(getExploreIntelligence).toHaveBeenCalledWith({})
-  })
+    expect(getExploreIntelligence).toHaveBeenCalledWith({});
+    expect((await axe.run(container)).violations).toEqual([]);
+  });
 
   it('refetches selected predefined periods and latest default', async () => {
     const weekOption = {
@@ -217,7 +248,7 @@ describe('ExplorePage', () => {
       description: 'A late-May week with fast-moving clips.',
       video_count: 4,
       total_duration_seconds: 8100,
-    }
+    };
 
     const eventOption = {
       slug: 'launch-day',
@@ -228,7 +259,7 @@ describe('ExplorePage', () => {
       description: 'A major event day in the archive.',
       video_count: 2,
       total_duration_seconds: 3600,
-    }
+    };
 
     const monthOption = {
       slug: '2026-05',
@@ -239,7 +270,7 @@ describe('ExplorePage', () => {
       description: 'The main archive slice for the month.',
       video_count: 12,
       total_duration_seconds: 7200,
-    }
+    };
 
     const response = {
       summary: {
@@ -257,47 +288,69 @@ describe('ExplorePage', () => {
       periods: [],
       selected_period: monthOption,
       period_options: [monthOption, weekOption, eventOption],
-    }
+    };
 
-    const getExploreIntelligence = vi.spyOn(api, 'getExploreIntelligence').mockImplementation(async (opts) => {
-      if (opts?.period === weekOption.slug) {
-        return { ...response, selected_period: weekOption }
-      }
+    const getExploreIntelligence = vi
+      .spyOn(api, 'getExploreIntelligence')
+      .mockImplementation(async (opts) => {
+        if (opts?.period === weekOption.slug) {
+          return { ...response, selected_period: weekOption };
+        }
 
-      if (opts?.period === eventOption.slug) {
-        return { ...response, selected_period: eventOption }
-      }
+        if (opts?.period === eventOption.slug) {
+          return { ...response, selected_period: eventOption };
+        }
 
-      return response
-    })
+        return response;
+      });
+    const getExplorePeriods = vi
+      .spyOn(api, 'getExplorePeriods')
+      .mockImplementation(async (opts) => ({
+        periods: opts?.kind === 'event' ? [eventOption] : [weekOption],
+        selected_period: null,
+      }));
 
     render(
       <MemoryRouter initialEntries={['/explore']}>
         <ExplorePage />
       </MemoryRouter>
-    )
+    );
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Explore the HasanAbi VOD archive' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Explore the HasanAbi VOD archive' })
+      ).toBeInTheDocument()
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Weeks' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /Week 22, 2026/ })).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Week 22, 2026/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Weeks' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Week 22, 2026/ })).toBeInTheDocument()
+    );
+    await waitFor(() =>
+      expect(getExplorePeriods).toHaveBeenCalledWith({ kind: 'week', limit: 24 })
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Week 22, 2026/ }));
     await waitFor(() => {
-      expect(getExploreIntelligence).toHaveBeenLastCalledWith({ period: '2026-w22' })
-    })
+      expect(getExploreIntelligence).toHaveBeenLastCalledWith({ period: '2026-w22' });
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Events' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /Launch Day/ })).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Launch Day/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Events' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Launch Day/ })).toBeInTheDocument()
+    );
+    await waitFor(() =>
+      expect(getExplorePeriods).toHaveBeenCalledWith({ kind: 'event', limit: 24 })
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Launch Day/ }));
 
     await waitFor(() => {
-      expect(getExploreIntelligence).toHaveBeenLastCalledWith({ period: 'launch-day' })
-    })
+      expect(getExploreIntelligence).toHaveBeenLastCalledWith({ period: 'launch-day' });
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Latest' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Latest' }));
 
     await waitFor(() => {
-      expect(getExploreIntelligence).toHaveBeenLastCalledWith({})
-    })
-  })
-})
+      expect(getExploreIntelligence).toHaveBeenLastCalledWith({});
+    });
+  });
+});

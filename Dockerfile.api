@@ -1,0 +1,35 @@
+FROM python:3.11-slim AS dependencies
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
+WORKDIR /app
+COPY requirements-api.txt constraints.txt ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade setuptools==81.0.0 wheel==0.47.0 && \
+    pip install -c constraints.txt -r requirements-api.txt && \
+    pip check
+
+FROM python:3.11-slim AS api
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=dependencies /usr/local/bin /usr/local/bin
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://deno.land/install.sh | sh \
+    && mv /root/.deno/bin/deno /usr/local/bin/deno \
+    && chmod +x /usr/local/bin/deno \
+    && deno --version
+WORKDIR /app
+COPY app ./app
+COPY worker/__init__.py worker/formatter.py worker/state_model.py ./worker/
+COPY alembic ./alembic
+COPY alembic.ini ./
+COPY scripts/run_migrations.py ./scripts/run_migrations.py
+COPY scripts/maintain_event_retention.py ./scripts/maintain_event_retention.py
+COPY scripts/refresh_archive_summary_stats.py ./scripts/refresh_archive_summary_stats.py
+COPY scripts/refresh_archive_intelligence.py ./scripts/refresh_archive_intelligence.py
+COPY fonts ./fonts
+RUN python -m compileall -q app
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

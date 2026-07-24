@@ -11,7 +11,7 @@ type Props = {
 
 export default function PlayerPanel({ video, start, playerRef, className = '' }: Props) {
   return (
-    <aside
+    <div
       className={`overflow-hidden rounded-xl border border-border bg-[#09090b] shadow-[0_24px_70px_rgba(0,0,0,0.32)] ${className}`}
     >
       {video ? (
@@ -41,6 +41,6 @@ export default function PlayerPanel({ video, start, playerRef, className = '' }:
           <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Synced transcript
         </span>
       </div>
-    </aside>
+    </div>
   );
 }

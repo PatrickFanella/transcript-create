@@ -81,11 +81,11 @@ Integration tests validate complete workflows from job creation to export, ensur
 
    ```bash
    # Using Docker
-   docker compose up -d db migrations
+   ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION=true docker compose up -d db migrations
    
    # Or using local PostgreSQL
    createdb transcripts
-   psql transcripts < sql/schema.sql
+   ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION=true python scripts/run_migrations.py upgrade
    ```
 
 3. Set environment variables:

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildTranscriptTurns, normalizeTranscriptText } from '../features/videoTranscript/transcript';
+import {
+  buildTranscriptTurns,
+  normalizeTranscriptText,
+} from '../features/videoTranscript/transcript';
 
 describe('video transcript kernels', () => {
   it('normalizes spacing without changing words', () => {
@@ -15,7 +18,15 @@ describe('video transcript kernels', () => {
         { start_ms: 6000, end_ms: 7000, text: 'Speaker line.', speaker_label: 'Hasan' },
         { start_ms: 7100, end_ms: 7600, text: 'Speaker line two.', speaker_label: 'Hasan' },
       ],
-      [{ start_ms: 6200, end_ms: 6300, video_id: 'v1', id: 9, snippet: '<mark>match</mark>' } as never]
+      [
+        {
+          start_ms: 6200,
+          end_ms: 6300,
+          video_id: 'v1',
+          id: 9,
+          snippet: '<mark>match</mark>',
+        } as never,
+      ]
     );
 
     expect(turns).toHaveLength(3);

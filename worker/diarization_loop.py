@@ -1,8 +1,10 @@
 import time
 from pathlib import Path
+from threading import Event, Thread
 
 from sqlalchemy import create_engine, text
 
+from app.cache import invalidate_video_data
 from app.logging_config import configure_logging, get_logger
 from app.settings import settings
 from worker.diarize import run_diarization
@@ -14,19 +16,23 @@ configure_logging(
 )
 logger = get_logger(__name__)
 
+_HEARTBEAT_INTERVAL_SECONDS = 60
+
 
 def _load_segments(conn, video_id):
-    rows = conn.execute(
-        text(
-            """
+    rows = (
+        conn.execute(
+            text("""
             SELECT id, start_ms, end_ms, text, speaker_label, confidence, avg_logprob, temperature, token_count
             FROM segments
             WHERE video_id = :v
             ORDER BY start_ms, id
-            """
-        ),
-        {"v": video_id},
-    ).mappings().all()
+            """),
+            {"v": video_id},
+        )
+        .mappings()
+        .all()
+    )
     return [
         {
             "_segment_id": row["id"],
@@ -45,21 +51,26 @@ def _load_segments(conn, video_id):
 
 
 def _claim_video(conn):
-    row = conn.execute(
-        text(
-            """
+    row = (
+        conn.execute(
+            text("""
             SELECT v.id, v.wav_path
             FROM videos v
             WHERE v.state = 'completed'
               AND v.wav_path IS NOT NULL
               AND v.diarization_state = 'pending'
+              AND v.duration_seconds IS NOT NULL
+              AND v.duration_seconds <= :max_duration_seconds
               AND EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.id)
             ORDER BY v.updated_at, v.created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1
-            """
+            """),
+            {"max_duration_seconds": settings.DIARIZATION_MAX_DURATION_SECONDS},
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not row:
         return None
     logger.info("Claiming diarization job", extra={"video_id": str(row["id"]), "wav_path": row["wav_path"]})
@@ -72,8 +83,7 @@ def _claim_video(conn):
 
 def _requeue_stale_running(conn):
     rows = conn.execute(
-        text(
-            """
+        text("""
             UPDATE videos
             SET diarization_state='pending',
                 diarization_error='Requeued stale running diarization job',
@@ -81,8 +91,7 @@ def _requeue_stale_running(conn):
             WHERE diarization_state='running'
               AND now() - updated_at > (:timeout_minutes * interval '1 minute')
             RETURNING id
-            """
-        ),
+            """),
         {"timeout_minutes": settings.DIARIZATION_RUNNING_TIMEOUT_MINUTES},
     ).fetchall()
     if rows:
@@ -92,8 +101,85 @@ def _requeue_stale_running(conn):
         )
 
 
+def _heartbeat_diarization_job(engine, video_id):
+    """Keep a live diarization claim from being recovered as stale."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                UPDATE videos
+                SET updated_at=now()
+                WHERE id=:v AND diarization_state='running'
+                """),
+            {"v": video_id},
+        )
+
+
+def _run_diarization_heartbeat(engine, video_id, stop_event):
+    while not stop_event.wait(_HEARTBEAT_INTERVAL_SECONDS):
+        try:
+            _heartbeat_diarization_job(engine, video_id)
+        except Exception:
+            logger.warning("Diarization heartbeat failed", extra={"video_id": str(video_id)}, exc_info=True)
+
+
+def _start_diarization_heartbeat(engine, video_id):
+    stop_event = Event()
+    thread = Thread(
+        target=_run_diarization_heartbeat,
+        args=(engine, video_id, stop_event),
+        name=f"diarization-heartbeat-{video_id}",
+        daemon=True,
+    )
+    thread.start()
+    return stop_event, thread
+
+
+def _stop_diarization_heartbeat(stop_event, thread):
+    stop_event.set()
+    thread.join()
+
+
+def _skip_unsafe_diarization_jobs(conn):
+    """Atomically skip otherwise eligible jobs that could exhaust pyannote memory."""
+    rows = conn.execute(
+        text("""
+            UPDATE videos v
+            SET diarization_state = 'skipped',
+                diarization_error = 'Skipped diarization: duration_seconds=' ||
+                    COALESCE(v.duration_seconds::text, 'NULL') ||
+                    ' exceeds DIARIZATION_MAX_DURATION_SECONDS=' || CAST(:max_duration_seconds AS text),
+                updated_at = now()
+            WHERE v.state = 'completed'
+              AND v.wav_path IS NOT NULL
+              AND EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.id)
+              AND (
+                  v.diarization_state = 'pending'
+                  OR (
+                      v.diarization_state = 'running'
+                      AND now() - v.updated_at > (:timeout_minutes * interval '1 minute')
+                  )
+              )
+              AND (
+                  v.duration_seconds IS NULL
+                  OR v.duration_seconds > :max_duration_seconds
+              )
+            RETURNING v.id, v.duration_seconds
+            """),
+        {
+            "max_duration_seconds": settings.DIARIZATION_MAX_DURATION_SECONDS,
+            "timeout_minutes": settings.DIARIZATION_RUNNING_TIMEOUT_MINUTES,
+        },
+    ).fetchall()
+    if rows:
+        logger.warning(
+            "Skipped diarization jobs exceeding duration limit",
+            extra={"count": len(rows), "max_duration_seconds": settings.DIARIZATION_MAX_DURATION_SECONDS},
+        )
+
+
 def process_one(engine) -> bool:
     with engine.begin() as conn:
+        _skip_unsafe_diarization_jobs(conn)
         _requeue_stale_running(conn)
         row = _claim_video(conn)
     if not row:
@@ -102,6 +188,7 @@ def process_one(engine) -> bool:
     video_id = row["id"]
     wav_path = Path(row["wav_path"])
     logger.info("Starting diarization job", extra={"video_id": str(video_id), "wav_path": str(wav_path)})
+    heartbeat_stop, heartbeat_thread = _start_diarization_heartbeat(engine, video_id)
 
     try:
         if not wav_path.exists():
@@ -147,34 +234,33 @@ def process_one(engine) -> bool:
             if assigned == 0:
                 raise RuntimeError("Diarization completed without assigning any speaker labels")
             conn.execute(
-                text(
-                    """
+                text("""
                     UPDATE videos
                     SET diarization_state='completed', diarization_error=NULL, updated_at=now()
                     WHERE id=:v
-                    """
-                ),
+                    """),
                 {"v": video_id},
             )
         logger.info(
             "Diarization job completed",
             extra={"video_id": str(video_id), "speakers_assigned": assigned},
         )
+        invalidate_video_data(video_id)
         return True
     except Exception as e:
         logger.exception("Diarization job failed", extra={"video_id": str(video_id), "error": str(e)})
         with engine.begin() as conn:
             conn.execute(
-                text(
-                    """
+                text("""
                     UPDATE videos
                     SET diarization_state='failed', diarization_error=:e, updated_at=now()
                     WHERE id=:v
-                    """
-                ),
+                    """),
                 {"v": video_id, "e": str(e)[:5000]},
             )
         return True
+    finally:
+        _stop_diarization_heartbeat(heartbeat_stop, heartbeat_thread)
 
 
 def run():
@@ -185,12 +271,27 @@ def run():
         "Diarization worker started",
         extra={"device": settings.DIARIZATION_DEVICE, "inline": settings.DIARIZATION_INLINE},
     )
+    processed_attempts = 0
     while True:
         try:
             did_work = process_one(engine) if settings.ENABLE_DIARIZATION else False
         except Exception as e:
             logger.exception("Diarization worker loop failed", extra={"error": str(e)})
             did_work = False
+        if did_work:
+            processed_attempts += 1
+            if (
+                settings.DIARIZATION_MAX_JOBS_PER_PROCESS > 0
+                and processed_attempts >= settings.DIARIZATION_MAX_JOBS_PER_PROCESS
+            ):
+                logger.info(
+                    "Diarization worker reached process job limit; exiting for restart",
+                    extra={
+                        "processed_attempts": processed_attempts,
+                        "max_jobs_per_process": settings.DIARIZATION_MAX_JOBS_PER_PROCESS,
+                    },
+                )
+                return
         if not did_work:
             time.sleep(settings.DIARIZATION_POLL_INTERVAL)
 

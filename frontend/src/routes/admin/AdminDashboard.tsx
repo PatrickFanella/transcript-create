@@ -63,6 +63,17 @@ type SearchAnalytics = {
   avg_query_time_ms: number;
 };
 
+const PIE_SWATCH_CLASSES = [
+  'admin-chart-swatch-lime',
+  'admin-chart-swatch-purple',
+  'admin-chart-swatch-yellow',
+  'admin-chart-swatch-red',
+  'admin-chart-swatch-blue',
+  'admin-chart-swatch-pink',
+  'admin-chart-swatch-teal',
+  'admin-chart-swatch-violet',
+] as const;
+
 function MetricCard({
   title,
   value,
@@ -97,9 +108,14 @@ function SimpleBarChart({ data, labels }: { data: number[]; labels: string[] }) 
               {labels[idx]}
             </div>
             <div className="flex-1">
-              <div className="h-6 w-full rounded bg-surface-muted">
-                <div className="h-full rounded bg-accent" style={{ width: `${percentage}%` }} />
-              </div>
+              <progress
+                className="admin-bar-chart-progress"
+                value={Math.max(value, 0)}
+                max={maxValue}
+                aria-label={`${labels[idx] ?? 'Chart value'}: ${value}`}
+              >
+                {percentage.toFixed(1)}%
+              </progress>
             </div>
             <div className="w-12 text-right text-sm font-medium">{value}</div>
           </div>
@@ -119,11 +135,9 @@ function SimplePieChart({ data, labels }: { data: number[]; labels: string[] }) 
         return (
           <div key={idx} className="flex items-center justify-between text-sm">
             <div className="flex items-center gap-2">
-              <div
-                className="h-3 w-3 rounded"
-                style={{
-                  backgroundColor: `hsl(${(idx * 360) / data.length}, 70%, 50%)`,
-                }}
+              <span
+                className={`admin-chart-swatch ${PIE_SWATCH_CLASSES[idx % PIE_SWATCH_CLASSES.length]}`}
+                aria-hidden="true"
               />
               <span>{labels[idx]}</span>
             </div>
@@ -156,7 +170,11 @@ function SimpleLineChart({ data, labels }: { data: number[]; labels: string[] })
 
   return (
     <div className="overflow-x-auto">
-      <svg width={chartWidth} height={chartHeight} className="border-b border-l border-border text-accent">
+      <svg
+        width={chartWidth}
+        height={chartHeight}
+        className="border-b border-l border-border text-accent"
+      >
         <polyline points={points} fill="none" stroke="currentColor" strokeWidth="2" />
         {data.map((value, idx) => {
           const x = padding + (idx * (chartWidth - 2 * padding)) / divisor;
@@ -248,9 +266,7 @@ export default function AdminDashboard() {
           <button onClick={fetchData} className="btn">
             Refresh Now
           </button>
-          <div className="text-xs text-muted">
-            Last update: {lastUpdate.toLocaleTimeString()}
-          </div>
+          <div className="text-xs text-muted">Last update: {lastUpdate.toLocaleTimeString()}</div>
         </div>
       </div>
 

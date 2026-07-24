@@ -22,6 +22,8 @@ from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy import text
 
+from worker.state_model import VideoState, pending_video_eligibility_sql
+
 from ..db import engine
 from ..logging_config import get_logger
 from ..settings import settings
@@ -111,8 +113,12 @@ async def check_opensearch() -> Dict[str, Any]:
     Returns:
         Dict with status, latency_ms, and optional error
     """
+    from app.search.outbox import search_freshness
+
+    with engine.connect() as conn:
+        freshness = search_freshness(conn)
     if settings.SEARCH_BACKEND != "opensearch":
-        return {"status": "disabled"}
+        return {"status": "disabled", **freshness}
 
     start_time = time.time()
     try:
@@ -129,7 +135,7 @@ async def check_opensearch() -> Dict[str, Any]:
             url,
             auth=auth,
             timeout=settings.HEALTH_CHECK_TIMEOUT,
-            verify=False,  # OpenSearch often uses self-signed certs in dev
+            verify=settings.OPENSEARCH_VERIFY_SSL,
         )
         response.raise_for_status()
 
@@ -150,6 +156,7 @@ async def check_opensearch() -> Dict[str, Any]:
             "latency_ms": round(latency_ms, 2),
             "cluster_status": cluster_status,
             "number_of_nodes": health_data.get("number_of_nodes"),
+            **freshness,
         }
     except Exception as e:
         latency_ms = (time.time() - start_time) * 1000
@@ -163,6 +170,7 @@ async def check_opensearch() -> Dict[str, Any]:
             "status": "unhealthy",
             "latency_ms": round(latency_ms, 2),
             "error": str(e),
+            **freshness,
         }
 
 
@@ -251,31 +259,28 @@ async def check_worker() -> Dict[str, Any]:
     try:
         with engine.connect() as conn:
             # Check for pending jobs
-            pending_count = conn.execute(text("SELECT COUNT(*) FROM videos WHERE state = 'pending'")).scalar_one()
+            pending_count = conn.execute(
+                text(f"SELECT COUNT(*) {pending_video_eligibility_sql()}"),
+                {"pending_state": VideoState.PENDING.value},
+            ).scalar_one()
 
             # Check for stuck jobs (in progress states for too long)
             stuck_count = conn.execute(
-                text(
-                    """
+                text("""
                     SELECT COUNT(*) FROM videos
                     WHERE state IN ('downloading', 'transcoding', 'transcribing', 'diarizing', 'persisting')
                     AND updated_at < now() - make_interval(secs => :seconds)
-                """
-                ),
+                """),
                 {"seconds": settings.RESCUE_STUCK_AFTER_SECONDS},
             ).scalar_one()
 
             # Check worker heartbeat
-            heartbeat_result = conn.execute(
-                text(
-                    """
+            heartbeat_result = conn.execute(text("""
                     SELECT worker_id, last_seen, metrics
                     FROM worker_heartbeat
                     ORDER BY last_seen DESC
                     LIMIT 1
-                """
-                )
-            ).fetchone()
+                """)).fetchone()
 
             result = {
                 "jobs_pending": pending_count,
@@ -382,8 +387,7 @@ async def liveness_probe():
     "/ready",
     summary="Readiness probe",
     description=(
-        "Kubernetes readiness probe. Checks if the service can accept traffic "
-        "by verifying critical dependencies."
+        "Kubernetes readiness probe. Checks if the service can accept traffic " "by verifying critical dependencies."
     ),
     responses={
         200: {
@@ -461,8 +465,7 @@ async def readiness_probe():
     "/health/detailed",
     summary="Detailed health check",
     description=(
-        "Comprehensive health check of all components including database, "
-        "OpenSearch, storage, and worker status."
+        "Comprehensive health check of all components including database, " "OpenSearch, storage, and worker status."
     ),
     responses={
         200: {

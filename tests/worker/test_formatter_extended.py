@@ -152,6 +152,8 @@ class TestEdgeCases:
             "enabled": True,
             "normalize_whitespace": True,
             "add_sentence_punctuation": True,
+            "detect_hallucinations": False,
+            "segment_by_sentences": False,
         }
         formatter = TranscriptFormatter(config=config)
         
@@ -258,6 +260,10 @@ class TestEdgeCases:
         config = {
             "enabled": True,
             "detect_hallucinations": False,  # Don't filter short segments
+            "add_sentence_punctuation": False,
+            "capitalize_sentences": False,
+            "merge_short_segments": False,
+            "speaker_format": "inline",
         }
         formatter = TranscriptFormatter(config=config)
         
@@ -278,6 +284,7 @@ class TestEdgeCases:
         config = {
             "enabled": True,
             "normalize_whitespace": True,
+            "add_sentence_punctuation": False,
         }
         formatter = TranscriptFormatter(config=config)
         
@@ -409,6 +416,7 @@ class TestCornerCasesPunctuation:
         config = {
             "enabled": True,
             "add_sentence_punctuation": True,
+            "segment_by_sentences": False,
         }
         formatter = TranscriptFormatter(config=config)
         
@@ -467,6 +475,8 @@ class TestCornerCasesCapitalization:
         config = {
             "enabled": True,
             "fix_all_caps": True,
+            "segment_by_sentences": False,
+            "merge_short_segments": False,
         }
         formatter = TranscriptFormatter(config=config)
         
@@ -487,6 +497,7 @@ class TestCornerCasesCapitalization:
         config = {
             "enabled": True,
             "fix_all_caps": True,
+            "add_sentence_punctuation": False,
         }
         formatter = TranscriptFormatter(config=config)
         

@@ -6,9 +6,11 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy import text as _text
 
+from app.analytics_identity import get_analytics_subject_id
 from app.common.session import get_session_token as _get_session_token
 from app.common.session import get_user_from_session as _get_user_from_session
 from app.common.session import is_admin as _is_admin
+from app.event_taxonomy import sanitize_internal_event
 from app.exceptions import AuthorizationError
 from app.schemas import SearchAnalytics, SearchSuggestion, SearchSuggestionsResponse
 from app.search.types import SearchRequestContext
@@ -51,16 +53,14 @@ def update_search_suggestion(db, term: str) -> None:
             return
 
         db.execute(
-            _text(
-                """
+            _text("""
                 INSERT INTO search_suggestions (term, frequency, last_used)
                 VALUES (:term, 1, now())
                 ON CONFLICT ((LOWER(term)))
                 DO UPDATE SET
                     frequency = search_suggestions.frequency + 1,
                     last_used = now()
-            """
-            ),
+            """),
             {"term": term_lower},
         )
         db.commit()
@@ -68,15 +68,15 @@ def update_search_suggestion(db, term: str) -> None:
         db.rollback()
 
 
-def save_search_history(db, user_id: str, query: str, filters: dict[str, Any], result_count: int, query_time_ms: int) -> None:
+def save_search_history(
+    db, user_id: str, query: str, filters: dict[str, Any], result_count: int, query_time_ms: int
+) -> None:
     try:
         db.execute(
-            _text(
-                """
+            _text("""
                 INSERT INTO user_searches (user_id, query, filters, result_count, query_time_ms)
                 VALUES (:user_id, :query, :filters, :result_count, :query_time_ms)
-            """
-            ),
+            """),
             {
                 "user_id": user_id,
                 "query": query,
@@ -98,15 +98,22 @@ def record_search_request(request: Request, db, q: str, source: str) -> SearchRe
     update_search_suggestion(db, q)
 
     if user and not is_admin:
+        _, event_payload = sanitize_internal_event("search_api", {"q": q, "source": source})
         db.execute(
-            _text("INSERT INTO events (user_id, session_token, type, payload) VALUES (:u,:t,'search_api',:p)"),
-            {"u": str(user["id"]), "t": token, "p": {"q": q, "source": source}},
+            _text(
+                "INSERT INTO events (user_id, analytics_subject_id, type, payload) "
+                "VALUES (:u,:analytics_subject_id,'search_api',CAST(:p AS JSONB))"
+            ),
+            {
+                "u": str(user["id"]),
+                "analytics_subject_id": get_analytics_subject_id(request),
+                "p": json.dumps(event_payload),
+            },
         )
         db.commit()
 
     return SearchRequestContext(
         user_id=str(user["id"]) if user else None,
-        session_token=token,
         is_admin=is_admin,
     )
 
@@ -115,40 +122,40 @@ def get_search_suggestions(db, q: str, limit: int) -> SearchSuggestionsResponse:
     term_lower = q.strip().lower()
     rows = (
         db.execute(
-            _text(
-                """
+            _text("""
             SELECT term, frequency
             FROM search_suggestions
             WHERE LOWER(term) LIKE :pattern
             ORDER BY frequency DESC, last_used DESC
             LIMIT :limit
-        """
-            ),
+        """),
             {"pattern": f"{term_lower}%", "limit": limit},
         )
         .mappings()
         .all()
     )
-    return SearchSuggestionsResponse(suggestions=[SearchSuggestion(term=r["term"], frequency=r["frequency"]) for r in rows])
+    return SearchSuggestionsResponse(
+        suggestions=[SearchSuggestion(term=r["term"], frequency=r["frequency"]) for r in rows]
+    )
 
 
 def get_popular_searches(db, limit: int) -> SearchSuggestionsResponse:
     rows = (
         db.execute(
-            _text(
-                """
+            _text("""
             SELECT term, frequency
             FROM search_suggestions
             ORDER BY frequency DESC, last_used DESC
             LIMIT :limit
-        """
-            ),
+        """),
             {"limit": limit},
         )
         .mappings()
         .all()
     )
-    return SearchSuggestionsResponse(suggestions=[SearchSuggestion(term=r["term"], frequency=r["frequency"]) for r in rows])
+    return SearchSuggestionsResponse(
+        suggestions=[SearchSuggestion(term=r["term"], frequency=r["frequency"]) for r in rows]
+    )
 
 
 def get_search_analytics(request: Request, db, days: int) -> SearchAnalytics:
@@ -156,25 +163,16 @@ def get_search_analytics(request: Request, db, days: int) -> SearchAnalytics:
     if not _is_admin(user):
         raise AuthorizationError("Admin access required")
 
-    popular_terms = (
-        db.execute(
-            _text(
-                """
+    popular_terms = db.execute(_text("""
             SELECT term, frequency, last_used
             FROM search_suggestions
             ORDER BY frequency DESC
             LIMIT 20
-        """
-            )
-        )
-        .mappings()
-        .all()
-    )
+        """)).mappings().all()
 
     zero_results = (
         db.execute(
-            _text(
-                """
+            _text("""
             SELECT query, COUNT(*) as count
             FROM user_searches
             WHERE result_count = 0
@@ -182,8 +180,7 @@ def get_search_analytics(request: Request, db, days: int) -> SearchAnalytics:
             GROUP BY query
             ORDER BY count DESC
             LIMIT 20
-        """
-            ),
+        """),
             {"days": days},
         )
         .mappings()
@@ -192,15 +189,13 @@ def get_search_analytics(request: Request, db, days: int) -> SearchAnalytics:
 
     search_volume = (
         db.execute(
-            _text(
-                """
+            _text("""
             SELECT DATE(created_at) as date, COUNT(*) as count
             FROM user_searches
             WHERE created_at >= now() - (:days * INTERVAL '1 day')
             GROUP BY DATE(created_at)
             ORDER BY date DESC
-        """
-            ),
+        """),
             {"days": days},
         )
         .mappings()
@@ -208,31 +203,29 @@ def get_search_analytics(request: Request, db, days: int) -> SearchAnalytics:
     )
 
     avg_results = db.execute(
-        _text(
-            """
+        _text("""
             SELECT AVG(result_count) as avg_results
             FROM user_searches
             WHERE created_at >= now() - (:days * INTERVAL '1 day')
               AND result_count IS NOT NULL
-        """
-        ),
+        """),
         {"days": days},
     ).scalar_one_or_none()
     if avg_results is not None:
         avg_results = float(avg_results)
 
     total = db.execute(
-        _text(
-            """
+        _text("""
             SELECT COUNT(*) FROM user_searches
             WHERE created_at >= now() - (:days * INTERVAL '1 day')
-        """
-        ),
+        """),
         {"days": days},
     ).scalar_one()
 
     return SearchAnalytics(
-        popular_terms=[{"term": r["term"], "frequency": r["frequency"], "last_used": str(r["last_used"])} for r in popular_terms],
+        popular_terms=[
+            {"term": r["term"], "frequency": r["frequency"], "last_used": str(r["last_used"])} for r in popular_terms
+        ],
         zero_result_searches=[{"query": r["query"], "count": r["count"]} for r in zero_results],
         search_volume=[{"date": str(r["date"]), "count": r["count"]} for r in search_volume],
         avg_results_per_query=avg_results,

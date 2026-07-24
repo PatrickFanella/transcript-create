@@ -37,4 +37,15 @@ export const favorites = {
     }
     save(cache);
   },
+  remove(item: FavoriteItem) {
+    cache = cache.filter(
+      (candidate) =>
+        !(
+          candidate.videoId === item.videoId &&
+          candidate.startMs === item.startMs &&
+          candidate.endMs === item.endMs
+        )
+    );
+    save(cache);
+  },
 };

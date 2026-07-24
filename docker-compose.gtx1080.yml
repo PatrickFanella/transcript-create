@@ -2,14 +2,14 @@ services:
     migrations:
         build:
             context: .
-            dockerfile: Dockerfile.cuda
-        image: hasanara:gtx1080
+            dockerfile: Dockerfile.api
+        image: hasanara-api:latest
 
     api:
         build:
             context: .
-            dockerfile: Dockerfile.cuda
-        image: hasanara:gtx1080
+            dockerfile: Dockerfile.api
+        image: hasanara-api:latest
         environment:
             SEARCH_BACKEND: postgres
             REDIS_URL: ''
@@ -26,8 +26,8 @@ services:
     worker:
         build:
             context: .
-            dockerfile: Dockerfile.cuda
-        image: hasanara:gtx1080
+            dockerfile: Dockerfile.ingest.cuda
+        image: hasanara-ingest:gtx1080
         environment:
             SEARCH_BACKEND: postgres
             OPENSEARCH_URL: ''
@@ -68,11 +68,13 @@ services:
     diarization-worker:
         build:
             context: .
-            dockerfile: Dockerfile.cuda
-        image: hasanara:gtx1080
-        env_file: .env
+            dockerfile: Dockerfile.cuda.overlay
+            args:
+                WORKER_RUNTIME_IMAGE: hasanara:gtx1080-runtime
+        image: hasanara-diarization:gtx1080
+        env_file: ${HASANARA_ENV_FILE:-.env}
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/transcripts
+            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             HF_HOME: /root/.cache/hf
             HF_HUB_CACHE: /root/.cache/hf/hub
             TRANSFORMERS_CACHE: /root/.cache/hf/transformers
@@ -98,6 +100,9 @@ services:
                 condition: service_healthy
             migrations:
                 condition: service_completed_successfully
+        restart: unless-stopped
+        healthcheck:
+            disable: true
 
     opensearch:
         profiles: ['full']

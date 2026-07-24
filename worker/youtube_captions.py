@@ -149,6 +149,7 @@ def _yt_dlp_json(url: str) -> Dict[str, Any]:
         # Use factory functions to capture loop variables correctly for retry closures
         def make_fetch_metadata(cname: str, cargs: List[str]):
             """Create metadata fetch function with explicit parameter binding."""
+
             def fetch_metadata():
                 """Single metadata fetch attempt that can be retried."""
                 cmd = ["-J"]
@@ -264,6 +265,7 @@ def _yt_dlp_json(url: str) -> Dict[str, Any]:
 
         def make_classify_metadata_error(cname: str):
             """Create error classifier with explicit parameter binding."""
+
             def classify_metadata_error(e: Exception) -> ErrorClass:
                 """Classify metadata fetch error and handle token invalidation."""
                 stderr = getattr(e, "stderr", "") or str(e)
@@ -284,10 +286,11 @@ def _yt_dlp_json(url: str) -> Dict[str, Any]:
                     token_manager.mark_token_invalid(TokenType.SUBS, reason="metadata_fetch_failed")
                     logger.warning(
                         "Subs token marked invalid during metadata fetch",
-                        extra={"client": cname, "returncode": returncode}
+                        extra={"client": cname, "returncode": returncode},
                     )
 
                 return error_class
+
             return classify_metadata_error  # noqa: B023 (false positive - function returned immediately)
 
         classify_metadata_error = make_classify_metadata_error(client_name)
@@ -310,7 +313,7 @@ def _yt_dlp_json(url: str) -> Dict[str, Any]:
             error_class = classify_metadata_error(e)
             logger.warning(
                 f"Metadata fetch failed with {client_name}: {e.returncode}",
-                extra={"error_class": error_class.value, "stderr_snippet": (e.stderr or "")[:200]}
+                extra={"error_class": error_class.value, "stderr_snippet": (e.stderr or "")[:200]},
             )
             if error_class == ErrorClass.THROTTLE:
                 raise YouTubeRateLimitError(
@@ -320,8 +323,7 @@ def _yt_dlp_json(url: str) -> Dict[str, Any]:
             last_error = e
             error_class = classify_metadata_error(e)
             logger.warning(
-                f"Metadata fetch raised exception with {client_name}: {e}",
-                extra={"error_class": error_class.value}
+                f"Metadata fetch raised exception with {client_name}: {e}", extra={"error_class": error_class.value}
             )
             if error_class == ErrorClass.THROTTLE:
                 raise

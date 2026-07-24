@@ -30,10 +30,16 @@ export function shouldStartNewUnlabeledParagraph(
   const currentLooksLikeNewThought = /^[A-Z0-9"'“‘]/.test(currentText);
   const previousWordCount = previousText.split(/\s+/).filter(Boolean).length;
 
-  return silenceGapMs >= 1200 || (previousEndsSentence && currentLooksLikeNewThought && previousWordCount >= 8);
+  return (
+    silenceGapMs >= 1200 ||
+    (previousEndsSentence && currentLooksLikeNewThought && previousWordCount >= 8)
+  );
 }
 
-export function buildTranscriptTurns(segments: Segment[], hits: SearchHit[] | null): TranscriptTurn[] {
+export function buildTranscriptTurns(
+  segments: Segment[],
+  hits: SearchHit[] | null
+): TranscriptTurn[] {
   return segments.reduce<TranscriptTurn[]>((turns, segment, idx) => {
     const id = idx + 1;
     const speaker = speakerName(segment);
@@ -45,7 +51,11 @@ export function buildTranscriptTurns(segments: Segment[], hits: SearchHit[] | nu
 
     if (!speaker) {
       const previous = last?.segments.at(-1);
-      if (last && last.speaker === null && !shouldStartNewUnlabeledParagraph(previous, segment, currentText)) {
+      if (
+        last &&
+        last.speaker === null &&
+        !shouldStartNewUnlabeledParagraph(previous, segment, currentText)
+      ) {
         last.segments.push({ segment, id, match });
         return turns;
       }

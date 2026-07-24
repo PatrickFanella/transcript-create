@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { SearchHit } from '../../types/api';
 import { buildTimestampLink, formatTimestamp, sourceLabel } from '../../features/archive/format';
+import HighlightedSnippet from '../HighlightedSnippet';
 
 type TopicMentionCardProps = {
   label: string;
@@ -16,9 +17,21 @@ export default function TopicMentionCard({ label, moment }: TopicMentionCardProp
       <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
         <span>{formatTimestamp(moment.start_ms)}</span>
         <span>{sourceLabel(moment.source ?? 'best')}</span>
-        {videoId && <Link className="action-link" to={buildTimestampLink(videoId, moment.start_ms, moment.id)}>Open cited moment</Link>}
+        {videoId && (
+          <Link
+            className="action-link"
+            to={buildTimestampLink(videoId, moment.start_ms, moment.id)}
+          >
+            Open cited moment
+          </Link>
+        )}
       </div>
-      <div className="prose prose-sm mt-3 max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: moment.snippet }} />
+      <HighlightedSnippet
+        as="div"
+        className="prose prose-sm mt-3 max-w-none dark:prose-invert"
+        snippet={moment.snippet}
+        highlights={moment.highlights}
+      />
     </div>
   );
 }

@@ -8,7 +8,6 @@ from uuid import UUID
 
 from sqlalchemy.engine import Engine
 
-
 VideoId = str | UUID
 
 
@@ -24,8 +23,7 @@ class ProcessVideoResult:
 
 
 class VideoProcessingPipeline(Protocol):
-    def process_video(self, command: ProcessVideoCommand) -> ProcessVideoResult:
-        ...
+    def process_video(self, command: ProcessVideoCommand) -> ProcessVideoResult: ...
 
 
 class _DefaultVideoProcessingPipeline:

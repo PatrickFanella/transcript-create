@@ -1,11 +1,13 @@
 """Audit logging for security events and user actions."""
 
+import json
 from typing import Optional
 from uuid import UUID
 
 from fastapi import Request
 from sqlalchemy import text
 
+from .db import SessionLocal
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -15,6 +17,9 @@ ACTION_LOGIN_SUCCESS = "login_success"
 ACTION_LOGIN_FAILED = "login_failed"
 ACTION_LOGOUT = "logout"
 ACTION_SESSION_REFRESH = "session_refresh"
+ACTION_SESSION_REVOKED = "session_revoked"
+ACTION_SESSIONS_REVOKED = "sessions_revoked"
+ACTION_PROFILE_UPDATED = "profile_updated"
 ACTION_API_KEY_CREATED = "api_key_created"
 ACTION_API_KEY_REVOKED = "api_key_revoked"
 ACTION_API_KEY_USED = "api_key_used"
@@ -22,7 +27,45 @@ ACTION_PERMISSION_DENIED = "permission_denied"
 ACTION_RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
 ACTION_ADMIN_ACTION = "admin_action"
 ACTION_USER_DATA_EXPORT = "user_data_export"
+ACTION_IDENTITY_LINKED = "identity_linked"
+ACTION_IDENTITY_UNLINKED = "identity_unlinked"
+ACTION_IDENTITY_COLLISION = "identity_collision"
+ACTION_BOOTSTRAP_ADMIN_PROMOTED = "bootstrap_admin_promoted"
 ACTION_USER_DATA_DELETION = "user_data_deletion"
+
+
+def write_audit_event(
+    db,
+    action: str,
+    user_id: Optional[UUID] = None,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    success: bool = True,
+    details: Optional[dict] = None,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+):
+    """Write an audit event into the current transaction without finalizing it."""
+    db.execute(
+        text("""
+            INSERT INTO audit_logs
+            (user_id, action, resource_type, resource_id, success, details, ip_address, user_agent)
+            VALUES (
+                :user_id, :action, :resource_type, :resource_id,
+                :success, CAST(:details AS JSONB), :ip_address, :user_agent
+            )
+        """),
+        {
+            "user_id": str(user_id) if user_id else None,
+            "action": action,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "success": success,
+            "details": json.dumps(details or {}),
+            "ip_address": ip_address,
+            "user_agent": user_agent,
+        },
+    )
 
 
 def log_audit_event(
@@ -36,8 +79,7 @@ def log_audit_event(
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
 ):
-    """
-    Log an audit event to the audit_logs table.
+    """Best-effort durable audit write in an independent transaction.
 
     Args:
         db: Database session
@@ -50,50 +92,42 @@ def log_audit_event(
         ip_address: Client IP address
         user_agent: Client user agent string
     """
+    del db  # Compatibility parameter; never enlist the caller transaction.
+    independent_db = SessionLocal()
     try:
-        db.execute(
-            text(
-                """
-                INSERT INTO audit_logs
-                (user_id, action, resource_type, resource_id, success, details, ip_address, user_agent)
-                VALUES (
-                    :user_id, :action, :resource_type, :resource_id,
-                    :success, CAST(:details AS JSONB), :ip_address, :user_agent
-                )
-            """
-            ),
-            {
-                "user_id": str(user_id) if user_id else None,
-                "action": action,
-                "resource_type": resource_type,
-                "resource_id": resource_id,
-                "success": success,
-                "details": details or {},
-                "ip_address": ip_address,
-                "user_agent": user_agent,
-            },
+        write_audit_event(
+            independent_db, action, user_id, resource_type, resource_id, success, details, ip_address, user_agent
         )
-        db.commit()
+        independent_db.commit()
+    except Exception as exc:
+        independent_db.rollback()
+        logger.warning("Best-effort audit write failed", extra={"action": action, "error_type": type(exc).__name__})
+    finally:
+        independent_db.close()
 
-        logger.info(
-            "Audit event logged",
-            extra={
-                "action": action,
-                "user_id": str(user_id) if user_id else None,
-                "success": success,
-                "resource_type": resource_type,
-            },
-        )
-    except Exception as e:
-        logger.error(
-            "Failed to log audit event",
-            extra={
-                "action": action,
-                "error": str(e),
-            },
-            exc_info=True,
-        )
-        # Don't raise - audit logging failure shouldn't break the application
+
+def write_audit_from_request(
+    db,
+    request: Request,
+    action: str,
+    user_id: Optional[UUID] = None,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    success: bool = True,
+    details: Optional[dict] = None,
+):
+    """Write request audit metadata in the caller's active transaction."""
+    write_audit_event(
+        db,
+        action,
+        user_id,
+        resource_type,
+        resource_id,
+        success,
+        details,
+        request.client.host if request.client else None,
+        request.headers.get("user-agent"),
+    )
 
 
 def log_audit_from_request(
@@ -202,13 +236,11 @@ def cleanup_old_audit_logs(db, days_to_keep: int = 90):
     """
     try:
         result = db.execute(
-            text(
-                """
+            text("""
                 DELETE FROM audit_logs
                 WHERE created_at < now() - make_interval(days => :days)
                 RETURNING id
-            """
-            ),
+            """),
             {"days": days_to_keep},
         )
         deleted_count = result.rowcount
@@ -217,7 +249,7 @@ def cleanup_old_audit_logs(db, days_to_keep: int = 90):
         logger.info("Cleaned up old audit logs", extra={"deleted_count": deleted_count, "days_to_keep": days_to_keep})
 
         return deleted_count
-    except Exception as e:
-        logger.error("Failed to cleanup audit logs", extra={"error": str(e)}, exc_info=True)
+    except Exception as exc:
+        logger.error("Failed to cleanup audit logs", extra={"error_type": type(exc).__name__})
         db.rollback()
         return 0

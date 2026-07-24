@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -17,8 +18,8 @@ def _setup_youtube_export(db_session, *, plan: str = "pro"):
         {"id": str(user_id), "email": f"{plan}@example.com", "plan": plan},
     )
     db_session.execute(
-        text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-        {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+        text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+        {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
     )
     job_id = uuid.uuid4()
     video_id = uuid.uuid4()

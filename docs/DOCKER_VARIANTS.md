@@ -18,7 +18,7 @@ All variants use multi-stage builds for optimal image size and build time.
 
 **File:** `Dockerfile`
 
-**Base Image:** `rocm/dev-ubuntu-22.04:6.0.2`
+**Base Image:** `rocm/dev-ubuntu-22.04:7.1`
 
 **Target Size:** <2.5GB (down from ~3GB)
 
@@ -33,13 +33,12 @@ All variants use multi-stage builds for optimal image size and build time.
 ./scripts/build-rocm.sh [rocm_version] [--no-cache] [--push]
 
 # Examples
-./scripts/build-rocm.sh                # Build with ROCm 6.0
-./scripts/build-rocm.sh 6.1            # Build with ROCm 6.1
-./scripts/build-rocm.sh 6.0 --no-cache # Build without cache
+./scripts/build-rocm.sh                # Build with ROCm 7.1
+./scripts/build-rocm.sh 7.1 --no-cache # Build without cache
 
 # Using docker directly
-docker build -t transcript-create:rocm6.0 \
-  --build-arg ROCM_WHEEL_INDEX=https://download.pytorch.org/whl/rocm6.0 \
+docker build -t transcript-create:rocm7.1 \
+  --build-arg ROCM_WHEEL_INDEX=https://download.pytorch.org/whl/rocm7.1 \
   -f Dockerfile .
 ```
 
@@ -50,13 +49,10 @@ docker run -p 8000:8000 \
   --group-add video \
   -v ./data:/data \
   -v ./cache:/root/.cache \
-  transcript-create:rocm6.0
+  transcript-create:rocm7.1
 ```
 
-**Supported ROCm Versions:**
-- 6.0 (default)
-- 6.1
-- 6.2
+**Supported ROCm Version:** 7.1
 
 ### 2. CPU-Only Variant
 
@@ -103,7 +99,7 @@ docker run -p 8000:8000 \
 
 **File:** `Dockerfile.cuda`
 
-**Base Image:** `nvidia/cuda:12.1.0-runtime-ubuntu22.04`
+**Base Image:** `nvidia/cuda:12.8.0-runtime-ubuntu22.04`
 
 **Target Size:** ~2.5GB
 
@@ -118,13 +114,13 @@ docker run -p 8000:8000 \
 ./scripts/build-cuda.sh [cuda_version] [--no-cache] [--push]
 
 # Examples
-./scripts/build-cuda.sh                # Build with CUDA 12.1
-./scripts/build-cuda.sh 11.8           # Build with CUDA 11.8
+./scripts/build-cuda.sh                # Build with CUDA 12.8
+./scripts/build-cuda.sh 12.8 --push    # Scan, then push
 ./scripts/build-cuda.sh --no-cache     # Build without cache
 
 # Using docker directly
-docker build -t transcript-create:cuda12.1 \
-  --build-arg CUDA_WHEEL_INDEX=https://download.pytorch.org/whl/cu121 \
+docker build -t transcript-create:cuda12.8 \
+  --build-arg CUDA_WHEEL_INDEX=https://download.pytorch.org/whl/cu128 \
   -f Dockerfile.cuda .
 ```
 
@@ -134,7 +130,7 @@ docker run -p 8000:8000 \
   --gpus all \
   -v ./data:/data \
   -v ./cache:/root/.cache \
-  transcript-create:cuda12.1
+  transcript-create:cuda12.8
 ```
 
 For a GTX 1080/Pascal core-transcription path, prefer the minimal compose overlay:
@@ -145,9 +141,7 @@ docker compose -f docker-compose.yml -f docker-compose.gtx1080.yml up --build db
 
 That overlay uses `faster-whisper`, `WHISPER_MODEL=small`, and `GPU_COMPUTE_TYPES=int8,float32`. It also supports optional CPU-based pyannote speaker labels via `ENABLE_DIARIZATION=true` and `HF_TOKEN`. See [GTX 1080 Core Transcription Setup](gtx-1080-core.md).
 
-**Supported CUDA Versions:**
-- 12.1 (default, recommended)
-- 11.8
+**Supported CUDA Version:** 12.8
 
 **Requirements:**
 - NVIDIA GPU
@@ -159,10 +153,10 @@ That overlay uses `faster-whisper`, `WHISPER_MODEL=small`, and `GPU_COMPUTE_TYPE
 All variants support the following build arguments:
 
 ### ROCm Variant
-- `ROCM_WHEEL_INDEX` - PyTorch wheel index URL (default: rocm6.0)
+- `ROCM_WHEEL_INDEX` - PyTorch wheel index URL (default: rocm7.1)
 
 ### CUDA Variant
-- `CUDA_WHEEL_INDEX` - PyTorch wheel index URL (default: cu121)
+- `CUDA_WHEEL_INDEX` - PyTorch wheel index URL (default: cu128)
 
 ## Multi-Stage Build Architecture
 

@@ -1,5 +1,7 @@
 """Tests for video routes."""
 
+import hashlib
+import secrets
 import uuid
 from unittest.mock import Mock
 
@@ -7,20 +9,30 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app.csrf import csrf_token
 from app.main import app
 from app.routes.videos import get_youtube_transcript
 from app.security import get_user_required
+from app.settings import settings
 from app.transcripts.blocks import FORMATTER_VERSION
 
 
 @pytest.fixture(autouse=True)
-def authenticated_job_user():
+def authenticated_job_user(db_session):
     user = {
         "id": str(uuid.uuid4()),
         "email": "videos-user@example.com",
         "name": "Videos User",
         "plan": "free",
     }
+    db_session.execute(
+        text(
+            "INSERT INTO users (id, email, name, oauth_provider, oauth_subject, plan) "
+            "VALUES (:id, :email, :name, 'google', :subject, :plan)"
+        ),
+        {**user, "subject": f"videos-{user['id']}"},
+    )
+    db_session.flush()
     app.dependency_overrides[get_user_required] = lambda: user
     yield user
     app.dependency_overrides.pop(get_user_required, None)
@@ -57,6 +69,135 @@ class TestVideosRoutes:
         non_existent_id = uuid.uuid4()
         response = client.get(f"/videos/{non_existent_id}")
         assert response.status_code == 404
+
+    def test_owner_deletion_removes_source_and_records_backup_tombstone(
+        self, client: TestClient, db_session, authenticated_job_user, monkeypatch
+    ):
+        job_id = uuid.uuid4()
+        video_id = uuid.uuid4()
+        db_session.execute(
+            text("""
+                INSERT INTO jobs (id, kind, input_url, owner_user_id)
+                VALUES (:job_id, 'single', 'https://youtube.com/watch?v=delete-me', :owner)
+            """),
+            {"job_id": job_id, "owner": authenticated_job_user["id"]},
+        )
+        db_session.execute(
+            text("""
+                INSERT INTO videos (id, job_id, youtube_id, state)
+                VALUES (:video_id, :job_id, 'delete-me', 'completed')
+            """),
+            {"video_id": video_id, "job_id": job_id},
+        )
+        db_session.commit()
+        monkeypatch.setattr("app.source_deletion.invalidate_video_data", lambda _video_id: None)
+        monkeypatch.setattr("app.source_deletion._delete_file", lambda _path: None)
+        monkeypatch.setattr("app.source_deletion._delete_index_documents", lambda _video_id, _index: None)
+
+        response = client.delete(f"/videos/{video_id}")
+
+        assert response.status_code == 204
+        assert db_session.execute(text("SELECT COUNT(*) FROM videos WHERE id=:id"), {"id": video_id}).scalar() == 0
+        tombstone = (
+            db_session.execute(
+                text(
+                    "SELECT youtube_id, backup_exclusion_until > now() AS active FROM source_deletions WHERE video_id=:id"
+                ),
+                {"id": video_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert tombstone == {"youtube_id": "delete-me", "active": True}
+
+    def test_admin_can_delete_ownerless_retained_video(self, client: TestClient, db_session, monkeypatch):
+        admin_user_id, job_id, video_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        db_session.execute(
+            text("INSERT INTO users (id, email, role) VALUES (:id, :email, 'admin')"),
+            {"id": str(admin_user_id), "email": f"video-admin-{admin_user_id}@example.com"},
+        )
+        db_session.execute(
+            text("INSERT INTO jobs (id, kind, input_url) VALUES (:id, 'single', 'https://example.test')"),
+            {"id": str(job_id)},
+        )
+        db_session.execute(
+            text("INSERT INTO videos (id, job_id, youtube_id) VALUES (:id, :job, 'ownerless-admin')"),
+            {"id": str(video_id), "job": str(job_id)},
+        )
+        db_session.commit()
+        app.dependency_overrides[get_user_required] = lambda: {"id": str(admin_user_id), "role": "admin"}
+        monkeypatch.setattr("app.source_deletion.invalidate_video_data", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("app.source_deletion._delete_file", lambda _path: None)
+
+        response = client.delete(f"/videos/{video_id}")
+
+        assert response.status_code == 204
+        assert db_session.execute(text("SELECT count(*) FROM videos WHERE id=:id"), {"id": str(video_id)}).scalar_one() == 0
+
+    def test_regular_user_cannot_delete_ownerless_retained_video(self, client: TestClient, db_session):
+        job_id, video_id = uuid.uuid4(), uuid.uuid4()
+        db_session.execute(
+            text("INSERT INTO jobs (id, kind, input_url) VALUES (:id, 'single', 'https://example.test')"),
+            {"id": str(job_id)},
+        )
+        db_session.execute(
+            text("INSERT INTO videos (id, job_id, youtube_id) VALUES (:id, :job, 'ownerless-user')"),
+            {"id": str(video_id), "job": str(job_id)},
+        )
+        db_session.commit()
+
+        response = client.delete(f"/videos/{video_id}")
+
+        assert response.status_code == 403
+        assert db_session.execute(text("SELECT count(*) FROM videos WHERE id=:id"), {"id": str(video_id)}).scalar_one() == 1
+
+    def test_delete_missing_video_returns_not_found(self, client: TestClient):
+        response = client.delete(f"/videos/{uuid.uuid4()}")
+
+        assert response.status_code == 404
+
+    def test_source_deletion_rolls_back_when_audit_write_fails(self, client: TestClient, test_engine, monkeypatch):
+        user_id, job_id, video_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        token = secrets.token_urlsafe(32)
+        with test_engine.begin() as connection:
+            connection.execute(text("INSERT INTO users (id, email, role) VALUES (:id, :email, 'user')"), {"id": str(user_id), "email": f"video-audit-{user_id}@example.com"})
+            connection.execute(text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:id, :hash, now() + interval '1 day')"), {"id": str(user_id), "hash": hashlib.sha256(token.encode()).hexdigest()})
+            connection.execute(text("INSERT INTO jobs (id, kind, input_url, owner_user_id) VALUES (:job, 'single', 'https://example.test', :user)"), {"job": str(job_id), "user": str(user_id)})
+            connection.execute(text("INSERT INTO videos (id, job_id, youtube_id) VALUES (:video, :job, :youtube)"), {"video": str(video_id), "job": str(job_id), "youtube": f"audit-{video_id}"})
+        app.dependency_overrides[get_user_required] = lambda: {"id": str(user_id), "role": "user"}
+        monkeypatch.setattr("app.routes.videos.write_audit_from_request", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("audit failure")))
+        client._transport.raise_server_exceptions = False
+        try:
+            response = client.delete(f"/videos/{video_id}", cookies={"tc_session": token}, headers={"Origin": settings.FRONTEND_ORIGIN, "X-CSRF-Token": csrf_token(token)})
+        finally:
+            app.dependency_overrides.pop(get_user_required, None)
+
+        assert response.status_code == 500
+        with test_engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM videos WHERE id=:id"), {"id": str(video_id)}).scalar_one() == 1
+            assert connection.execute(text("SELECT count(*) FROM source_deletions WHERE video_id=:id"), {"id": str(video_id)}).scalar_one() == 0
+            assert connection.execute(text("SELECT count(*) FROM audit_logs WHERE user_id=:id"), {"id": str(user_id)}).scalar_one() == 0
+        with test_engine.begin() as connection:
+            connection.execute(text("DELETE FROM users WHERE id=:id"), {"id": str(user_id)})
+
+    def test_source_deletion_returns_success_when_post_commit_cleanup_fails(self, client: TestClient, db_session, test_engine, authenticated_job_user, monkeypatch):
+        job_id, video_id = uuid.uuid4(), uuid.uuid4()
+        db_session.execute(text("INSERT INTO jobs (id, kind, input_url, owner_user_id) VALUES (:job, 'single', 'https://example.test', :owner)"), {"job": str(job_id), "owner": authenticated_job_user["id"]})
+        db_session.execute(text("INSERT INTO videos (id, job_id, youtube_id) VALUES (:video, :job, :youtube)"), {"video": str(video_id), "job": str(job_id), "youtube": f"cleanup-{video_id}"})
+        db_session.commit()
+        monkeypatch.setattr("app.source_deletion.invalidate_video_data", lambda _id: (_ for _ in ()).throw(RuntimeError("cleanup failed")))
+        monkeypatch.setattr("app.source_deletion._delete_file", lambda _path: None)
+        monkeypatch.setattr("app.source_deletion._delete_index_documents", lambda _id, _index: None)
+
+        response = client.delete(f"/videos/{video_id}")
+
+        assert response.status_code == 204
+        assert db_session.execute(text("SELECT count(*) FROM videos WHERE id=:id"), {"id": str(video_id)}).scalar_one() == 0
+        tombstone = db_session.execute(text("SELECT cleanup_status FROM source_deletions WHERE video_id=:id"), {"id": str(video_id)}).mappings().one()
+        assert tombstone == {"cleanup_status": "pending"}
+        assert db_session.execute(text("SELECT count(*) FROM audit_logs WHERE user_id=:id AND resource_id=:video"), {"id": authenticated_job_user["id"], "video": str(video_id)}).scalar_one() == 1
+        with test_engine.begin() as connection:
+            connection.execute(text("DELETE FROM users WHERE id=:id"), {"id": authenticated_job_user["id"]})
 
     def test_get_video_invalid_uuid(self, client: TestClient):
         """Test getting a video with invalid UUID."""
@@ -99,7 +240,7 @@ class TestVideosRoutes:
         non_existent_id = uuid.uuid4()
         response = client.get(f"/videos/{non_existent_id}/transcript")
         assert response.status_code == 404
-        assert "No segments" in response.json()["detail"]
+        assert "not found" in response.json()["message"].lower()
 
     def test_get_transcript_with_segments(self, client: TestClient, db_session):
         """Test getting a transcript with segments."""
@@ -200,7 +341,9 @@ class TestVideosRoutes:
             {"id": str(uuid.uuid4()), "vid": str(video_id)},
         )
         db_session.execute(
-            text("INSERT INTO segments (video_id, start_ms, end_ms, text, speaker_label) VALUES (:vid, 0, 1000, 'raw', NULL)"),
+            text(
+                "INSERT INTO segments (video_id, start_ms, end_ms, text, speaker_label) VALUES (:vid, 0, 1000, 'raw', NULL)"
+            ),
             {"vid": str(video_id)},
         )
         db_session.execute(
@@ -252,7 +395,7 @@ class TestVideosRoutes:
         non_existent_id = uuid.uuid4()
         response = client.get(f"/videos/{non_existent_id}/youtube-transcript")
         assert response.status_code == 404
-        assert "No YouTube transcript" in response.json()["detail"]
+        assert "not found" in response.json()["message"].lower()
 
     def test_get_youtube_transcript_with_data(self, client: TestClient, db_session):
         """Test getting a YouTube transcript with data."""
@@ -307,7 +450,12 @@ class TestVideosRoutes:
         monkeypatch.setattr("app.routes.videos.crud.get_video", lambda db_arg, video_id_arg: {"id": video_id})
         monkeypatch.setattr(
             "app.routes.videos.crud.get_youtube_transcript",
-            lambda db_arg, video_id_arg: {"id": uuid.uuid4(), "language": "en", "kind": "asr", "full_text": "raw full text"},
+            lambda db_arg, video_id_arg: {
+                "id": uuid.uuid4(),
+                "language": "en",
+                "kind": "asr",
+                "full_text": "raw full text",
+            },
         )
         monkeypatch.setattr(
             "app.routes.videos.crud.list_youtube_segments",

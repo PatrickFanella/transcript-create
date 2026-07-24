@@ -2,8 +2,6 @@ import os
 import warnings
 from typing import Any, Optional
 
-import torch
-
 from app.logging_config import get_logger
 from app.settings import settings
 
@@ -14,22 +12,36 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="whisper")
 logger = get_logger(__name__)
 
 _ct2: Optional[Any] = None
+_torch: Optional[Any] = None
 _torch_whisper: Optional[Any] = None
 
 _model: Optional[Any] = None
 _fallback_ct2_model: Optional[Any] = None
 
 
-def _lazy_imports():
-    global _ct2, _torch_whisper
-    if settings.WHISPER_BACKEND == "faster-whisper" and _ct2 is None:
+def _lazy_import_ct2():
+    """Load faster-whisper on demand, including for the ROCm fallback path."""
+    global _ct2
+    if _ct2 is None:
         try:
             from faster_whisper import WhisperModel as CT2Model
 
             _ct2 = CT2Model
         except ImportError:
             logger.error("Failed to import faster-whisper. Ensure it is installed.")
-            # _ct2 remains None
+
+
+def _lazy_imports():
+    global _torch, _torch_whisper
+    if settings.WHISPER_BACKEND == "faster-whisper":
+        _lazy_import_ct2()
+    if settings.WHISPER_BACKEND == "whisper" and _torch is None:
+        try:
+            import torch as torch_module
+
+            _torch = torch_module
+        except ImportError:
+            logger.error("Failed to import torch required by the openai-whisper backend.")
     if settings.WHISPER_BACKEND == "whisper" and _torch_whisper is None:
         try:
             import whisper as torch_whisper
@@ -41,8 +53,8 @@ def _lazy_imports():
 
 
 def _try_load_ct2(model_name: str, device: str, compute_type: str):
-    _lazy_imports()
-    if settings.WHISPER_BACKEND == "faster-whisper" and _ct2 is None:
+    _lazy_import_ct2()
+    if _ct2 is None:
         raise RuntimeError("faster-whisper backend not loaded")
     logger.info(
         "Loading faster-whisper model",
@@ -53,13 +65,16 @@ def _try_load_ct2(model_name: str, device: str, compute_type: str):
 
 def _try_load_torch(model_name: str, force_gpu: bool):
     _lazy_imports()
+    if _torch is None:
+        raise RuntimeError("openai-whisper backend requires torch, but torch could not be imported")
     if settings.WHISPER_BACKEND == "whisper" and _torch_whisper is None:
         raise RuntimeError("whisper backend not loaded")
+    torch_module = _torch
     # For ROCm, torch.device("cuda") maps to HIP when ROCm builds are installed
-    use_cuda = torch.cuda.is_available()
+    use_cuda = torch_module.cuda.is_available()
     if force_gpu and not use_cuda:
         raise RuntimeError("FORCE_GPU is true but torch.cuda is not available")
-    device = torch.device("cuda" if use_cuda else "cpu")
+    device = torch_module.device("cuda" if use_cuda else "cpu")
     logger.info("Loading openai-whisper model", extra={"model": model_name, "device": str(device)})
 
     # Suppress weights_only FutureWarning for trusted OpenAI models
@@ -91,8 +106,8 @@ def _get_model():
                     models = [settings.WHISPER_MODEL] + [m for m in models if m != settings.WHISPER_MODEL]
 
                 last_err = None
-                for dev in devices:
-                    for model_name in models:
+                for model_name in models:
+                    for dev in devices:
                         for ctype in compute_types:
                             try:
                                 logger.info(
@@ -200,6 +215,12 @@ def transcribe_chunk(wav_path, language=None, beam_size=None, temperature=None, 
     language_probability = None
 
     if settings.WHISPER_BACKEND == "whisper":
+        torch_module = _torch
+        if torch_module is None:
+            _lazy_imports()
+            torch_module = _torch
+        if torch_module is None:
+            raise RuntimeError("openai-whisper backend requires torch, but torch could not be imported")
         # openai-whisper returns dict with 'segments' list
         # On ROCm, some optimized attention kernels can cause faults on certain drivers/GPUs.
         # Force fp32 and disable flash/mem-efficient attention so math kernels are used.
@@ -217,9 +238,9 @@ def transcribe_chunk(wav_path, language=None, beam_size=None, temperature=None, 
                 return sdpa_kernel([SDPBackend.MATH])
 
             sdp_ctx = new_sdp_ctx
-        except ImportError:
+        except AttributeError:
             # Fallback to deprecated API for older PyTorch versions
-            sdp_ctx_func = getattr(getattr(torch.backends, "cuda", object()), "sdp_kernel", None)
+            sdp_ctx_func = getattr(getattr(torch_module.backends, "cuda", object()), "sdp_kernel", None)
             if callable(sdp_ctx_func):
 
                 def old_sdp_ctx():

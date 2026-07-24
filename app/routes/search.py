@@ -1,31 +1,68 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import text as _text
 
 from ..common.session import get_session_token as _get_session_token
 from ..common.session import get_user_from_session as _get_user_from_session
-from ..common.session import is_admin as _is_admin
+from ..csv_export import render_csv
 from ..db import get_db
-from ..exceptions import ExternalServiceError, ValidationError
+from ..exceptions import ValidationError
 from ..schemas import (
     ErrorResponse,
     GroupedSearchResponse,
     MentionMap,
     SearchAnalytics,
     SearchHistoryResponse,
-    SearchHit,
     SearchResponse,
     SearchSuggestionsResponse,
 )
 from ..search.analytics import get_popular_searches as _get_popular_searches
 from ..search.analytics import get_search_analytics as _get_search_analytics
 from ..search.analytics import get_search_suggestions as _get_search_suggestions
+from ..search.mention_exports import mention_collection, render_mention_export
 from ..search.orchestrator import SearchOrchestrator
+from ..settings import settings
 
 router = APIRouter(prefix="", tags=["Search"])
 _search_orchestrator = SearchOrchestrator()
+
+
+@router.get("/search/mentions/export", summary="Export every matched mention")
+def export_search_mentions(
+    q: str = Query(..., min_length=1, max_length=500),
+    format: str = Query("json", pattern="^(json|csv|m3u)$"),
+    source: str = Query("best", pattern="^(best|native|youtube)$"),
+    video_id: uuid.UUID | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    limit: int = Query(5000, ge=1, le=5000),
+    db=Depends(get_db),
+):
+    filters = {
+        **({"date_from": date_from} if date_from else {}),
+        **({"date_to": date_to} if date_to else {}),
+    }
+    items = mention_collection(
+        db,
+        q=q,
+        source=source,
+        video_id=str(video_id) if video_id else None,
+        limit=limit,
+        filters=filters,
+    )
+    body, media_type = render_mention_export(
+        items,
+        format=format,
+        frontend_origin=settings.FRONTEND_ORIGIN,
+    )
+    extension = "m3u" if format == "m3u" else format
+    return Response(
+        content=body,
+        media_type=media_type.split(";", 1)[0],
+        headers={"Content-Disposition": f'attachment; filename="mentions.{extension}"'},
+    )
 
 
 @router.get(
@@ -64,19 +101,24 @@ _search_orchestrator = SearchOrchestrator()
                                 "video_id": "123e4567-e89b-12d3-a456-426614174000",
                                 "start_ms": 45000,
                                 "end_ms": 48500,
-                                "snippet": "This is an example of <em>search term</em> in context",
+                                "snippet": "This is an example of search term in context",
+                                "highlights": [{"start": 22, "end": 33}],
                             }
                         ],
                     }
                 }
             },
         },
-        400: {
+        422: {
             "description": "Validation error - empty query or invalid parameters",
             "model": ErrorResponse,
         },
         401: {
             "description": "Authentication required",
+            "model": ErrorResponse,
+        },
+        429: {
+            "description": "Request rate limit exceeded",
             "model": ErrorResponse,
         },
         503: {
@@ -133,6 +175,8 @@ def search(
         category=category,
         sort_by=sort_by,
     )
+
+
 @router.get(
     "/search/suggestions",
     response_model=SearchSuggestionsResponse,
@@ -177,15 +221,13 @@ def get_search_history(
 
     rows = (
         db.execute(
-            _text(
-                """
+            _text("""
             SELECT query, filters, result_count, created_at
             FROM user_searches
             WHERE user_id = :user_id
             ORDER BY created_at DESC
             LIMIT :limit
-        """
-            ),
+        """),
             {"user_id": str(user["id"]), "limit": limit},
         )
         .mappings()
@@ -332,29 +374,23 @@ def export_search_results(
     else:  # CSV
         from fastapi.responses import PlainTextResponse
 
-        def esc(x):
-            s = str(x) if x is not None else ""
-            if any(c in s for c in [",", '"', "\n"]):
-                s = '"' + s.replace('"', '""') + '"'
-            return s
-
-        # Build CSV
-        header = "segment_id,video_id,youtube_id,title,start_ms,end_ms,text\n"
-        body = ""
+        csv_rows: list[list[Any]] = [["segment_id", "video_id", "youtube_id", "title", "start_ms", "end_ms", "text"]]
         for r in rows:
             vid = str(r["video_id"])
             video_info = video_details.get(vid, {})
-            body += (
-                f"{esc(r['id'])},"
-                f"{esc(vid)},"
-                f"{esc(video_info.get('youtube_id'))},"
-                f"{esc(video_info.get('title'))},"
-                f"{esc(r['start_ms'])},"
-                f"{esc(r['end_ms'])},"
-                f"{esc(r['snippet'])}\n"
+            csv_rows.append(
+                [
+                    r["id"],
+                    vid,
+                    video_info.get("youtube_id"),
+                    video_info.get("title"),
+                    r["start_ms"],
+                    r["end_ms"],
+                    r["snippet"],
+                ]
             )
 
-        return PlainTextResponse(content=header + body, media_type="text/csv")
+        return PlainTextResponse(content=render_csv(csv_rows), media_type="text/csv")
 
 
 @router.get(

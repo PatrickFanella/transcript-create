@@ -40,7 +40,15 @@ def test_postgres_backend_maps_rows(monkeypatch):
             captured["db"] = db
             captured["kwargs"] = kwargs
             return [
-                {"id": 7, "video_id": "v2", "start_ms": 10, "end_ms": 20, "snippet": "snip", "rank": 1.5}
+                {
+                    "id": 7,
+                    "video_id": "v2",
+                    "start_ms": 10,
+                    "end_ms": 20,
+                    "snippet": "snip",
+                    "highlights": [{"start": 0, "end": 4}],
+                    "rank": 1.5,
+                }
             ]
 
     backend = PostgresSearchBackend(db=object(), repository=FakeRepository())
@@ -65,4 +73,5 @@ def test_postgres_backend_maps_rows(monkeypatch):
     assert results[0].id == 7
     assert results[0].video_id == "v2"
     assert results[0].snippet == "snip"
+    assert results[0].highlights == ({"start": 0, "end": 4},)
     assert results[0].rank == 1.5

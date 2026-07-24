@@ -104,6 +104,12 @@ db_errors_total = Counter(
     ["error_type"],
 )
 
+archive_unavailable_total = Counter(
+    "archive_unavailable_total",
+    "Archive intelligence database operations that returned unavailable",
+    ["operation"],
+)
+
 # Cache Metrics
 cache_hits_total = Counter(
     "cache_hits_total",

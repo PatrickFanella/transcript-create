@@ -11,75 +11,21 @@ import type {
   ArchiveVideoTagAdminResponse,
   ArchiveVideoTagUpsertPayload,
 } from '../../types/api';
-
-type Status = 'published' | 'hidden';
-
-type PersonFormState = {
-  display_name: string;
-  slug: string;
-  aliases: string;
-  description: string;
-  status: Status;
-  sort_order: string;
-};
-
-type TagFormState = {
-  label: string;
-  slug: string;
-  kind: string;
-  description: string;
-  status: Status;
-  sort_order: string;
-};
-
-const emptyPersonForm: PersonFormState = {
-  display_name: '',
-  slug: '',
-  aliases: '',
-  description: '',
-  status: 'published',
-  sort_order: '',
-};
-
-const emptyTagForm: TagFormState = {
-  label: '',
-  slug: '',
-  kind: 'category',
-  description: '',
-  status: 'published',
-  sort_order: '',
-};
-
-const tagKindOptions = ['category', 'topic', 'label', 'group'];
-
-function normalizeItems<T>(value: T[] | { items?: T[] } | null | undefined): T[] {
-  if (Array.isArray(value)) return value;
-  return value?.items ?? [];
-}
-
-function parseAliases(raw: string) {
-  return raw
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-function parseSortOrder(raw: string) {
-  if (!raw.trim()) return undefined;
-  const value = Number(raw);
-  return Number.isNaN(value) ? null : value;
-}
-
-function asArchiveVideo(item: ArchiveVideoMetadataItem | { video?: ArchiveVideoMetadataItem; item?: ArchiveVideoMetadataItem } | null | undefined) {
-  if (!item) return null;
-  if ('video' in item && item.video) return item.video;
-  if ('item' in item && item.item) return item.item;
-  return item as ArchiveVideoMetadataItem;
-}
-
-function buildSelectionMap<T extends { slug: string }>(items: T[] | undefined) {
-  return Object.fromEntries((items ?? []).map((item) => [item.slug, true]));
-}
+import {
+  asArchiveVideo,
+  buildSelectionMap,
+  emptyPersonForm,
+  emptyTagForm,
+  normalizeItems,
+  parseAliases,
+  parseSortOrder,
+  tagKindOptions,
+} from '../../features/admin/videoMetadataModel';
+import type {
+  MetadataStatus,
+  PersonFormState,
+  TagFormState,
+} from '../../features/admin/videoMetadataModel';
 
 function chipList(items: Array<ArchivePerson | ArchiveVideoTag>, emptyLabel: string) {
   if (!items.length) {
@@ -89,7 +35,10 @@ function chipList(items: Array<ArchivePerson | ArchiveVideoTag>, emptyLabel: str
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item) => (
-        <span key={item.slug} className="rounded-full border border-border bg-surface-muted px-2 py-1 text-xs text-muted">
+        <span
+          key={item.slug}
+          className="rounded-full border border-border bg-surface-muted px-2 py-1 text-xs text-muted"
+        >
           {'display_name' in item ? item.display_name : item.label}
         </span>
       ))}
@@ -124,7 +73,9 @@ export default function AdminVideoMetadata() {
   const syncSelection = useCallback((video: ArchiveVideoMetadataItem) => {
     setSelectedPeople(buildSelectionMap(video.people));
     setSelectedPeopleRoles(
-      Object.fromEntries((video.people ?? []).map((person) => [person.slug, person.role || 'guest']))
+      Object.fromEntries(
+        (video.people ?? []).map((person) => [person.slug, person.role || 'guest'])
+      )
     );
     setSelectedTags(buildSelectionMap(video.tags));
   }, []);
@@ -132,9 +83,9 @@ export default function AdminVideoMetadata() {
   const loadPeople = useCallback(async () => {
     setPeopleLoading(true);
     try {
-      const response = await http.get('admin/archive/metadata/people', { searchParams: { limit: '200', offset: '0' } }).json<
-        ArchivePersonAdminResponse[] | { items?: ArchivePersonAdminResponse[] }
-      >();
+      const response = await http
+        .get('admin/archive/metadata/people', { searchParams: { limit: '200', offset: '0' } })
+        .json<ArchivePersonAdminResponse[] | { items?: ArchivePersonAdminResponse[] }>();
       setPeople(normalizeItems(response));
     } catch (loadError) {
       console.error('Failed to load archive people', loadError);
@@ -147,9 +98,9 @@ export default function AdminVideoMetadata() {
   const loadTags = useCallback(async () => {
     setTagsLoading(true);
     try {
-      const response = await http.get('admin/archive/metadata/tags', { searchParams: { limit: '200', offset: '0' } }).json<
-        ArchiveVideoTagAdminResponse[] | { items?: ArchiveVideoTagAdminResponse[] }
-      >();
+      const response = await http
+        .get('admin/archive/metadata/tags', { searchParams: { limit: '200', offset: '0' } })
+        .json<ArchiveVideoTagAdminResponse[] | { items?: ArchiveVideoTagAdminResponse[] }>();
       setTags(normalizeItems(response));
     } catch (loadError) {
       console.error('Failed to load archive tags', loadError);
@@ -182,8 +133,12 @@ export default function AdminVideoMetadata() {
 
     try {
       const response = editingPersonSlug
-        ? await http.patch(`admin/archive/metadata/people/${editingPersonSlug}`, { json: payload }).json<ArchivePersonAdminResponse>()
-        : await http.post('admin/archive/metadata/people', { json: payload }).json<ArchivePersonAdminResponse>();
+        ? await http
+            .patch(`admin/archive/metadata/people/${editingPersonSlug}`, { json: payload })
+            .json<ArchivePersonAdminResponse>()
+        : await http
+            .post('admin/archive/metadata/people', { json: payload })
+            .json<ArchivePersonAdminResponse>();
 
       setPeople((current) => {
         const withoutCurrent = current.filter((person) => person.slug !== editingPersonSlug);
@@ -223,8 +178,12 @@ export default function AdminVideoMetadata() {
 
     try {
       const response = editingTagSlug
-        ? await http.patch(`admin/archive/metadata/tags/${editingTagSlug}`, { json: payload }).json<ArchiveVideoTagAdminResponse>()
-        : await http.post('admin/archive/metadata/tags', { json: payload }).json<ArchiveVideoTagAdminResponse>();
+        ? await http
+            .patch(`admin/archive/metadata/tags/${editingTagSlug}`, { json: payload })
+            .json<ArchiveVideoTagAdminResponse>()
+        : await http
+            .post('admin/archive/metadata/tags', { json: payload })
+            .json<ArchiveVideoTagAdminResponse>();
 
       setTags((current) => {
         const withoutCurrent = current.filter((tag) => tag.slug !== editingTagSlug);
@@ -269,10 +228,12 @@ export default function AdminVideoMetadata() {
     params.set('limit', String(Number(videoLimit) > 0 ? Number(videoLimit) : 20));
 
     try {
-      const response = await http.get('admin/archive/metadata/videos', { searchParams: params }).json<
-        ArchiveVideoMetadataItem[] | ArchiveVideoMetadataListResponse
-      >();
-      const items = normalizeItems(response as ArchiveVideoMetadataItem[] | { items?: ArchiveVideoMetadataItem[] });
+      const response = await http
+        .get('admin/archive/metadata/videos', { searchParams: params })
+        .json<ArchiveVideoMetadataItem[] | ArchiveVideoMetadataListResponse>();
+      const items = normalizeItems(
+        response as ArchiveVideoMetadataItem[] | { items?: ArchiveVideoMetadataItem[] }
+      );
       setVideoResults(items);
       setNotice(items.length ? `Found ${items.length} VODs.` : 'No VODs matched your search.');
     } catch (searchError) {
@@ -307,14 +268,19 @@ export default function AdminVideoMetadata() {
     };
 
     try {
-      const response = await http.put(`admin/archive/metadata/videos/${selectedVideo.id}`, { json: payload }).json<
-        ArchiveVideoMetadataItem | { video?: ArchiveVideoMetadataItem; item?: ArchiveVideoMetadataItem }
-      >();
+      const response = await http
+        .put(`admin/archive/metadata/videos/${selectedVideo.id}`, { json: payload })
+        .json<
+          | ArchiveVideoMetadataItem
+          | { video?: ArchiveVideoMetadataItem; item?: ArchiveVideoMetadataItem }
+        >();
       const updated = asArchiveVideo(response);
       if (updated) {
         setSelectedVideo(updated);
         syncSelection(updated);
-        setVideoResults((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        setVideoResults((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item))
+        );
       }
       setNotice('Saved metadata assignment.');
     } catch (saveError) {
@@ -382,8 +348,16 @@ export default function AdminVideoMetadata() {
 
       {(notice || error) && (
         <div className="surface-card space-y-1 text-sm" aria-live="polite">
-          {notice && <div className="text-success" role="status">{notice}</div>}
-          {error && <div className="text-red-500" role="alert">{error}</div>}
+          {notice && (
+            <div className="text-success" role="status">
+              {notice}
+            </div>
+          )}
+          {error && (
+            <div className="text-red-500" role="alert">
+              {error}
+            </div>
+          )}
         </div>
       )}
 
@@ -398,7 +372,10 @@ export default function AdminVideoMetadata() {
 
         <form className="grid gap-4 md:grid-cols-2" onSubmit={savePerson}>
           <div>
-            <label className="mb-1 block text-sm font-medium text-ink" htmlFor="person-display-name">
+            <label
+              className="mb-1 block text-sm font-medium text-ink"
+              htmlFor="person-display-name"
+            >
               Display name
             </label>
             <input
@@ -406,7 +383,9 @@ export default function AdminVideoMetadata() {
               required
               className="form-control"
               value={personForm.display_name}
-              onChange={(event) => setPersonForm((current) => ({ ...current, display_name: event.target.value }))}
+              onChange={(event) =>
+                setPersonForm((current) => ({ ...current, display_name: event.target.value }))
+              }
               placeholder="Guest One"
             />
           </div>
@@ -418,11 +397,15 @@ export default function AdminVideoMetadata() {
               id="person-slug"
               className="form-control"
               value={personForm.slug}
-              onChange={(event) => setPersonForm((current) => ({ ...current, slug: event.target.value }))}
+              onChange={(event) =>
+                setPersonForm((current) => ({ ...current, slug: event.target.value }))
+              }
               placeholder="guest-one"
               disabled={Boolean(editingPersonSlug)}
             />
-            {editingPersonSlug && <p className="mt-1 text-xs text-muted">Slugs are fixed after creation.</p>}
+            {editingPersonSlug && (
+              <p className="mt-1 text-xs text-muted">Slugs are fixed after creation.</p>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-ink" htmlFor="person-aliases">
@@ -432,7 +415,9 @@ export default function AdminVideoMetadata() {
               id="person-aliases"
               className="form-control"
               value={personForm.aliases}
-              onChange={(event) => setPersonForm((current) => ({ ...current, aliases: event.target.value }))}
+              onChange={(event) =>
+                setPersonForm((current) => ({ ...current, aliases: event.target.value }))
+              }
               placeholder="alt name, nickname"
             />
           </div>
@@ -444,7 +429,12 @@ export default function AdminVideoMetadata() {
               id="person-status"
               className="form-control"
               value={personForm.status}
-              onChange={(event) => setPersonForm((current) => ({ ...current, status: event.target.value as Status }))}
+              onChange={(event) =>
+                setPersonForm((current) => ({
+                  ...current,
+                  status: event.target.value as MetadataStatus,
+                }))
+              }
             >
               <option value="published">Published</option>
               <option value="hidden">Hidden</option>
@@ -459,7 +449,9 @@ export default function AdminVideoMetadata() {
               className="form-control"
               type="number"
               value={personForm.sort_order}
-              onChange={(event) => setPersonForm((current) => ({ ...current, sort_order: event.target.value }))}
+              onChange={(event) =>
+                setPersonForm((current) => ({ ...current, sort_order: event.target.value }))
+              }
               placeholder="0"
             />
           </div>
@@ -471,7 +463,9 @@ export default function AdminVideoMetadata() {
               id="person-description"
               className="form-control"
               value={personForm.description}
-              onChange={(event) => setPersonForm((current) => ({ ...current, description: event.target.value }))}
+              onChange={(event) =>
+                setPersonForm((current) => ({ ...current, description: event.target.value }))
+              }
               placeholder="Short context about this person"
             />
           </div>
@@ -503,12 +497,18 @@ export default function AdminVideoMetadata() {
                 <tr key={row.id} className="border-b border-border align-top">
                   <td className="px-2 py-2 font-medium">{row.display_name}</td>
                   <td className="px-2 py-2 font-mono text-xs">{row.slug}</td>
-                  <td className="px-2 py-2 text-muted">{row.aliases?.length ? row.aliases.join(', ') : '—'}</td>
+                  <td className="px-2 py-2 text-muted">
+                    {row.aliases?.length ? row.aliases.join(', ') : '—'}
+                  </td>
                   <td className="px-2 py-2 text-muted">{row.description || '—'}</td>
                   <td className="px-2 py-2">{row.status}</td>
                   <td className="px-2 py-2">{row.sort_order}</td>
                   <td className="px-2 py-2">
-                    <button className="btn btn-secondary" type="button" onClick={() => editPerson(row)}>
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={() => editPerson(row)}
+                    >
                       Edit
                     </button>
                   </td>
@@ -533,7 +533,12 @@ export default function AdminVideoMetadata() {
             <p className="text-sm text-muted">Create and manage content tags used on videos.</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn btn-secondary" type="button" onClick={seedTags} disabled={seedingTags}>
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={seedTags}
+              disabled={seedingTags}
+            >
               {seedingTags ? 'Seeding…' : 'Seed default tags'}
             </button>
             {tagsLoading && <div className="text-sm text-muted">Loading…</div>}
@@ -550,7 +555,9 @@ export default function AdminVideoMetadata() {
               required
               className="form-control"
               value={tagForm.label}
-              onChange={(event) => setTagForm((current) => ({ ...current, label: event.target.value }))}
+              onChange={(event) =>
+                setTagForm((current) => ({ ...current, label: event.target.value }))
+              }
               placeholder="Chadvice"
             />
           </div>
@@ -562,11 +569,15 @@ export default function AdminVideoMetadata() {
               id="tag-slug"
               className="form-control"
               value={tagForm.slug}
-              onChange={(event) => setTagForm((current) => ({ ...current, slug: event.target.value }))}
+              onChange={(event) =>
+                setTagForm((current) => ({ ...current, slug: event.target.value }))
+              }
               placeholder="chadvice"
               disabled={Boolean(editingTagSlug)}
             />
-            {editingTagSlug && <p className="mt-1 text-xs text-muted">Slugs are fixed after creation.</p>}
+            {editingTagSlug && (
+              <p className="mt-1 text-xs text-muted">Slugs are fixed after creation.</p>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-ink" htmlFor="tag-kind">
@@ -577,7 +588,9 @@ export default function AdminVideoMetadata() {
               className="form-control"
               value={tagForm.kind}
               list="tag-kind-values"
-              onChange={(event) => setTagForm((current) => ({ ...current, kind: event.target.value }))}
+              onChange={(event) =>
+                setTagForm((current) => ({ ...current, kind: event.target.value }))
+              }
               placeholder="category"
             />
             <datalist id="tag-kind-values">
@@ -594,7 +607,12 @@ export default function AdminVideoMetadata() {
               id="tag-status"
               className="form-control"
               value={tagForm.status}
-              onChange={(event) => setTagForm((current) => ({ ...current, status: event.target.value as Status }))}
+              onChange={(event) =>
+                setTagForm((current) => ({
+                  ...current,
+                  status: event.target.value as MetadataStatus,
+                }))
+              }
             >
               <option value="published">Published</option>
               <option value="hidden">Hidden</option>
@@ -609,7 +627,9 @@ export default function AdminVideoMetadata() {
               className="form-control"
               type="number"
               value={tagForm.sort_order}
-              onChange={(event) => setTagForm((current) => ({ ...current, sort_order: event.target.value }))}
+              onChange={(event) =>
+                setTagForm((current) => ({ ...current, sort_order: event.target.value }))
+              }
               placeholder="0"
             />
           </div>
@@ -621,7 +641,9 @@ export default function AdminVideoMetadata() {
               id="tag-description"
               className="form-control"
               value={tagForm.description}
-              onChange={(event) => setTagForm((current) => ({ ...current, description: event.target.value }))}
+              onChange={(event) =>
+                setTagForm((current) => ({ ...current, description: event.target.value }))
+              }
               placeholder="Short context about this tag"
             />
           </div>
@@ -658,7 +680,11 @@ export default function AdminVideoMetadata() {
                   <td className="px-2 py-2">{row.status}</td>
                   <td className="px-2 py-2">{row.sort_order}</td>
                   <td className="px-2 py-2">
-                    <button className="btn btn-secondary" type="button" onClick={() => editTag(row)}>
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={() => editTag(row)}
+                    >
                       Edit
                     </button>
                   </td>
@@ -679,7 +705,9 @@ export default function AdminVideoMetadata() {
       <section className="surface-card space-y-4">
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">Video assignment</h2>
-          <p className="text-sm text-muted">Search a VOD, inspect current metadata, and update assignments.</p>
+          <p className="text-sm text-muted">
+            Search a VOD, inspect current metadata, and update assignments.
+          </p>
         </div>
 
         <form className="flex flex-wrap items-end gap-3" onSubmit={searchVideos}>
@@ -726,13 +754,20 @@ export default function AdminVideoMetadata() {
             </thead>
             <tbody>
               {videoResults.map((row) => (
-                <tr key={row.id} className={`border-b border-border align-top ${selectedVideo?.id === row.id ? 'bg-surface-muted' : ''}`}>
+                <tr
+                  key={row.id}
+                  className={`border-b border-border align-top ${selectedVideo?.id === row.id ? 'bg-surface-muted' : ''}`}
+                >
                   <td className="px-2 py-2 font-medium">{row.title || 'Untitled video'}</td>
                   <td className="px-2 py-2 font-mono text-xs">{row.youtube_id}</td>
                   <td className="px-2 py-2">{row.people?.length ?? 0}</td>
                   <td className="px-2 py-2">{row.tags?.length ?? 0}</td>
                   <td className="px-2 py-2">
-                    <button className="btn btn-secondary" type="button" onClick={() => selectVideo(row)}>
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={() => selectVideo(row)}
+                    >
                       Select
                     </button>
                   </td>
@@ -754,7 +789,9 @@ export default function AdminVideoMetadata() {
             <>
               <div className="space-y-1">
                 <div className="text-sm uppercase tracking-wide text-muted">Selected VOD</div>
-                <div className="text-base font-semibold">{selectedVideo.title || 'Untitled video'}</div>
+                <div className="text-base font-semibold">
+                  {selectedVideo.title || 'Untitled video'}
+                </div>
                 <div className="font-mono text-xs text-muted">{selectedVideo.youtube_id}</div>
               </div>
 
@@ -784,7 +821,10 @@ export default function AdminVideoMetadata() {
                           checked={Boolean(selectedPeople[person.slug])}
                           onChange={(event) => {
                             const checked = event.target.checked;
-                            setSelectedPeople((current) => ({ ...current, [person.slug]: checked }));
+                            setSelectedPeople((current) => ({
+                              ...current,
+                              [person.slug]: checked,
+                            }));
                             setSelectedPeopleRoles((current) => {
                               const next = { ...current };
                               if (checked) next[person.slug] = next[person.slug] || 'guest';
@@ -800,14 +840,19 @@ export default function AdminVideoMetadata() {
                           className="form-control ml-auto w-32"
                           value={selectedPeopleRoles[person.slug] || 'guest'}
                           onChange={(event) =>
-                            setSelectedPeopleRoles((current) => ({ ...current, [person.slug]: event.target.value }))
+                            setSelectedPeopleRoles((current) => ({
+                              ...current,
+                              [person.slug]: event.target.value,
+                            }))
                           }
                           disabled={!selectedPeople[person.slug]}
                           placeholder="guest"
                         />
                       </label>
                     ))}
-                    {!availablePeople.length && <div className="text-sm text-muted">Create people before assigning them.</div>}
+                    {!availablePeople.length && (
+                      <div className="text-sm text-muted">Create people before assigning them.</div>
+                    )}
                   </div>
                 </div>
 
@@ -824,7 +869,10 @@ export default function AdminVideoMetadata() {
                           aria-label={`Assign ${tag.label}`}
                           checked={Boolean(selectedTags[tag.slug])}
                           onChange={(event) =>
-                            setSelectedTags((current) => ({ ...current, [tag.slug]: event.target.checked }))
+                            setSelectedTags((current) => ({
+                              ...current,
+                              [tag.slug]: event.target.checked,
+                            }))
                           }
                         />
                         <span className="min-w-32 font-medium">{tag.label}</span>
@@ -832,13 +880,20 @@ export default function AdminVideoMetadata() {
                         <span className="ml-auto text-xs text-muted">{tag.kind}</span>
                       </label>
                     ))}
-                    {!availableTags.length && <div className="text-sm text-muted">Create tags before assigning them.</div>}
+                    {!availableTags.length && (
+                      <div className="text-sm text-muted">Create tags before assigning them.</div>
+                    )}
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
-                <button className="btn btn-primary" type="button" onClick={() => void saveAssignment()} disabled={assignmentSaving}>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={() => void saveAssignment()}
+                  disabled={assignmentSaving}
+                >
                   {assignmentSaving ? 'Saving…' : 'Save assignment'}
                 </button>
               </div>

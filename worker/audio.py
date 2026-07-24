@@ -218,10 +218,7 @@ def _yt_dlp_cmd(base_out: Path, url: str, strategy: Optional[ClientStrategy] = N
         if token_args:
             extractor_arg = "youtube:" + ";".join(token_args)
             cmd.extend(["--extractor-args", extractor_arg])
-            logger.info(
-                "PO tokens added to yt-dlp command",
-                extra={"token_types": list(po_tokens.keys())}
-            )
+            logger.info("PO tokens added to yt-dlp command", extra={"token_types": list(po_tokens.keys())})
 
     # Add cookies if configured
     if settings.YTDLP_COOKIES_PATH and Path(settings.YTDLP_COOKIES_PATH).exists():
@@ -383,9 +380,11 @@ def download_audio(url: str, dest_dir: Path) -> Path:
         # Without this, the inner function would reference the loop variable which may change
         def make_download_attempt(strat: ClientStrategy, idx: int):
             """Create download attempt function with explicit parameter binding."""
+
             def download_attempt():
                 """Single download attempt that can be retried."""
                 return _download_with_strategy(url, out, strat, idx + 1)
+
             return download_attempt  # noqa: B023 (false positive - function returned immediately)
 
         download_attempt = make_download_attempt(strategy, strategy_idx)
@@ -411,7 +410,7 @@ def download_audio(url: str, dest_dir: Path) -> Path:
                     token_manager.mark_token_invalid(token_type, reason=error_class.value)
                 logger.warning(
                     "Token-related error detected, marking player/gvs tokens invalid",
-                    extra={"error_classification": error_class.value, "returncode": returncode}
+                    extra={"error_classification": error_class.value, "returncode": returncode},
                 )
 
             return error_class

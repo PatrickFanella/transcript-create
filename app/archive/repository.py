@@ -3,9 +3,8 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
-from app.schemas import ArchivePopularSearch, ArchiveSummary, VideoInfo
 from app.archive.video_metadata_repository import get_video_metadata_map
-
+from app.schemas import ArchivePopularSearch, ArchiveSummary, VideoInfo
 
 ARCHIVE_VIDEO_FILTER_SQL = """
     EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.id)
@@ -36,9 +35,7 @@ def _safe_video_metadata_map(db, video_ids):
 class ArchiveRepository:
     def get_summary(self, db, recent_limit: int = 6, popular_limit: int = 8) -> ArchiveSummary:
         try:
-            stats = db.execute(
-                text(
-                    """
+            stats = db.execute(text("""
                     SELECT
                         video_count,
                         total_duration_seconds,
@@ -46,17 +43,13 @@ class ArchiveRepository:
                         archive_updated_at AS updated_at
                     FROM archive_summary_stats
                     WHERE id = 'default'
-                    """
-                )
-            ).mappings().first()
+                    """)).mappings().first()
         except (OperationalError, ProgrammingError):
             db.rollback()
             stats = None
 
         if stats is None:
-            stats = db.execute(
-                text(
-                    f"""
+            stats = db.execute(text(f"""
                     SELECT
                         COUNT(*) AS video_count,
                         COALESCE(SUM(COALESCE(v.duration_seconds, 0)), 0) AS total_duration_seconds,
@@ -64,14 +57,11 @@ class ArchiveRepository:
                         MAX(COALESCE(v.updated_at, v.created_at)) AS updated_at
                     FROM videos v
                     WHERE {ARCHIVE_VIDEO_FILTER_SQL}
-                    """
-                )
-            ).mappings().first()
+                    """)).mappings().first()
 
         recent_rows = (
             db.execute(
-                text(
-                    f"""
+                text(f"""
                     SELECT
                         v.id, v.youtube_id, v.title, v.duration_seconds, v.state,
                         v.caption_ingest_state, v.diarization_state, v.uploaded_at,
@@ -82,8 +72,7 @@ class ArchiveRepository:
                     WHERE ({ARCHIVE_VIDEO_FILTER_SQL})
                     ORDER BY v.uploaded_at DESC NULLS LAST, v.created_at DESC
                     LIMIT :limit
-                    """
-                ),
+                    """),
                 {"limit": recent_limit},
             )
             .mappings()
@@ -101,14 +90,12 @@ class ArchiveRepository:
         try:
             popular_rows = (
                 db.execute(
-                    text(
-                        """
+                    text("""
                         SELECT term, frequency
                         FROM search_suggestions
                         ORDER BY frequency DESC, last_used DESC
                         LIMIT :limit
-                        """
-                    ),
+                        """),
                     {"limit": popular_limit},
                 )
                 .mappings()
@@ -124,7 +111,9 @@ class ArchiveRepository:
             transcript_word_count=int(stats["transcript_word_count"] or 0),
             updated_at=stats["updated_at"],
             recent_videos=recent_videos,
-            popular_searches=[ArchivePopularSearch(term=row["term"], frequency=row["frequency"]) for row in popular_rows],
+            popular_searches=[
+                ArchivePopularSearch(term=row["term"], frequency=row["frequency"]) for row in popular_rows
+            ],
         )
 
     def refresh_cached_stats(self, db):

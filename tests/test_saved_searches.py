@@ -1,11 +1,18 @@
 """Tests for saved searches routes."""
 
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from app.csrf import csrf_token
+from app.settings import settings
+
+
+def _csrf_headers(token):
+    return {"Origin": settings.FRONTEND_ORIGIN, "X-CSRF-Token": csrf_token(token)}
 
 
 def _create_session_user(db_session):
@@ -18,8 +25,8 @@ def _create_session_user(db_session):
         {"id": str(user_id), "email": "saved@example.com", "subject": "saved-user"},
     )
     db_session.execute(
-        text("INSERT INTO sessions (user_id, token, expires_at) VALUES (:uid, :token, :exp)"),
-        {"uid": str(user_id), "token": session_token, "exp": datetime.utcnow() + timedelta(days=1)},
+        text("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:uid, :token_hash, :exp)"),
+        {"uid": str(user_id), "token_hash": hashlib.sha256(session_token.encode()).hexdigest(), "exp": datetime.utcnow() + timedelta(days=1)},
     )
     db_session.commit()
     return user_id, session_token
@@ -60,6 +67,7 @@ class TestSavedSearchesRoutes:
             "/users/me/saved-searches",
             json={"query": "creator archive", "filters": {"source": "best", "language": "en"}},
             cookies=cookies,
+            headers=_csrf_headers(session_token),
         )
         assert create_response.status_code == 200
         created = create_response.json()
@@ -72,7 +80,7 @@ class TestSavedSearchesRoutes:
         assert len(items) == 1
         assert items[0]["query"] == "creator archive"
 
-        delete_response = client.delete(f"/users/me/saved-searches/{created['id']}", cookies=cookies)
+        delete_response = client.delete(f"/users/me/saved-searches/{created['id']}", cookies=cookies, headers=_csrf_headers(session_token))
         assert delete_response.status_code == 200
         assert delete_response.json()["ok"] is True
 

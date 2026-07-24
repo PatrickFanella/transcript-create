@@ -1,0 +1,38 @@
+{{- if .Values.analyticsRetention.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "transcript-create.fullname" . }}-analytics-retention
+  labels:
+    {{- include "transcript-create.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analytics-retention
+spec:
+  schedule: {{ .Values.analyticsRetention.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            {{- include "transcript-create.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: analytics-retention
+        spec:
+          restartPolicy: OnFailure
+          {{- include "transcript-create.imagePullSecrets" . | nindent 10 }}
+          containers:
+            - name: analytics-retention
+              image: {{ include "transcript-create.image" . | quote }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python3", "/app/scripts/maintain_event_retention.py"]
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "transcript-create.fullname" .)) }}
+                      key: database-url
+              resources:
+                {{- toYaml .Values.analyticsRetention.resources | nindent 16 }}
+{{- end }}

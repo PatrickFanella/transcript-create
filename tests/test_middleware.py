@@ -19,11 +19,17 @@ class TestSecurityHeaders:
         # Check CSP header exists
         assert "Content-Security-Policy" in response.headers
         csp = response.headers["Content-Security-Policy"]
-        assert "default-src 'self'" in csp
+        assert "default-src 'none'" in csp
+        assert "base-uri 'self'" in csp
+        assert "form-action 'self'" in csp
         assert "frame-ancestors 'none'" in csp
+        assert "object-src 'none'" in csp
+        assert "unsafe-inline" not in csp
+        assert "unsafe-eval" not in csp
 
         # Check Permissions-Policy
         assert "Permissions-Policy" in response.headers
+        assert response.headers["API-Version"] == "1"
 
     def test_server_header_removed(self, client: TestClient):
         """Test that server identification is removed."""

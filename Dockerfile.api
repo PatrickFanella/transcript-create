@@ -10,6 +10,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 FROM python:3.11-slim AS api
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN python -m pip uninstall --yes setuptools wheel
 COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=dependencies /usr/local/bin /usr/local/bin
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \

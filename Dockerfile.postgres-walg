@@ -1,16 +1,39 @@
-FROM postgres:16
+FROM golang:1.26.5-bookworm AS gosu-builder
 
-ARG WALG_VERSION=3.0.8
-ARG WALG_SHA256=f30544c5ce93cf83b87578e3c4a2e9c0e0ffc3d160ef89ecddaf75f397d98deb
+ARG GOSU_VERSION=1.19
+ARG GOSU_REVISION=6456aaa0f3c854d199d0f037f068eb97515b7513
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone https://github.com/tianon/gosu.git /src/gosu \
+    && cd /src/gosu \
+    && git checkout --detach "${GOSU_REVISION}" \
+    && test "$(git rev-parse HEAD)" = "${GOSU_REVISION}" \
+    && test "$(git describe --exact-match --tags HEAD)" = "${GOSU_VERSION}" \
+    && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/gosu ./
+
+FROM golang:1.26.5-bookworm AS walg-builder
+
+ARG WALG_VERSION=v3.0.9-dev.0c3efc9
+ARG WALG_REVISION=0c3efc982dccb6f25e5fcdf713ef037a86d62b49
+ARG WALG_BUILD_DATE=2026-07-23T00:00:00Z
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone https://github.com/wal-g/wal-g.git /src/wal-g \
+    && cd /src/wal-g \
+    && git checkout --detach "${WALG_REVISION}" \
+    && test "$(git rev-parse HEAD)" = "${WALG_REVISION}" \
+    && GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go build -mod=readonly -trimpath \
+        -ldflags="-s -w -X github.com/wal-g/wal-g/cmd/pg.buildDate=${WALG_BUILD_DATE} -X github.com/wal-g/wal-g/cmd/pg.gitRevision=${WALG_REVISION} -X github.com/wal-g/wal-g/cmd/pg.walgVersion=${WALG_VERSION}" \
+        -o /out/wal-g ./main/pg
+
+FROM postgres:16
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates cron rsync \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl --fail --location --silent --show-error \
-        --output /tmp/wal-g \
-        "https://github.com/wal-g/wal-g/releases/download/v${WALG_VERSION}/wal-g-pg-22.04-amd64" \
-    && echo "${WALG_SHA256}  /tmp/wal-g" | sha256sum --check --status \
-    && install -m 0755 /tmp/wal-g /usr/local/bin/wal-g \
-    && rm /tmp/wal-g \
-    && wal-g --version
+COPY --from=gosu-builder /out/gosu /usr/local/bin/gosu
+COPY --from=walg-builder /out/wal-g /usr/local/bin/wal-g
+RUN gosu nobody true && wal-g --version

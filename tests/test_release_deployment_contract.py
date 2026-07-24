@@ -577,6 +577,43 @@ def test_backup_scheduler_dependencies_are_built_into_the_image() -> None:
     assert "apt-get" not in scheduler
 
 
+def test_release_images_use_clean_python_packages_and_pinned_go_sources() -> None:
+    api = (ROOT / "Dockerfile.api").read_text(encoding="utf-8")
+    postgres_walg = (ROOT / "Dockerfile.postgres-walg").read_text(encoding="utf-8")
+
+    cleanup = "RUN python -m pip uninstall --yes setuptools wheel"
+    assert cleanup in api
+    assert api.index(cleanup) < api.index("COPY --from=dependencies /usr/local/lib/python3.11/site-packages")
+
+    for value in (
+        "FROM golang:1.26.5-bookworm AS gosu-builder",
+        "ARG GOSU_VERSION=1.19",
+        "ARG GOSU_REVISION=6456aaa0f3c854d199d0f037f068eb97515b7513",
+        "github.com/tianon/gosu",
+        'git checkout --detach "${GOSU_REVISION}"',
+        'git rev-parse HEAD)" = "${GOSU_REVISION}"',
+        'git describe --exact-match --tags HEAD)" = "${GOSU_VERSION}"',
+        "CGO_ENABLED=0 go build -trimpath -ldflags='-s -w'",
+        "FROM golang:1.26.5-bookworm AS walg-builder",
+        "ARG WALG_VERSION=v3.0.9-dev.0c3efc9",
+        "ARG WALG_REVISION=0c3efc982dccb6f25e5fcdf713ef037a86d62b49",
+        "ARG WALG_BUILD_DATE=2026-07-23T00:00:00Z",
+        'git checkout --detach "${WALG_REVISION}"',
+        'git rev-parse HEAD)" = "${WALG_REVISION}"',
+        "GOEXPERIMENT=jsonv2 CGO_ENABLED=0 go build -mod=readonly -trimpath",
+        "-s -w -X github.com/wal-g/wal-g/cmd/pg.buildDate=${WALG_BUILD_DATE}",
+        "github.com/wal-g/wal-g/cmd/pg.gitRevision=${WALG_REVISION}",
+        "github.com/wal-g/wal-g/cmd/pg.walgVersion=${WALG_VERSION}",
+        "-o /out/wal-g ./main/pg",
+        "COPY --from=gosu-builder /out/gosu /usr/local/bin/gosu",
+        "COPY --from=walg-builder /out/wal-g /usr/local/bin/wal-g",
+        "RUN gosu nobody true && wal-g --version",
+    ):
+        assert value in postgres_walg
+    assert "releases/download" not in postgres_walg
+    assert "--ignore" not in postgres_walg
+
+
 def test_cuda_constraints_override_networkx_for_python_310() -> None:
     dockerfile = (ROOT / "Dockerfile.cuda").read_text(encoding="utf-8")
     assert "libpython3.10" in dockerfile
@@ -680,7 +717,44 @@ def test_release_workflow_contracts() -> None:
         "Install Cosign"
     )
     assert "IMAGE_REF: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}" in workflow
-    assert 'docker push "$IMAGE:$TAG"' in workflow
+    publish_match = re.search(
+        r"^      - name: Push scanned local image and resolve digest\n(.*?)(?=^      - name:|\Z)",
+        images,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert publish_match
+    publish = publish_match.group(0)
+    assert 'docker push "$IMAGE:$TAG"' not in workflow
+    assert "quay.io/skopeo/stable@sha256:47853bb9fb24202af9110531ebd6e43c5f97701254ca290596640290d17942f4" in publish
+    assert "https://git.subcult.tv/v2/token" in publish
+    assert '--data-urlencode "service=container_registry"' in publish
+    assert '--data-urlencode "scope=repository:${repository}:pull,push"' in publish
+    assert 'repository="${IMAGE#git.subcult.tv/}"' in publish
+    assert 'docker network create --internal "$network"' in publish
+    assert 'docker network connect --alias registry-origin "$network" gitea' in publish
+    assert '-v /var/run/docker.sock:/var/run/docker.sock' in publish
+    assert '"docker-daemon:${IMAGE}:${TAG}" "docker://registry-origin:3000/${IMAGE#git.subcult.tv/}:${TAG}"' in publish
+    assert "--dest-tls-verify=false" in publish
+    assert '--dest-registry-token "$REGISTRY_BEARER_TOKEN"' in publish
+    assert "--digestfile /evidence/pushed.digest" in publish
+    assert "REGISTRY_BEARER_TOKEN=\"$registry_token\" docker run" in publish
+    assert "-e REGISTRY_BEARER_TOKEN" in publish
+    assert "--entrypoint /bin/sh" in publish
+    assert "auth.json" not in publish
+    assert "identitytoken" not in publish
+    assert 'evidence_volume="hasanara-push-evidence-${{ gitea.run_id }}-${{ matrix.role }}"' in publish
+    assert 'docker volume create "$evidence_volume" >/dev/null' in publish
+    assert '-v "$evidence_volume:/evidence"' in publish
+    assert '-v "$evidence_volume:/evidence:ro"' in publish
+    assert "cat /evidence/pushed.digest" in publish
+    assert "docker network disconnect \"$network\" gitea" in publish
+    assert 'docker network rm "$network"' in publish
+    assert 'docker volume rm --force "$evidence_volume" >/dev/null 2>&1 || true' in publish
+    assert "trap cleanup EXIT" in publish
+    assert 'docker buildx imagetools inspect "$IMAGE:$TAG"' in publish
+    assert '[[ "$canonical_digest" == "$pushed_digest" ]]' in publish
+    assert "printf 'digest=%s\\n' \"$canonical_digest\" >> \"$GITHUB_OUTPUT\"" in publish
+    assert "--ignore" not in workflow
     assert "load: true" in workflow and "push: false" in workflow
     assert "--type slsaprovenance" in workflow and "--type spdxjson" in workflow
     assert "--key env://COSIGN_PRIVATE_KEY" in workflow
@@ -755,7 +829,8 @@ def test_release_workflow_contracts() -> None:
     assert '> "trivy-${{ matrix.role }}-local-library.sarif"' in local_scan
     assert '> "trivy-${{ matrix.role }}-os.sarif"' in os_scan
     assert '> "${{ matrix.role }}.spdx.json"' in sbom_scan
-    assert "if: always()" in os_scan and "if: always()" in cleanup
+    assert "if: always() && steps.publish.outcome == 'success'" in os_scan
+    assert "if: always()" in cleanup
     assert 'if [[ -n "$TRIVY_CACHE_VOLUME" ]]; then' in cleanup
     assert 'docker volume rm --force "$TRIVY_CACHE_VOLUME" >/dev/null' in cleanup
 

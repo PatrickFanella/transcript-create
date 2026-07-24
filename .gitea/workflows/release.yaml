@@ -214,12 +214,47 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
           TAG: ${{ steps.target.outputs.tag }}
+          REGISTRY_USER: ${{ vars.REGISTRY_USER }}
+          REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
         run: |
           set -euo pipefail
-          docker push "$IMAGE:$TAG"
-          digest="$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')"
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          skopeo_image='quay.io/skopeo/stable@sha256:47853bb9fb24202af9110531ebd6e43c5f97701254ca290596640290d17942f4'
+          [[ "$skopeo_image" =~ ^quay\.io/skopeo/stable@sha256:[0-9a-f]{64}$ ]]
+          repository="${IMAGE#git.subcult.tv/}"
+          registry_token="$(curl --fail-with-body --silent --show-error --get \
+            --user "$REGISTRY_USER:$REGISTRY_PAT" \
+            --data-urlencode "service=container_registry" \
+            --data-urlencode "scope=repository:${repository}:pull,push" \
+            https://git.subcult.tv/v2/token | python3 -c 'import json, sys; payload = json.load(sys.stdin); token = payload.get("token") or payload.get("access_token"); assert isinstance(token, str) and token; print(token)')"
+          network="hasanara-push-${{ gitea.run_id }}-${{ matrix.role }}"
+          evidence_volume="hasanara-push-evidence-${{ gitea.run_id }}-${{ matrix.role }}"
+          cleanup() {
+            docker network disconnect "$network" gitea >/dev/null 2>&1 || true
+            docker network rm "$network" >/dev/null 2>&1 || true
+            docker volume rm --force "$evidence_volume" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker volume create "$evidence_volume" >/dev/null
+          docker network create --internal "$network" >/dev/null
+          docker network connect --alias registry-origin "$network" gitea
+          REGISTRY_BEARER_TOKEN="$registry_token" docker run --rm --network "$network" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$evidence_volume:/evidence" \
+            -e REGISTRY_BEARER_TOKEN \
+            -e IMAGE \
+            -e TAG \
+            --entrypoint /bin/sh \
+            "$skopeo_image" -ec '
+              skopeo copy --dest-registry-token "$REGISTRY_BEARER_TOKEN" --dest-tls-verify=false \
+                --digestfile /evidence/pushed.digest \
+                "docker-daemon:${IMAGE}:${TAG}" "docker://registry-origin:3000/${IMAGE#git.subcult.tv/}:${TAG}"
+            '
+          pushed_digest="$(docker run --rm -v "$evidence_volume:/evidence:ro" --entrypoint /bin/sh "$skopeo_image" -ec 'cat /evidence/pushed.digest')"
+          [[ "$pushed_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          canonical_digest="$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')"
+          [[ "$canonical_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$canonical_digest" == "$pushed_digest" ]]
+          printf 'digest=%s\n' "$canonical_digest" >> "$GITHUB_OUTPUT"
       - name: Block digest high and critical application-library vulnerabilities
         env:
           TRIVY_IMAGE: ${{ steps.trivy.outputs.image }}
@@ -235,7 +270,7 @@ jobs:
             --severity CRITICAL,HIGH --pkg-types library --exit-code 1 "$IMAGE_REF" \
             > "trivy-${{ matrix.role }}-library.sarif"
       - name: Report digest OS vulnerabilities
-        if: always()
+        if: always() && steps.publish.outcome == 'success'
         env:
           TRIVY_IMAGE: ${{ steps.trivy.outputs.image }}
           TRIVY_CACHE_VOLUME: ${{ steps.trivy.outputs.cache_volume }}

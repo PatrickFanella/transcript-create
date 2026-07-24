@@ -242,6 +242,7 @@ frontend/*.local
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+!e2e/package-lock.json
 
 # OS/editor cruft and logs
 **/.DS_Store

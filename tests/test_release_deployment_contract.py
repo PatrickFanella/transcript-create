@@ -578,6 +578,9 @@ def test_backup_scheduler_dependencies_are_built_into_the_image() -> None:
 def test_release_workflow_contracts() -> None:
     release_path = ROOT / ".gitea" / "workflows" / "release.yaml"
     assert release_path.is_file()
+    assert (ROOT / "e2e" / "package-lock.json").is_file()
+    assert "package-lock.json" not in (ROOT / "e2e" / ".gitignore").read_text(encoding="utf-8")
+    assert "!e2e/package-lock.json" in (ROOT / ".gitignore").read_text(encoding="utf-8")
     assert not (ROOT / ".gitea" / "workflows" / "release.yml").exists()
     assert not (ROOT / ".github" / "workflows" / "release.yml").exists()
     workflow = release_path.read_text(encoding="utf-8")

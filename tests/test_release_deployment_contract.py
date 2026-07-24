@@ -79,10 +79,12 @@ def test_dockerignore_excludes_secret_and_local_state() -> None:
 
 
 def test_release_manifest_is_ignored_by_git_and_docker() -> None:
-    assert {"release-images.json", ".release-commit", "deploy-backups/"} <= set(
+    assert {"release-images.json", ".release-commit", "deploy-backups/", ".release-venv/"} <= set(
         (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     )
-    assert "release-images.json" in set((ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines())
+    assert {"release-images.json", ".release-venv/"} <= set(
+        (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    )
 
 
 def test_release_overlay_is_last_and_requires_immutable_images() -> None:
@@ -615,7 +617,20 @@ def test_release_workflow_contracts() -> None:
     )
     assert verification_step
     verification_text = verification_step.group(0)
-    assert "PYTHON_BIN: ${{ steps.python.outputs.python-path }}" in verification_text
+    setup_step = re.search(
+        r"^      - name: Create isolated Python verification environment\n(.*?)(?=^      - name:|\Z)",
+        verify,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert setup_step
+    setup_text = setup_step.group(0)
+    assert "rm -rf -- .release-venv" in setup_text
+    assert '"${{ steps.python.outputs.python-path }}" -m venv .release-venv' in setup_text
+    assert ".release-venv/bin/python -m pip install --upgrade pip" in setup_text
+    assert ".release-venv/bin/python -m pip install setuptools==83.0.0" in setup_text
+    assert ".release-venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt" in setup_text
+    assert '${{ steps.python.outputs.python-path }}" -m pip install' not in setup_text
+    assert "PYTHON_BIN: ${{ steps.python.outputs.python-path }}" not in verification_text
     assert (
         "docker inspect --format '{{range .NetworkSettings.Networks}}{{println .Gateway}}{{end}}' \"$(hostname)\""
         in verification_text
@@ -625,11 +640,18 @@ def test_release_workflow_contracts() -> None:
         r'\[\[ "\$gateway" =~ \^\(\(25\[0-5\]\|2\[0-4\]\[0-9\]\|1\[0-9\]\{2\}\|\[1-9\]\?\[0-9\]\)\\\.\)\{3\}',
         verification_text,
     )
-    assert 'TEST_SERVICE_HOST="$gateway" make verify' in verification_text
+    assert 'PYTHON_BIN="$PWD/.release-venv/bin/python" TEST_SERVICE_HOST="$gateway" make verify' in verification_text
+    assert "${{ github.workspace }}" not in verification_text
+    assert '"${PYTHON_BIN}" -m pip_audit --local --desc --skip-editable' in verify_script
+    assert "pip_audit" not in setup_text
     assert "host.docker.internal" not in verification_text
     assert "echo" not in verification_text and "printf" not in verification_text.replace(
         "printf '%s\\n' \"$candidate\"", ""
     )
+    dev_requirements = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+    assert "msgpack==1.2.1" in dev_requirements
+    assert "CacheControl" in dev_requirements
+    assert "PyPDF2" not in dev_requirements
     images = job_section("images")
     release = job_section("release")
     assert re.search(r"^      contents: read$", release, flags=re.MULTILINE)

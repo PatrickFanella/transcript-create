@@ -9,9 +9,13 @@ route.
 
 ## Ordered release gates
 
-1. **Freeze candidate.** Record the source commit and downloaded
-   `release-images.json`; run `scripts/compose_prod.sh preflight` and record the
-   exact approved image digests. Do not use tags, `latest`, Watchtower, or any
+1. **Freeze and publish candidate evidence.** Record the source commit. On its
+   protected `release/v*-rc.*` or `release/v*-beta.*` branch, dispatch the Gitea
+   release workflow as the configured release operator and require verification,
+   browser, exact-digest scan, signing/attestation, and evidence-artifact success.
+   Only then create the matching RC/beta tag. Download the Gitea prerelease's
+   `release-images.json`, run `scripts/compose_prod.sh preflight`, and record the
+   exact approved image digests. Do not deploy tags, `latest`, Watchtower, or any
    automatic-update service.
 2. **Rotate and scan.** Rotate existing local credential and cookie values,
    including `.env.prod` and `cookies.txt`, then complete the approved secret

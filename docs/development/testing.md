@@ -12,7 +12,11 @@ It starts isolated PostgreSQL, Redis, and OpenSearch; applies all Alembic migrat
 
 Chromium runs on each change. Firefox, WebKit, Mobile Chrome, and Mobile Safari are the nightly and pre-release matrix. Never treat host runtime results from unsupported Python or Node versions as authoritative.
 
-RC and beta artifact tags must pass this canonical gate and the complete seeded
-browser matrix in the release workflow. Automated checks are only the first
-release gate; restore, ingress, moderated-testing, and private-beta evidence are
-tracked in the [private-beta deployment runbook](../deployment/private-beta.md).
+Before the first RC tag, a trusted release operator must dispatch
+`.gitea/workflows/release.yaml` on the protected release branch. That validation
+run must pass this canonical gate, the complete seeded browser matrix, exact
+registry-digest scans, and Cosign signature/attestation verification without
+creating a release. RC and beta tags repeat those checks before creating a Gitea
+prerelease. Automated checks are only the first release gate; restore, ingress,
+moderated-testing, and private-beta evidence are tracked in the
+[private-beta deployment runbook](../deployment/private-beta.md).

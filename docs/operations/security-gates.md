@@ -23,17 +23,19 @@ full-snapshot, and image-specific ML runtime pin without invoking package build
 hooks. Each CPU, CUDA 12.8, and ROCm 7.1 image runs `pip check`, imports Torch,
 TorchAudio, TorchCodec, and pyannote, and is blocked by fixed high/critical
 Trivy application-library findings. Operating-system findings are reported
-separately because the release gate is based on reachable application and ML
-dependencies. Bandit blocks
+separately; package-type scanning is conservative and is not described as
+reachability analysis. Bandit blocks
 high-severity findings with medium-or-higher confidence. The frontend gate
 blocks high and critical npm advisories.
 
-Release workflows build and load an image once, scan that local artifact, and
-push its existing tags without rebuilding. GitHub Release creation waits for
-the scan, push, and digest attestation. Kubernetes deployment is manual-only:
-it resolves the requested tag, verifies provenance and application libraries
-for that exact digest, and supplies the immutable digest to every Helm
-workload. The retired duplicate production workflow must not be restored.
+The Gitea release workflow builds and loads an image once, scans that local
+artifact, and pushes it without rebuilding. It then resolves and rescans the
+exact registry digest before Cosign-signing and attaching verified SLSA and SBOM
+attestations. Gitea prerelease creation waits for every digest scan and
+verification artifact. Kubernetes deployment is manual-only: it resolves the
+requested tag, verifies provenance and application libraries for that exact
+digest, and supplies the immutable digest to every Helm workload. The retired
+GitHub/GHCR and duplicate production workflows must not be restored.
 
 ## Active exceptions
 

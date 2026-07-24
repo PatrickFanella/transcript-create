@@ -17,7 +17,7 @@ browser matrix, and make human-testing/rollout evidence explicit. External
 ingress remains responsible for invite-only access because archive reads are
 intentionally public within the application.
 
-**Tech Stack:** Docker Compose, Bash, Python 3.11, GitHub Actions, pytest,
+**Tech Stack:** Docker Compose, Bash, Python 3.11, Gitea Actions, pytest,
 Playwright, FastAPI, React 19, PostgreSQL/WAL-G.
 
 ---
@@ -65,6 +65,9 @@ and no S0/S1 defect is open.
 - `docs/user-testing/private-beta.md` — moderated-session and beta protocol.
 - `.github/ISSUE_TEMPLATE/beta-feedback.yml` — structured beta feedback and
   severity inputs without soliciting secrets.
+- `.gitea/workflows/release.yaml` — trusted manual candidate validation plus
+  RC/beta image publication, digest signing/attestation, evidence, and Gitea
+  prerelease creation.
 
 **Modify**
 
@@ -74,9 +77,8 @@ and no S0/S1 defect is open.
   subcommand while preserving the exact project/network/env selection.
 - `docker-compose.hasanara.yml` — make diarization opt-in via a profile so the
   default beta stack does not start an unused heavyweight worker.
-- `.github/workflows/release.yml` — verify, cross-browser test, build/scan/push
-  the target image set, attest each digest, attach a release manifest, then
-  create an RC/beta prerelease.
+- `.github/workflows/release.yml` — remove the GitHub/GHCR-specific release
+  workflow so Gitea cannot discover a second incompatible tag workflow.
 - `.env.example` — document image-reference and optional-profile variable names
   with inert examples only.
 - `docs/deployment/README.md`, `docs/deployment/production-checklist.md`,
@@ -239,7 +241,8 @@ and no S0/S1 defect is open.
 
 ## Task 3: Gate and publish the real release artifacts
 
-**Files:** `.github/workflows/release.yml`, `Dockerfile.postgres-walg`,
+**Files:** `.gitea/workflows/release.yaml`, `.github/workflows/release.yml`,
+`Dockerfile.postgres-walg`,
 `scripts/start_backup_scheduler.sh`, `tests/test_release_deployment_contract.py`
 
 - [x] Restrict this workflow to RC/beta artifact tags such as `v*-rc.*` and
@@ -271,14 +274,15 @@ and no S0/S1 defect is open.
   postgres-walg  -> Dockerfile.postgres-walg
   ```
 
-  Publish each under a distinct GHCR package path and emit the exact digest in
-  a role-named JSON artifact and job summary. Use per-image BuildKit cache
-  scopes. Prerelease tags must not publish any `latest` alias.
+  Publish each under a distinct `git.subcult.tv/subculture-collective/hasanara-*`
+  package path and emit the exact digest in a role-named JSON artifact. A trusted
+  manual validation run uses a unique validation tag; prerelease tags must not
+  publish any `latest` alias.
 - [x] Install `cron` and `rsync` in `Dockerfile.postgres-walg` so the scanned and
   attested image contains its complete backup runtime. The scheduler must never
   perform mutable package installation at container startup.
 - [x] Download the five digest fragments in the release job and generate
-  `release-images.json` with `${GITHUB_SHA}`, artifact roles, active-service
+  `release-images.json` with the Gitea source SHA, artifact roles, active-service
   mapping, and the repository-variable-provided full
   `repository@sha256:<digest>` Redis reference. Every `images` value uses the
   full reference schema above. Mark Redis as third-party (not attested by this
@@ -287,9 +291,18 @@ and no S0/S1 defect is open.
   application-library findings. Do not describe package-type scanning as
   reachability analysis.
 - [x] Make release creation wait for every matrix artifact and keep `-beta` or
-  `-rc` GitHub releases marked prerelease.
-- [x] Run the focused contract test and `actionlint`; validate workflow syntax
-  without triggering a release.
+  `-rc` Gitea releases marked prerelease.
+- [x] Replace GitHub-only attestation and SARIF services with digest-first Gitea
+  registry evidence: rescan the pushed `repository@sha256` reference, generate
+  SBOM and SLSA predicate evidence, Cosign-sign and attest that digest, verify
+  all three with the generated public key, and retain the verification output.
+- [x] Run the focused contract test and generic YAML/static validation.
+  `actionlint` does not understand Gitea's `gitea.*` contexts or `releases`
+  permission and must not be treated as authoritative for this workflow.
+- [ ] Before creating the first tag, dispatch the workflow on the protected
+  `release/v0.1.0-rc.1` branch as the configured release operator. Require the
+  canonical/browser jobs, five registry digest scans, Cosign verifications,
+  manifest assembly, and evidence artifact to pass without creating a release.
 
 ## Task 4: Add the private-beta deployment and evidence runbook
 

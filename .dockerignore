@@ -1,6 +1,7 @@
 # Git files
 .git
 .github
+.gitea
 .gitignore
 .gitattributes
 

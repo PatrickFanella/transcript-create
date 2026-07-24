@@ -576,7 +576,11 @@ def test_backup_scheduler_dependencies_are_built_into_the_image() -> None:
 
 
 def test_release_workflow_contracts() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    release_path = ROOT / ".gitea" / "workflows" / "release.yaml"
+    assert release_path.is_file()
+    assert not (ROOT / ".gitea" / "workflows" / "release.yml").exists()
+    assert not (ROOT / ".github" / "workflows" / "release.yml").exists()
+    workflow = release_path.read_text(encoding="utf-8")
 
     uses_references = re.findall(r"^\s*uses:\s*([^\s@]+)@([^\s#]+)", workflow, flags=re.MULTILINE)
     assert uses_references
@@ -593,29 +597,127 @@ def test_release_workflow_contracts() -> None:
         assert match, f"missing {name} job"
         return match.group(1)
 
+    assert ".gitea" in set((ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines())
     assert re.search(r"^permissions:\n  contents: read\n", workflow, flags=re.MULTILINE)
-    required_image_permissions = {
-        "contents": "read",
-        "packages": "write",
-        "id-token": "write",
-        "attestations": "write",
-        "security-events": "write",
-    }
     images = job_section("images")
-    for permission, level in required_image_permissions.items():
-        assert re.search(rf"^      {re.escape(permission)}: {level}$", images, flags=re.MULTILINE)
-    assert re.search(r"^      contents: write$", job_section("release"), flags=re.MULTILINE)
-    for name in ("verify", "cross-browser"):
-        assert "write" not in job_section(name)
+    release = job_section("release")
+    assert re.search(r"^      contents: read$", release, flags=re.MULTILINE)
+    assert re.search(r"^      releases: write$", release, flags=re.MULTILINE)
 
     library_scan = re.search(
-        r"^      - name: Block high and critical application-library vulnerabilities\n(.*?)(?=^      - name:|\Z)",
+        r"^      - name: Block digest high and critical application-library vulnerabilities\n(.*?)(?=^      - name:|\Z)",
         images,
         flags=re.MULTILINE | re.DOTALL,
     )
     assert library_scan
     assert "pkg-types: library" in library_scan.group(0)
     assert "reachability" not in library_scan.group(0).lower()
+    assert workflow.index("Block digest high and critical application-library vulnerabilities") < workflow.index(
+        "Install Cosign"
+    )
+    assert "image-ref: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}" in workflow
+    assert 'docker push "$IMAGE:$TAG"' in workflow
+    assert "load: true" in workflow and "push: false" in workflow
+    assert "--type slsaprovenance" in workflow and "--type spdxjson" in workflow
+    assert "--key env://COSIGN_PRIVATE_KEY" in workflow
+    prerequisites = re.search(
+        r"^      - name: Validate release prerequisites\n(.*?)(?=^      - name:|\Z)",
+        images,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert prerequisites
+    prerequisite_text = prerequisites.group(0)
+    for value in (
+        "REGISTRY_USER: ${{ vars.REGISTRY_USER }}",
+        "REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}",
+        "COSIGN_PUBLIC_KEY_B64: ${{ vars.COSIGN_PUBLIC_KEY_B64 }}",
+        "HASANARA_REDIS_IMAGE: ${{ vars.HASANARA_REDIS_IMAGE }}",
+        "for required in REGISTRY_USER REGISTRY_PAT COSIGN_PUBLIC_KEY_B64",
+        '[[ "$HASANARA_REDIS_IMAGE" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]',
+    ):
+        assert value in prerequisite_text
+    assert "echo" not in prerequisite_text
+    assert workflow.index("Validate release prerequisites") < workflow.index(
+        "Checkout code", workflow.index("  images:")
+    )
+
+    provenance = re.search(
+        r'Path\(f"\{os\.environ\[\'ROLE\'\]\}\.provenance\.json"\).*?\n          \}\) \+ "\\n"\)',
+        images,
+        flags=re.DOTALL,
+    )
+    assert provenance
+    provenance_text = provenance.group(0)
+    for value in (
+        '"buildType"',
+        '"builder"',
+        '"invocation"',
+        '"metadata"',
+        '"materials"',
+        '"configSource"',
+        '"entryPoint": os.environ["DOCKERFILE"]',
+        '"role": os.environ["ROLE"]',
+        '"sha1": os.environ["SOURCE_COMMIT"]',
+        '"buildInvocationId": os.environ["RUN_ID"]',
+        '"buildStartedOn"',
+        '"buildFinishedOn"',
+        '"completeness"',
+        '"reproducible": False',
+    ):
+        assert value in provenance_text
+    for forbidden_predicate_field in ('"_type"', '"predicateType"', '"subject"', '"predicate"'):
+        assert forbidden_predicate_field not in provenance_text
+
+    signing = re.search(
+        r"^      - name: Sign and attest digest\n(.*?)(?=^      - name:|\Z)", images, flags=re.MULTILINE | re.DOTALL
+    )
+    verification = re.search(
+        r"^      - name: Verify signed digest evidence\n(.*?)(?=^      - name:|\Z)",
+        images,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert signing and verification
+    assert workflow.index(signing.group(0)) < workflow.index(verification.group(0))
+    signing_text = signing.group(0)
+    verification_text = verification.group(0)
+    for value in (
+        "COSIGN_PUBLIC_KEY_B64: ${{ vars.COSIGN_PUBLIC_KEY_B64 }}",
+        'base64.b64decode(os.environ["COSIGN_PUBLIC_KEY_B64"], validate=True)',
+        "Path(f\"{os.environ['ROLE']}.cosign.pub\").write_bytes(public_key)",
+        'cosign verify --key "${ROLE}.cosign.pub" "$IMAGE_REF" > "${ROLE}.signature.verify.json"',
+        'cosign verify-attestation --key "${ROLE}.cosign.pub" --type slsaprovenance "$IMAGE_REF" > "${ROLE}.provenance.verify.json"',
+        'cosign verify-attestation --key "${ROLE}.cosign.pub" --type spdxjson "$IMAGE_REF" > "${ROLE}.sbom.verify.json"',
+        'statement.get("predicateType") == "https://slsa.dev/provenance/v0.2"',
+        'statement.get("predicateType") == "https://spdx.dev/Document"',
+        'subject.get("digest") == {"sha256": expected_digest}',
+        'config_source.get("uri") == expected_repository',
+        'config_source.get("digest") == {"sha1": expected_commit}',
+        'config_source.get("entryPoint") == expected_dockerfile',
+        'parameters.get("role") == expected_role',
+        'material.get("uri") == expected_repository',
+        'material.get("digest") == {"sha1": expected_commit}',
+    ):
+        assert value in verification_text
+    assert (
+        verification_text.index("write_bytes(public_key)")
+        < verification_text.index("cosign verify --key")
+        < verification_text.index("--type slsaprovenance")
+        < verification_text.index("--type spdxjson")
+    )
+    for private_value in ("COSIGN_PRIVATE_KEY", "COSIGN_PASSWORD"):
+        assert private_value in signing_text
+        assert private_value not in verification_text
+        assert private_value not in prerequisite_text
+    assert workflow.count("COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}") == 1
+    assert workflow.count("COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}") == 1
+    assert "print(" not in verification_text
+    for evidence in (
+        "${{ matrix.role }}.cosign.pub",
+        "${{ matrix.role }}.signature.verify.json",
+        "${{ matrix.role }}.provenance.verify.json",
+        "${{ matrix.role }}.sbom.verify.json",
+    ):
+        assert evidence in images
 
     for job in ("verify:", "cross-browser:", "images:", "release:"):
         assert f"  {job}" in workflow
@@ -630,8 +732,48 @@ def test_release_workflow_contracts() -> None:
     ):
         assert f"- role: {role}" in workflow
         assert f"dockerfile: {dockerfile}" in workflow
-    assert "'v*-rc.*'" in workflow and "'v*-beta.*'" in workflow
-    assert "prerelease: true" in workflow
+    assert "'v*-rc.*'" in workflow and "'v*-beta.*'" in workflow and "workflow_dispatch:" in workflow
+    for value in (
+        "vars.REGISTRY_USER",
+        "vars.RELEASE_OPERATOR",
+        "vars.HASANARA_REDIS_IMAGE",
+        "vars.COSIGN_PUBLIC_KEY_B64",
+        "secrets.REGISTRY_PAT",
+        "secrets.COSIGN_PRIVATE_KEY",
+        "secrets.COSIGN_PASSWORD",
+    ):
+        assert value in workflow
+    assert '"$ACTOR" == "$RELEASE_OPERATOR"' in workflow
+    assert "refs/heads/release/v" in workflow and "workflow_dispatch" in workflow
+    for image in (
+        "git.subcult.tv/subculture-collective/hasanara-api",
+        "git.subcult.tv/subculture-collective/hasanara-ingest-cuda",
+        "git.subcult.tv/subculture-collective/hasanara-ml-cuda",
+        "git.subcult.tv/subculture-collective/hasanara-frontend",
+        "git.subcult.tv/subculture-collective/hasanara-postgres-walg",
+    ):
+        assert image in workflow
+    assert 'schema_version": 1' in workflow and '"redis": "redis"' in workflow
+    assert workflow.count("actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a") == 5
+    assert workflow.count("actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5") >= 3
+    assert "gitea.api_url" in workflow and "gitea.token" in workflow and 'prerelease": True' in workflow
+    assert '"$API_URL/repos/$REPOSITORY/releases"' in workflow
+    assert "gitea.event_name == 'push'" in workflow
+    assert "Redis is third-party and is not attested" in workflow
+    for forbidden in (
+        "github.",
+        "GITHUB_TOKEN",
+        "ghcr.io",
+        "type=gha",
+        "actions/attest-build-provenance",
+        "codeql-action",
+        "packages: write",
+        "id-token: write",
+        "attestations: write",
+        "security-events: write",
+        ":latest",
+    ):
+        assert forbidden not in workflow
     assert ":latest" not in workflow
 
 

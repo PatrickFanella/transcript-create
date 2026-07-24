@@ -187,15 +187,28 @@ jobs:
           load: true
           push: false
           tags: ${{ matrix.image }}:${{ steps.target.outputs.tag }}
+      - name: Prepare pinned Trivy scanner cache
+        id: trivy
+        run: |
+          set -euo pipefail
+          trivy_image='docker.io/aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e'
+          [[ "$trivy_image" =~ ^docker\.io/aquasec/trivy@sha256:[0-9a-f]{64}$ ]]
+          cache_volume="hasanara-trivy-${{ gitea.run_id }}-${{ matrix.role }}"
+          docker volume create "$cache_volume" >/dev/null
+          printf 'image=%s\ncache_volume=%s\n' "$trivy_image" "$cache_volume" >> "$GITHUB_OUTPUT"
       - name: Block local high and critical application-library vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ matrix.image }}:${{ steps.target.outputs.tag }}
-          format: sarif
-          output: trivy-${{ matrix.role }}-local-library.sarif
-          severity: CRITICAL,HIGH
-          pkg-types: library
-          exit-code: '1'
+        env:
+          TRIVY_IMAGE: ${{ steps.trivy.outputs.image }}
+          TRIVY_CACHE_VOLUME: ${{ steps.trivy.outputs.cache_volume }}
+          IMAGE_REF: ${{ matrix.image }}:${{ steps.target.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
+            --severity CRITICAL,HIGH --pkg-types library --exit-code 1 "$IMAGE_REF" \
+            > "trivy-${{ matrix.role }}-local-library.sarif"
       - name: Push scanned local image and resolve digest
         id: publish
         env:
@@ -208,31 +221,56 @@ jobs:
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
       - name: Block digest high and critical application-library vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}
-          format: sarif
-          output: trivy-${{ matrix.role }}-library.sarif
-          severity: CRITICAL,HIGH
-          pkg-types: library
-          exit-code: '1'
+        env:
+          TRIVY_IMAGE: ${{ steps.trivy.outputs.image }}
+          TRIVY_CACHE_VOLUME: ${{ steps.trivy.outputs.cache_volume }}
+          IMAGE_REF: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.docker:/root/.docker:ro" \
+            -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
+            --severity CRITICAL,HIGH --pkg-types library --exit-code 1 "$IMAGE_REF" \
+            > "trivy-${{ matrix.role }}-library.sarif"
       - name: Report digest OS vulnerabilities
         if: always()
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}
-          format: sarif
-          output: trivy-${{ matrix.role }}-os.sarif
-          severity: CRITICAL,HIGH
-          pkg-types: os
-          exit-code: '0'
+        env:
+          TRIVY_IMAGE: ${{ steps.trivy.outputs.image }}
+          TRIVY_CACHE_VOLUME: ${{ steps.trivy.outputs.cache_volume }}
+          IMAGE_REF: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.docker:/root/.docker:ro" \
+            -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
+            --severity CRITICAL,HIGH --pkg-types os --exit-code 0 "$IMAGE_REF" \
+            > "trivy-${{ matrix.role }}-os.sarif"
       - name: Generate SPDX JSON SBOM for digest
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}
-          format: spdx-json
-          output: ${{ matrix.role }}.spdx.json
-          exit-code: '0'
+        env:
+          TRIVY_IMAGE: ${{ steps.trivy.outputs.image }}
+          TRIVY_CACHE_VOLUME: ${{ steps.trivy.outputs.cache_volume }}
+          IMAGE_REF: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.docker:/root/.docker:ro" \
+            -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --format spdx-json --exit-code 0 "$IMAGE_REF" \
+            > "${{ matrix.role }}.spdx.json"
+      - name: Remove Trivy scanner cache
+        if: always()
+        env:
+          TRIVY_CACHE_VOLUME: ${{ steps.trivy.outputs.cache_volume }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$TRIVY_CACHE_VOLUME" ]]; then
+            docker volume rm --force "$TRIVY_CACHE_VOLUME" >/dev/null
+          fi
       - name: Install Cosign
         uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
       - name: Generate provenance and image fragment

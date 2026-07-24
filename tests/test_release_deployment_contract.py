@@ -577,6 +577,16 @@ def test_backup_scheduler_dependencies_are_built_into_the_image() -> None:
     assert "apt-get" not in scheduler
 
 
+def test_cuda_constraints_override_networkx_for_python_310() -> None:
+    dockerfile = (ROOT / "Dockerfile.cuda").read_text(encoding="utf-8")
+    assert "libpython3.10" in dockerfile
+    assert "grep -Ev '^(contourpy|scipy|networkx)==' constraints.txt" in dockerfile
+    assert "printf 'scipy==1.15.3\\nnetworkx==3.4.2\\n' >> /tmp/constraints-worker.txt" in dockerfile
+    constraints = (ROOT / "constraints.txt").read_text(encoding="utf-8")
+    assert "networkx==3.5" in constraints
+    assert "networkx==3.4.2" not in constraints
+
+
 def test_release_workflow_contracts() -> None:
     release_path = ROOT / ".gitea" / "workflows" / "release.yaml"
     assert release_path.is_file()
@@ -663,12 +673,13 @@ def test_release_workflow_contracts() -> None:
         flags=re.MULTILINE | re.DOTALL,
     )
     assert library_scan
-    assert "pkg-types: library" in library_scan.group(0)
-    assert "reachability" not in library_scan.group(0).lower()
+    assert "--scanners vuln --format sarif" in library_scan.group(0)
+    assert "--severity CRITICAL,HIGH --pkg-types library --exit-code 1" in library_scan.group(0)
+    assert '> "trivy-${{ matrix.role }}-library.sarif"' in library_scan.group(0)
     assert workflow.index("Block digest high and critical application-library vulnerabilities") < workflow.index(
         "Install Cosign"
     )
-    assert "image-ref: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}" in workflow
+    assert "IMAGE_REF: ${{ matrix.image }}@${{ steps.publish.outputs.digest }}" in workflow
     assert 'docker push "$IMAGE:$TAG"' in workflow
     assert "load: true" in workflow and "push: false" in workflow
     assert "--type slsaprovenance" in workflow and "--type spdxjson" in workflow
@@ -693,6 +704,60 @@ def test_release_workflow_contracts() -> None:
     assert workflow.index("Validate release prerequisites") < workflow.index(
         "Checkout code", workflow.index("  images:")
     )
+
+    trivy_image = "docker.io/aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e"
+    assert workflow.count(trivy_image) == 1
+    assert "aquasecurity/trivy-action" not in workflow
+    assert "docker.io/aquasec/trivy:" not in workflow
+    cache_setup = re.search(
+        r"^      - name: Prepare pinned Trivy scanner cache\n(.*?)(?=^      - name:|\Z)",
+        images,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert cache_setup
+    assert '[[ "$trivy_image" =~ ^docker\\.io/aquasec/trivy@sha256:[0-9a-f]{64}$ ]]' in cache_setup.group(0)
+    assert 'docker volume create "$cache_volume" >/dev/null' in cache_setup.group(0)
+    assert "echo" not in cache_setup.group(0)
+
+    def scan_step(name: str) -> str:
+        match = re.search(
+            rf"^      - name: {re.escape(name)}\n(.*?)(?=^      - name:|\Z)", images, re.MULTILINE | re.DOTALL
+        )
+        assert match, f"missing {name}"
+        return match.group(0)
+
+    local_scan = scan_step("Block local high and critical application-library vulnerabilities")
+    digest_scan = scan_step("Block digest high and critical application-library vulnerabilities")
+    os_scan = scan_step("Report digest OS vulnerabilities")
+    sbom_scan = scan_step("Generate SPDX JSON SBOM for digest")
+    cleanup = scan_step("Remove Trivy scanner cache")
+    for scan in (local_scan, digest_scan, os_scan, sbom_scan):
+        assert "docker run --rm" in scan
+        assert "-v /var/run/docker.sock:/var/run/docker.sock" in scan
+        assert '-v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy"' in scan
+        assert '"$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy' in scan
+        assert "${{ github.workspace }}" not in scan
+    for scan in (digest_scan, os_scan, sbom_scan):
+        assert '-v "$HOME/.docker:/root/.docker:ro"' in scan
+    assert "/root/.docker:rw" not in images
+
+    def normalize_command(scan: str) -> str:
+        return re.sub(r"\s+", " ", scan.replace("\\\n", " "))
+
+    assert "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types library --exit-code 1" in normalize_command(
+        local_scan
+    )
+    assert "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types library --exit-code 1" in normalize_command(
+        digest_scan
+    )
+    assert "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types os --exit-code 0" in normalize_command(os_scan)
+    assert "--format spdx-json --exit-code 0" in sbom_scan
+    assert '> "trivy-${{ matrix.role }}-local-library.sarif"' in local_scan
+    assert '> "trivy-${{ matrix.role }}-os.sarif"' in os_scan
+    assert '> "${{ matrix.role }}.spdx.json"' in sbom_scan
+    assert "if: always()" in os_scan and "if: always()" in cleanup
+    assert 'if [[ -n "$TRIVY_CACHE_VOLUME" ]]; then' in cleanup
+    assert 'docker volume rm --force "$TRIVY_CACHE_VOLUME" >/dev/null' in cleanup
 
     provenance = re.search(
         r'Path\(f"\{os\.environ\[\'ROLE\'\]\}\.provenance\.json"\).*?\n          \}\) \+ "\\n"\)',

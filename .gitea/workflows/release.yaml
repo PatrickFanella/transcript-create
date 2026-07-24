@@ -41,10 +41,13 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
-      - name: Install Python dependencies
+      - name: Create isolated Python verification environment
         run: |
-          "${{ steps.python.outputs.python-path }}" -m pip install --upgrade pip
-          "${{ steps.python.outputs.python-path }}" -m pip install -r requirements.txt -r requirements-dev.txt
+          rm -rf -- .release-venv
+          "${{ steps.python.outputs.python-path }}" -m venv .release-venv
+          .release-venv/bin/python -m pip install --upgrade pip
+          .release-venv/bin/python -m pip install setuptools==83.0.0
+          .release-venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Install frontend and end-to-end dependencies
         run: |
           npm ci --prefix frontend
@@ -52,15 +55,13 @@ jobs:
       - name: Install Chromium
         run: npx --prefix e2e playwright install --with-deps chromium
       - name: Run canonical verification
-        env:
-          PYTHON_BIN: ${{ steps.python.outputs.python-path }}
         run: |
           set -euo pipefail
           gateway="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{println .Gateway}}{{end}}' "$(hostname)" | while IFS= read -r candidate; do
             [[ -n "$candidate" ]] && { printf '%s\n' "$candidate"; break; }
           done)"
           [[ "$gateway" =~ ^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$ ]]
-          TEST_SERVICE_HOST="$gateway" make verify
+          PYTHON_BIN="$PWD/.release-venv/bin/python" TEST_SERVICE_HOST="$gateway" make verify
 
   cross-browser:
     runs-on: ubuntu-latest

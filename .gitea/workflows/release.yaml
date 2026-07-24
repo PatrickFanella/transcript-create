@@ -173,11 +173,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
       - name: Log in to Gitea registry
-        uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4
-        with:
-          registry: git.subcult.tv
-          username: ${{ vars.REGISTRY_USER }}
-          password: ${{ secrets.REGISTRY_PAT }}
+        env:
+          REGISTRY_USER: ${{ vars.REGISTRY_USER }}
+          REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if printf '%s' "$REGISTRY_PAT" | docker login git.subcult.tv --username "$REGISTRY_USER" --password-stdin; then
+              exit 0
+            fi
+            if (( attempt < 3 )); then
+              sleep "$((attempt * 2))"
+            fi
+          done
+          exit 1
       - name: Build ${{ matrix.role }} once for scanning
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
@@ -206,7 +215,7 @@ jobs:
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
-            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
+            "$TRIVY_IMAGE" image --timeout 15m --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
             --severity CRITICAL,HIGH --pkg-types library --exit-code 1 "$IMAGE_REF" \
             > "trivy-${{ matrix.role }}-local-library.sarif"
       - name: Push scanned local image and resolve digest
@@ -221,11 +230,6 @@ jobs:
           skopeo_image='quay.io/skopeo/stable@sha256:47853bb9fb24202af9110531ebd6e43c5f97701254ca290596640290d17942f4'
           [[ "$skopeo_image" =~ ^quay\.io/skopeo/stable@sha256:[0-9a-f]{64}$ ]]
           repository="${IMAGE#git.subcult.tv/}"
-          registry_token="$(curl --fail-with-body --silent --show-error --get \
-            --user "$REGISTRY_USER:$REGISTRY_PAT" \
-            --data-urlencode "service=container_registry" \
-            --data-urlencode "scope=repository:${repository}:pull,push" \
-            https://git.subcult.tv/v2/token | python3 -c 'import json, sys; payload = json.load(sys.stdin); token = payload.get("token") or payload.get("access_token"); assert isinstance(token, str) and token; print(token)')"
           network="hasanara-push-${{ gitea.run_id }}-${{ matrix.role }}"
           evidence_volume="hasanara-push-evidence-${{ gitea.run_id }}-${{ matrix.role }}"
           cleanup() {
@@ -237,18 +241,35 @@ jobs:
           docker volume create "$evidence_volume" >/dev/null
           docker network create --internal "$network" >/dev/null
           docker network connect --alias registry-origin "$network" gitea
-          REGISTRY_BEARER_TOKEN="$registry_token" docker run --rm --network "$network" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$evidence_volume:/evidence" \
-            -e REGISTRY_BEARER_TOKEN \
-            -e IMAGE \
-            -e TAG \
-            --entrypoint /bin/sh \
-            "$skopeo_image" -ec '
-              skopeo copy --dest-registry-token "$REGISTRY_BEARER_TOKEN" --dest-tls-verify=false \
-                --digestfile /evidence/pushed.digest \
-                "docker-daemon:${IMAGE}:${TAG}" "docker://registry-origin:3000/${IMAGE#git.subcult.tv/}:${TAG}"
-            '
+          copied=false
+          for attempt in 1 2 3; do
+            if registry_token="$(curl --fail-with-body --silent --show-error --get \
+              --user "$REGISTRY_USER:$REGISTRY_PAT" \
+              --data-urlencode "service=container_registry" \
+              --data-urlencode "scope=repository:${repository}:pull,push" \
+              https://git.subcult.tv/v2/token | python3 -c 'import json, sys; payload = json.load(sys.stdin); token = payload.get("token") or payload.get("access_token"); assert isinstance(token, str) and token; print(token)')"; then
+              if REGISTRY_BEARER_TOKEN="$registry_token" docker run --rm --network "$network" \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v "$evidence_volume:/evidence" \
+                -e REGISTRY_BEARER_TOKEN \
+                -e IMAGE \
+                -e TAG \
+                --entrypoint /bin/sh \
+                "$skopeo_image" -ec '
+                  rm -f /evidence/pushed.digest
+                  skopeo copy --dest-registry-token "$REGISTRY_BEARER_TOKEN" --dest-tls-verify=false \
+                    --digestfile /evidence/pushed.digest \
+                    "docker-daemon:${IMAGE}:${TAG}" "docker://registry-origin:3000/${IMAGE#git.subcult.tv/}:${TAG}"
+                '; then
+                copied=true
+                break
+              fi
+            fi
+            if (( attempt < 3 )); then
+              sleep "$((attempt * 2))"
+            fi
+          done
+          [[ "$copied" == true ]]
           pushed_digest="$(docker run --rm -v "$evidence_volume:/evidence:ro" --entrypoint /bin/sh "$skopeo_image" -ec 'cat /evidence/pushed.digest')"
           [[ "$pushed_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           canonical_digest="$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}')"
@@ -266,7 +287,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.docker:/root/.docker:ro" \
             -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
-            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
+            "$TRIVY_IMAGE" image --timeout 15m --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
             --severity CRITICAL,HIGH --pkg-types library --exit-code 1 "$IMAGE_REF" \
             > "trivy-${{ matrix.role }}-library.sarif"
       - name: Report digest OS vulnerabilities
@@ -281,7 +302,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.docker:/root/.docker:ro" \
             -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
-            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
+            "$TRIVY_IMAGE" image --timeout 15m --cache-dir /root/.cache/trivy --scanners vuln --format sarif \
             --severity CRITICAL,HIGH --pkg-types os --exit-code 0 "$IMAGE_REF" \
             > "trivy-${{ matrix.role }}-os.sarif"
       - name: Generate SPDX JSON SBOM for digest
@@ -295,7 +316,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.docker:/root/.docker:ro" \
             -v "$TRIVY_CACHE_VOLUME:/root/.cache/trivy" \
-            "$TRIVY_IMAGE" image --cache-dir /root/.cache/trivy --format spdx-json --exit-code 0 "$IMAGE_REF" \
+            "$TRIVY_IMAGE" image --timeout 15m --cache-dir /root/.cache/trivy --format spdx-json --exit-code 0 "$IMAGE_REF" \
             > "${{ matrix.role }}.spdx.json"
       - name: Remove Trivy scanner cache
         if: always()
@@ -469,6 +490,9 @@ jobs:
             ${{ matrix.role }}.signature.verify.json
             ${{ matrix.role }}.provenance.verify.json
             ${{ matrix.role }}.sbom.verify.json
+      - name: Log out of Gitea registry
+        if: always()
+        run: docker logout git.subcult.tv >/dev/null 2>&1 || true
 
   release:
     runs-on: ubuntu-latest

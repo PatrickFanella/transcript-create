@@ -10,6 +10,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 export TEST_POSTGRES_PORT="${TEST_POSTGRES_PORT:-55432}"
 export TEST_REDIS_PORT="${TEST_REDIS_PORT:-56379}"
 export TEST_OPENSEARCH_PORT="${TEST_OPENSEARCH_PORT:-59200}"
+export TEST_SERVICE_HOST="${TEST_SERVICE_HOST:-localhost}"
 export ENVIRONMENT='test'
 export SEARCH_BACKEND='postgres'
 export SESSION_SECRET='verify-session-secret-2026-9d7f3a1c'
@@ -59,10 +60,10 @@ echo 'Validating documentation and retired product contracts...'
 echo 'Starting isolated PostgreSQL, Redis, and OpenSearch services...'
 "${COMPOSE[@]}" up -d --wait
 
-export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:${TEST_POSTGRES_PORT}/hasanara_test"
+export DATABASE_URL="postgresql+psycopg://postgres:postgres@${TEST_SERVICE_HOST}:${TEST_POSTGRES_PORT}/hasanara_test"
 export ANALYTICS_TEST_DATABASE_URL="${DATABASE_URL}"
-export REDIS_URL="redis://localhost:${TEST_REDIS_PORT}/0"
-export OPENSEARCH_URL="http://localhost:${TEST_OPENSEARCH_PORT}"
+export REDIS_URL="redis://${TEST_SERVICE_HOST}:${TEST_REDIS_PORT}/0"
+export OPENSEARCH_URL="http://${TEST_SERVICE_HOST}:${TEST_OPENSEARCH_PORT}"
 
 echo 'Applying the complete Alembic migration history...'
 "${PYTHON_BIN}" -m alembic upgrade head

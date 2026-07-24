@@ -584,6 +584,11 @@ def test_release_workflow_contracts() -> None:
     assert not (ROOT / ".gitea" / "workflows" / "release.yml").exists()
     assert not (ROOT / ".github" / "workflows" / "release.yml").exists()
     workflow = release_path.read_text(encoding="utf-8")
+    verify_script = (ROOT / "scripts" / "verify.sh").read_text(encoding="utf-8")
+    assert 'export TEST_SERVICE_HOST="${TEST_SERVICE_HOST:-localhost}"' in verify_script
+    assert "@${TEST_SERVICE_HOST}:${TEST_POSTGRES_PORT}/hasanara_test" in verify_script
+    assert "redis://${TEST_SERVICE_HOST}:${TEST_REDIS_PORT}/0" in verify_script
+    assert "http://${TEST_SERVICE_HOST}:${TEST_OPENSEARCH_PORT}" in verify_script
 
     uses_references = re.findall(r"^\s*uses:\s*([^\s@]+)@([^\s#]+)", workflow, flags=re.MULTILINE)
     assert uses_references
@@ -602,6 +607,29 @@ def test_release_workflow_contracts() -> None:
 
     assert ".gitea" in set((ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines())
     assert re.search(r"^permissions:\n  contents: read\n", workflow, flags=re.MULTILINE)
+    verify = job_section("verify")
+    verification_step = re.search(
+        r"^      - name: Run canonical verification\n(.*?)(?=^      - name:|\Z)",
+        verify,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert verification_step
+    verification_text = verification_step.group(0)
+    assert "PYTHON_BIN: ${{ steps.python.outputs.python-path }}" in verification_text
+    assert (
+        "docker inspect --format '{{range .NetworkSettings.Networks}}{{println .Gateway}}{{end}}' \"$(hostname)\""
+        in verification_text
+    )
+    assert '[[ -n "$candidate" ]]' in verification_text
+    assert re.search(
+        r'\[\[ "\$gateway" =~ \^\(\(25\[0-5\]\|2\[0-4\]\[0-9\]\|1\[0-9\]\{2\}\|\[1-9\]\?\[0-9\]\)\\\.\)\{3\}',
+        verification_text,
+    )
+    assert 'TEST_SERVICE_HOST="$gateway" make verify' in verification_text
+    assert "host.docker.internal" not in verification_text
+    assert "echo" not in verification_text and "printf" not in verification_text.replace(
+        "printf '%s\\n' \"$candidate\"", ""
+    )
     images = job_section("images")
     release = job_section("release")
     assert re.search(r"^      contents: read$", release, flags=re.MULTILINE)

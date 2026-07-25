@@ -767,6 +767,34 @@ def test_release_workflow_contracts() -> None:
         )
     assert re.search(r"^      contents: read$", release, flags=re.MULTILINE)
     assert re.search(r"^      releases: write$", release, flags=re.MULTILINE)
+    manifest_generation = re.search(
+        r"^      - name: Generate immutable release manifest\n(.*?)(?=^      - name:|\Z)",
+        release,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert manifest_generation
+    manifest_text = manifest_generation.group(0)
+    expected_roles = ("api", "ingest-cuda", "ml-cuda", "frontend", "postgres-walg")
+    assert 'roles = ("api", "ingest-cuda", "ml-cuda", "frontend", "postgres-walg")' in manifest_text
+    assert all(f'"{role}"' in manifest_text for role in expected_roles)
+    assert "for role in roles:" in manifest_text
+    assert 'path = Path("image-evidence") / role / f"{role}.json"' in manifest_text
+    assert "path.is_symlink() or not path.is_file()" in manifest_text
+    assert 'json.loads(path.read_text(encoding="utf-8"))' in manifest_text
+    assert "except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:" in manifest_text
+    for validation in (
+        "not isinstance(item, dict)",
+        'set(item) != {"role", "image"}',
+        'not isinstance(item["role"], str)',
+        'not isinstance(item["image"], str)',
+        'item["role"] != role',
+        'item["role"] in images',
+        'not ref.fullmatch(item["image"])',
+    ):
+        assert validation in manifest_text
+    assert 'Path("image-evidence").glob("*/*.json")' not in manifest_text
+    assert ".glob(" not in manifest_text
+    assert "set(images) != set(roles)" in manifest_text
 
     library_scan = re.search(
         r"^      - name: Block digest high and critical application-library vulnerabilities\n(.*?)(?=^      - name:|\Z)",

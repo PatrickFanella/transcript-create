@@ -608,15 +608,29 @@ jobs:
           python3 - <<'PY'
           import json, os, re
           from pathlib import Path
-          roles = {"api", "ingest-cuda", "ml-cuda", "frontend", "postgres-walg"}
+          roles = ("api", "ingest-cuda", "ml-cuda", "frontend", "postgres-walg")
           ref = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
           images = {}
-          for path in Path("image-evidence").glob("*/*.json"):
-              item = json.loads(path.read_text())
-              if set(item) == {"role", "image"}:
-                  if item["role"] in images or item["role"] not in roles or not ref.fullmatch(item["image"]): raise SystemExit("invalid image fragment")
-                  images[item["role"]] = item["image"]
-          if set(images) != roles or not ref.fullmatch(os.environ["REDIS_IMAGE"]): raise SystemExit("missing release digest")
+          for role in roles:
+              path = Path("image-evidence") / role / f"{role}.json"
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit("invalid image fragment")
+              try:
+                  item = json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                  raise SystemExit("invalid image fragment") from error
+              if (
+                  not isinstance(item, dict)
+                  or set(item) != {"role", "image"}
+                  or not isinstance(item["role"], str)
+                  or not isinstance(item["image"], str)
+                  or item["role"] != role
+                  or item["role"] in images
+                  or not ref.fullmatch(item["image"])
+              ):
+                  raise SystemExit("invalid image fragment")
+              images[item["role"]] = item["image"]
+          if set(images) != set(roles) or not ref.fullmatch(os.environ["REDIS_IMAGE"]): raise SystemExit("missing release digest")
           Path("release-images.json").write_text(json.dumps({"schema_version": 1, "source_commit": os.environ["SOURCE_COMMIT"], "images": {**dict(sorted(images.items())), "redis": os.environ["REDIS_IMAGE"]}, "services": {"db": "postgres-walg", "backup": "postgres-walg", "migrations": "api", "api": "api", "analytics-retention": "api", "summary-refresher": "api", "archive-intelligence-refresher": "api", "worker": "ingest-cuda", "diarization-worker": "ml-cuda", "frontend": "frontend", "redis": "redis"}}, indent=2) + "\n")
           PY
       - name: Upload release evidence bundle

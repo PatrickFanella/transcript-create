@@ -624,6 +624,58 @@ def test_cuda_constraints_override_networkx_for_python_310() -> None:
     assert "networkx==3.4.2" not in constraints
 
 
+def _assert_cuda_bootstrap_contract_specs() -> None:
+    bootstrap = (ROOT / "requirements-cuda-bootstrap.txt").read_text(encoding="utf-8")
+    package_specs = [
+        line for line in bootstrap.splitlines() if line and not line.startswith("#")
+    ]
+    assert package_specs == [
+        "cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1",
+        "cuda-bindings==12.9.4",
+        "nvidia-cudnn-cu12==9.19.0.56",
+        "nvidia-cusparselt-cu12==0.7.1",
+        "nvidia-nccl-cu12==2.28.9",
+        "nvidia-nvshmem-cu12==3.4.5",
+    ]
+    extras = package_specs[0].split("[", 1)[1].split("]", 1)[0].split(",")
+    assert extras == [
+        "cublas",
+        "cudart",
+        "cufft",
+        "cufile",
+        "cupti",
+        "curand",
+        "cusolver",
+        "cusparse",
+        "nvjitlink",
+        "nvrtc",
+        "nvtx",
+    ]
+
+
+def test_cuda_bootstrap_uses_canonical_pypi_before_torch() -> None:
+    _assert_cuda_bootstrap_contract_specs()
+    dockerfile = (ROOT / "Dockerfile.cuda").read_text(encoding="utf-8")
+    bootstrap_install = (
+        "pip3 install --no-cache-dir --only-binary=:all: "
+        "--index-url https://pypi.org/simple"
+    )
+    torch_install = "pip3 install --no-cache-dir --index-url ${CUDA_WHEEL_INDEX}"
+    assert (
+        "COPY requirements.txt requirements-ml-runtime.txt "
+        "requirements-cuda-bootstrap.txt constraints.txt ./" in dockerfile
+    )
+    assert bootstrap_install in dockerfile
+    bootstrap_requirements = dockerfile.index(
+        "-r requirements-cuda-bootstrap.txt", dockerfile.index(bootstrap_install)
+    )
+    assert (
+        dockerfile.index(bootstrap_install)
+        < bootstrap_requirements
+        < dockerfile.index(torch_install)
+    )
+
+
 def test_release_workflow_contracts() -> None:
     release_path = ROOT / ".gitea" / "workflows" / "release.yaml"
     assert release_path.is_file()

@@ -657,6 +657,7 @@ def test_release_workflow_contracts() -> None:
     assert ".gitea" in set((ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines())
     assert re.search(r"^permissions:\n  contents: read\n", workflow, flags=re.MULTILINE)
     verify = job_section("verify")
+    cross_browser = job_section("cross-browser")
     verification_step = re.search(
         r"^      - name: Run canonical verification\n(.*?)(?=^      - name:|\Z)",
         verify,
@@ -701,6 +702,17 @@ def test_release_workflow_contracts() -> None:
     assert "PyPDF2" not in dev_requirements
     images = job_section("images")
     release = job_section("release")
+    assert re.search(r"^    needs: verify$", cross_browser, flags=re.MULTILINE)
+    for name, job in (("cross-browser", cross_browser), ("images", images)):
+        strategy = re.search(
+            r"^    strategy:\n(.*?)(?=^    [a-z][\w-]*:|\Z)",
+            job,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        assert strategy, f"missing {name} strategy"
+        assert re.search(r"^      max-parallel: 1$", strategy.group(1), flags=re.MULTILINE), (
+            f"{name} matrix must serialize runner use"
+        )
     assert re.search(r"^      contents: read$", release, flags=re.MULTILINE)
     assert re.search(r"^      releases: write$", release, flags=re.MULTILINE)
 

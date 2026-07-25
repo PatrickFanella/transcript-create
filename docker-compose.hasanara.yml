@@ -50,10 +50,16 @@ services:
     summary-refresher:
         image: hasanara-api:latest
         container_name: hasanara-summary-refresher
+        cpus: 0.25
+        mem_limit: 256m
+        memswap_limit: 256m
+        pids_limit: 64
         env_file: ${HASANARA_ENV_FILE:-.env}
         environment:
             DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
-            ARCHIVE_SUMMARY_REFRESH_SECONDS: ${ARCHIVE_SUMMARY_REFRESH_SECONDS:-900}
+            # The refresh query is CPU-heavy in PostgreSQL; hourly freshness is
+            # sufficient and avoids four expensive scans per hour.
+            ARCHIVE_SUMMARY_REFRESH_SECONDS: ${ARCHIVE_SUMMARY_REFRESH_SECONDS:-3600}
             OTEL_SDK_DISABLED: 'true'
             PYTHONPATH: /app
         depends_on:

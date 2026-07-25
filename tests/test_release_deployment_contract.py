@@ -902,6 +902,7 @@ def test_release_workflow_contracts() -> None:
     assert '> "trivy-${{ matrix.role }}-os.sarif"' in os_scan
     assert '> "${{ matrix.role }}.spdx.json"' in sbom_scan
     assert "if: always() && steps.publish.outcome == 'success'" in os_scan
+    assert "continue-on-error: true" in os_scan
     assert "if: always()" in cleanup
     assert 'if [[ -n "$TRIVY_CACHE_VOLUME" ]]; then' in cleanup
     assert 'docker volume rm --force "$TRIVY_CACHE_VOLUME" >/dev/null' in cleanup

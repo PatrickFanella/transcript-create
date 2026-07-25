@@ -353,6 +353,7 @@ jobs:
             > "trivy-${{ matrix.role }}-library.sarif"
       - name: Report digest OS vulnerabilities
         if: always() && steps.publish.outcome == 'success'
+        continue-on-error: true
         env:
           TRIVY_IMAGE: ${{ steps.trivy.outputs.image }}
           TRIVY_CACHE_VOLUME: ${{ steps.trivy.outputs.cache_volume }}

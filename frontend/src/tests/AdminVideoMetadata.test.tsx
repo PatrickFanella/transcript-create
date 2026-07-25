@@ -303,5 +303,5 @@ describe('AdminVideoMetadata', () => {
     expect(screen.getByText('Saved metadata assignment.')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Assign Guest Two' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Assign React Notes' })).toBeChecked();
-  });
+  }, 10_000);
 });

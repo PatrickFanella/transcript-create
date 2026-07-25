@@ -1,3 +1,4 @@
+import axeCore from 'axe-core';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -54,8 +55,6 @@ describe('EpisodeIntelligence', () => {
       </MemoryRouter>
     );
     expect(await screen.findByRole('alert')).toHaveTextContent('temporarily unavailable');
-    await expect(
-      (await import('axe-core')).default.run(container).then((result) => result.violations)
-    ).resolves.toEqual([]);
+    await expect(axeCore.run(container).then((result) => result.violations)).resolves.toEqual([]);
   });
 });

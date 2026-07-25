@@ -88,7 +88,7 @@ npm --prefix frontend run type-check
 npm --prefix frontend run test:coverage
 npm --prefix frontend run build
 npm --prefix frontend run bundle:check
-npm --prefix frontend audit --audit-level=high
+"${PYTHON_BIN}" scripts/check_security_exceptions.py --npm-audit --package-dir frontend
 
 if [[ "${VERIFY_SKIP_BROWSER:-0}" != "1" ]]; then
   echo 'Running seeded Chromium archive smoke tests...'

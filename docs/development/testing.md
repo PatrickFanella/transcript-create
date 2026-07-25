@@ -17,6 +17,8 @@ Before the first RC tag, a trusted release operator must dispatch
 run must pass this canonical gate, the complete seeded browser matrix, exact
 registry-digest scans, and Cosign signature/attestation verification without
 creating a release. RC and beta tags repeat those checks before creating a Gitea
-prerelease. Automated checks are only the first release gate; restore, ingress,
+prerelease. Image publication is guarded by an explicit aggregate of four browser
+success markers because runner matrix dependency semantics alone are not
+fail-closed. Automated checks are only the first release gate; restore, ingress,
 moderated-testing, and private-beta evidence are tracked in the
 [private-beta deployment runbook](../deployment/private-beta.md).

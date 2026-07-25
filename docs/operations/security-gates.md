@@ -14,7 +14,7 @@ pip-audit -r constraints.txt --no-deps --disable-pip
 pip-audit -r requirements-ml-runtime.txt --no-deps --disable-pip \
   --ignore-vuln GHSA-rrmf-rvhw-rf47
 bandit -r app/ worker/ -lll -ii
-npm --prefix frontend audit --audit-level=high
+python scripts/check_security_exceptions.py --npm-audit --package-dir frontend
 ```
 
 The installed-environment pip-audit covers resolved transitive packages in
@@ -53,6 +53,38 @@ through either qualified or imported-alias syntax.
 - Expires: 2026-08-09
 - Required action: reassess upstream fixes and remove the exact ignore as
   soon as a compatible patched wheel is published
+
+`1124282` / `GHSA-qwww-vcr4-c8h2` affects the exact
+`react-router-dom` and `react-router` 7.18.1 lockfile nodes. The frontend is a
+client-side SPA: it uses only base `react-router-dom` declarative/data imports,
+not React Router RSC, server, unstable, or subpath APIs. The npm wrapper uses
+the installed TypeScript compiler API to inspect TypeScript/JavaScript imports,
+exports, dynamic imports, and namespace API access (including `.mts` and
+`.cts`). It runs `npm audit --package-lock-only --include=dev` with inherited
+production/omit configuration neutralized, then checks exact manifest and
+lockfile versions, both required advisory sources, every severity, the complete
+allowed high/critical audit-record graph, and exact leaf audit paths before
+allowing this temporary exception.
+
+- Owner: frontend maintainers
+- Approved: 2026-07-24
+- Expires: 2026-08-08 UTC
+- Required action: upgrade React Router to a compatible patched version and
+  remove this exception and its compensating source/lock checks
+
+`1124334` / `GHSA-mh99-v99m-4gvg` affects only the exact dev-only
+`brace-expansion` lockfile nodes: 1.1.16 at `node_modules/brace-expansion` and
+2.1.2 beneath `@redocly/openapi-core` and
+`@typescript-eslint/typescript-estree`. They are not part of the production
+frontend bundle. The npm wrapper rejects any production reachability, node path,
+version, or audit-path drift and recursively validates every advisory leaf; it
+does not blanket-ignore dev dependencies or other high/critical findings.
+
+- Owner: frontend maintainers
+- Approved: 2026-07-24
+- Expires: 2026-08-08 UTC
+- Required action: update or remove the transitive dependency and delete this
+  exception and its exact dev-only lockfile check
 
 A future exception must identify the advisory, affected package and path,
 reachability evidence, compensating control, owner, approval date, and an

@@ -958,7 +958,7 @@ def test_release_workflow_contracts() -> None:
 
     for job in ("verify:", "cross-browser:", "images:", "release:"):
         assert f"  {job}" in workflow
-    assert "needs: [verify, cross-browser]" in workflow
+    assert "needs: [verify, cross-browser-gate]" in workflow
     assert "needs: images" in workflow
     for role, dockerfile in (
         ("api", "Dockerfile.api"),
@@ -991,7 +991,7 @@ def test_release_workflow_contracts() -> None:
     ):
         assert image in workflow
     assert 'schema_version": 1' in workflow and '"redis": "redis"' in workflow
-    assert workflow.count("actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a") == 5
+    assert workflow.count("actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a") == 9
     assert workflow.count("actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5") >= 3
     assert "gitea.api_url" in workflow and "gitea.token" in workflow and 'prerelease": True' in workflow
     assert '"$API_URL/repos/$REPOSITORY/releases"' in workflow
@@ -1012,6 +1012,79 @@ def test_release_workflow_contracts() -> None:
     ):
         assert forbidden not in workflow
     assert ":latest" not in workflow
+
+
+def test_release_cross_browser_marker_gate_contract() -> None:
+    workflow = (ROOT / ".gitea" / "workflows" / "release.yaml").read_text(encoding="utf-8")
+
+    def job_section(name: str) -> str:
+        match = re.search(
+            rf"^  {re.escape(name)}:\n(.*?)(?=^  [a-z][\w-]*:\n|\Z)",
+            workflow,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        assert match, f"missing {name} job"
+        return match.group(1)
+
+    cross_browser = job_section("cross-browser")
+    gate = job_section("cross-browser-gate")
+    images = job_section("images")
+    evidence = ("firefox-desktop", "webkit-desktop", "chromium-mobile", "webkit-mobile")
+    download_sha = "actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a"
+    upload_sha = "actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5"
+
+    for key in evidence:
+        assert f"evidence: {key}" in cross_browser
+        assert f"name: cross-browser-success-{key}" in gate
+        assert f"path: cross-browser-evidence/{key}" in gate
+    assert '--project="${{ matrix.project }}" --workers=1' in cross_browser
+    marker = re.search(
+        r"^      - name: Create cross-browser success marker\n(.*?)(?=^      - name:|\Z)",
+        cross_browser,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    upload = re.search(
+        r"^      - name: Upload cross-browser success marker\n(.*?)(?=^      - name:|\Z)",
+        cross_browser,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    report = re.search(
+        r"^      - name: Upload browser artifacts\n(.*?)(?=^      - name:|\Z)",
+        cross_browser,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert marker and upload and report
+    assert "printf '%s' '${{ gitea.sha }}'" in marker.group(0)
+    assert "if:" not in marker.group(0)
+    assert cross_browser.index(marker.group(0)) > cross_browser.index("Run seeded archive smoke test")
+    assert cross_browser.index(marker.group(0)) > cross_browser.index(report.group(0))
+    assert cross_browser.index(upload.group(0)) > cross_browser.index(marker.group(0))
+    assert cross_browser.rstrip().endswith(upload.group(0).rstrip())
+    assert upload_sha in upload.group(0)
+    assert "if:" not in upload.group(0)
+    assert "name: cross-browser-success-${{ matrix.evidence }}" in upload.group(0)
+    assert "path: cross-browser-success/${{ matrix.evidence }}.sha" in upload.group(0)
+    assert "if: always()" in report.group(0)
+    assert "e2e/test-results" in report.group(0) and "e2e/playwright-report" in report.group(0)
+
+    assert "needs: cross-browser" in gate
+    assert "if: always()" in gate
+    assert "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262" in gate
+    assert "ref: ${{ gitea.sha }}" in gate
+    assert gate.count(download_sha) == 4
+    validation = re.search(
+        r"^      - name: Validate cross-browser success markers\n(.*?)(?=^      - name:|\Z)",
+        gate,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert validation
+    assert (
+        "python3 scripts/validate_browser_evidence.py --root cross-browser-evidence --sha '${{ gitea.sha }}'"
+        in validation.group(0)
+    )
+    assert "needs: [verify, cross-browser-gate]" in images
+    assert "needs.verify.result == 'success'" in images
+    assert "needs.cross-browser-gate.result == 'success'" in images
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker is unavailable")

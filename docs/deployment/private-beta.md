@@ -64,8 +64,9 @@ route.
    OAuth; search fallback and lag; ingestion leases and retries; retention;
    backup recency; and alert delivery. On the target host, the default CUDA
    transcription image must pass import, GPU-visibility, and bounded-transcription
-   smoke tests. The ML diarization image/profile is optional, but if enabled it
-   must separately pass import, GPU-visibility, and bounded-diarization smoke.
+   smoke tests. The ML diarization image/profile is optional and CPU-only; if
+   used, it must separately pass import and bounded allow-listed one-off
+   diarization smoke (it must not require GPU visibility).
    **Operator pending.**
 9. **Pass moderated entry.** Complete the moderated gate in the
    [testing protocol](../user-testing/private-beta.md) and retain its consent,

@@ -138,12 +138,25 @@ services:
         devices: !override []
         group_add: !override []
         environment:
+            ENABLE_DIARIZATION: 'true'
             DIARIZATION_INLINE: 'false'
-            DIARIZATION_MAX_DURATION_SECONDS: ${DIARIZATION_MAX_DURATION_SECONDS:-7200}
-            DIARIZATION_MAX_JOBS_PER_PROCESS: ${DIARIZATION_MAX_JOBS_PER_PROCESS:-1}
+            DIARIZATION_DEVICE: cpu
+            DIARIZATION_MODEL: /root/.cache/hf/hub/models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee
+            DIARIZATION_FALLBACK_MODEL: ''
+            DIARIZATION_STRICT: 'true'
+            DIARIZATION_REQUIRE_ALLOWLIST: 'true'
+            DIARIZATION_EXIT_WHEN_IDLE: 'true'
+            DIARIZATION_MAX_DURATION_SECONDS: '600'
+            DIARIZATION_MAX_JOBS_PER_PROCESS: '1'
+            HF_HUB_OFFLINE: '1'
+            TRANSFORMERS_OFFLINE: '1'
+        cpus: 2.0
+        mem_limit: 4g
+        memswap_limit: 4g
+        pids_limit: 256
         healthcheck:
             disable: true
-        restart: unless-stopped
+        restart: 'no'
 
     backup:
         profiles: !override []

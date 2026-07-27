@@ -2,6 +2,7 @@
 
 import os
 import secrets
+import uuid
 
 import pytest
 
@@ -50,6 +51,52 @@ def test_bootstrap_admin_identities_reject_malformed_entries(value):
 
 def test_bootstrap_admin_identities_allow_empty_config():
     assert _isolated_settings(BOOTSTRAP_ADMIN_IDENTITIES="").BOOTSTRAP_ADMIN_IDENTITIES == frozenset()
+
+
+def test_diarization_allowlist_parses_strict_uuid_list():
+    first, second = uuid.uuid4(), uuid.uuid4()
+    config = _isolated_settings(DIARIZATION_ALLOWED_VIDEO_IDS=f"{first},{second}")
+    assert config.DIARIZATION_ALLOWED_VIDEO_IDS == frozenset({first, second})
+
+
+def test_diarization_allowlist_default_constructs_without_env(monkeypatch):
+    from app.settings import Settings
+
+    monkeypatch.delenv("DIARIZATION_ALLOWED_VIDEO_IDS", raising=False)
+
+    assert Settings(_env_file=None).DIARIZATION_ALLOWED_VIDEO_IDS == frozenset()
+
+
+@pytest.mark.parametrize("value", ["not-a-uuid", " ", "a, b", ",", "00000000-0000-0000-0000-000000000000,"])
+def test_diarization_allowlist_rejects_malformed_entries(value):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="DIARIZATION_ALLOWED_VIDEO_IDS"):
+        _isolated_settings(DIARIZATION_ALLOWED_VIDEO_IDS=value)
+
+
+@pytest.mark.parametrize("value", ["A0000000-0000-4000-8000-000000000000", "a0000000000040008000000000000000"])
+def test_diarization_allowlist_rejects_noncanonical_uuid_strings(value):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="canonical lowercase"):
+        _isolated_settings(DIARIZATION_ALLOWED_VIDEO_IDS=value)
+
+
+def test_diarization_allowlist_rejects_more_than_five_ids():
+    value = ",".join(str(uuid.uuid4()) for _ in range(6))
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="at most 5"):
+        _isolated_settings(DIARIZATION_ALLOWED_VIDEO_IDS=value)
+
+
+@pytest.mark.parametrize("value", [frozenset(), [], {uuid.uuid4()}])
+def test_diarization_allowlist_rejects_non_string_external_values(value):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="DIARIZATION_ALLOWED_VIDEO_IDS"):
+        _isolated_settings(DIARIZATION_ALLOWED_VIDEO_IDS=value)
 
 
 def test_database_url_from_env():

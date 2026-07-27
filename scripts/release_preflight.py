@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, NoReturn, Sequence
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 DIGEST_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
@@ -37,7 +39,6 @@ DATABASE_CLIENTS = {
     "analytics-retention",
     "summary-refresher",
     "archive-intelligence-refresher",
-    "diarization-worker",
     "backup",
 }
 APPLICATION_SERVICES = DATABASE_CLIENTS - {"backup"}
@@ -53,6 +54,35 @@ COMPOSE_FILES = (
     "docker-compose.pitr.yml",
     "docker-compose.release.yml",
 )
+DIARIZATION_SNAPSHOT = "/root/.cache/hf/hub/models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee"
+DIARIZATION_ENV_KEYS = {"HF_TOKEN", "DATABASE_URL"}
+DIARIZATION_RENDERED_ENVIRONMENT = {
+    "HF_TOKEN",
+    "DATABASE_URL",
+    "HF_HOME",
+    "HF_HUB_CACHE",
+    "TRANSFORMERS_CACHE",
+    "SEARCH_BACKEND",
+    "OPENSEARCH_URL",
+    "REDIS_URL",
+    "ROCM",
+    "ENABLE_DIARIZATION",
+    "DIARIZATION_INLINE",
+    "DIARIZATION_DEVICE",
+    "DIARIZATION_MODEL",
+    "DIARIZATION_FALLBACK_MODEL",
+    "DIARIZATION_STRICT",
+    "DIARIZATION_REQUIRE_ALLOWLIST",
+    "DIARIZATION_EXIT_WHEN_IDLE",
+    "DIARIZATION_MAX_DURATION_SECONDS",
+    "DIARIZATION_MAX_JOBS_PER_PROCESS",
+    "HF_HUB_OFFLINE",
+    "TRANSFORMERS_OFFLINE",
+    "ENVIRONMENT",
+    "LOG_LEVEL",
+    "ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION",
+}
+FOUR_GIB_VALUES = {"4g", "4G", 4_294_967_296, "4294967296"}
 
 
 class PreflightError(Exception):
@@ -105,7 +135,10 @@ def checked(command: Sequence[str], *, cwd: Path, error: str) -> subprocess.Comp
 
 
 def compose_command() -> list[str]:
-    command = ["docker", "compose", "--project-name", "hasanara", "--env-file", ".env.prod"]
+    # The operator wrapper fixes this to .env.prod. Honoring the same variable
+    # here lets isolated tests render with an inert temporary env file.
+    env_file = os.environ.get("HASANARA_ENV_FILE", ".env.prod")
+    command = ["docker", "compose", "--project-name", "hasanara", "--env-file", env_file]
     for compose_file in COMPOSE_FILES:
         command.extend(("--file", compose_file))
     return command
@@ -169,7 +202,7 @@ def validate_project_services(actual: set[str], desired: set[str], allow_disable
 
 
 def parse_compose_profiles(environment: str) -> None:
-    """Accept only Compose's default profile selection or diarization alone."""
+    """Accept only Compose's default profile selection."""
     values = [
         line.partition("=")[2] for line in environment.splitlines() if line.partition("=")[0] == "COMPOSE_PROFILES"
     ]
@@ -177,7 +210,7 @@ def parse_compose_profiles(environment: str) -> None:
         fail("unsupported Compose profile selection")
     value = values[0].strip() if values else ""
     profiles = [] if not value else [profile.strip() for profile in value.split(",")]
-    if profiles not in ([], ["diarization"]):
+    if profiles:
         fail("unsupported Compose profile selection")
 
 
@@ -220,6 +253,158 @@ def validate_rendered_services(rendered: dict[str, Any], services: set[str], man
             fail("Compose application environment contract is invalid")
 
 
+def diarization_env_path_from_operator_file() -> Path:
+    """Read the diarization env-file path from the selected Compose env file."""
+    operator_env_file = Path(os.environ.get("HASANARA_ENV_FILE", ".env.prod"))
+    try:
+        values: dict[str, str] = {}
+        for line in operator_env_file.read_text(encoding="utf-8").splitlines():
+            if not line or line.startswith("#"):
+                continue
+            key, separator, value = line.partition("=")
+            if key == "HASANARA_DIARIZATION_ENV_FILE":
+                if not separator or key in values:
+                    fail("diarization environment file contract is invalid")
+                values[key] = value
+    except (OSError, UnicodeDecodeError):
+        fail("diarization environment file contract is invalid")
+    raw_path = values.get("HASANARA_DIARIZATION_ENV_FILE", "")
+    if not raw_path:
+        fail("diarization environment file contract is invalid")
+    path = Path(raw_path)
+    return path if path.is_absolute() else operator_env_file.parent / path
+
+
+def validate_diarization_env_file() -> str:
+    """Check the ignored credential file without exposing its path or contents."""
+    path = diarization_env_path_from_operator_file()
+    try:
+        info = path.lstat()
+        if path.is_symlink() or not path.is_file() or info.st_mode & 0o077:
+            fail("diarization environment file contract is invalid")
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        fail("diarization environment file contract is invalid")
+    values: dict[str, str] = {}
+    for line in lines:
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if not separator or key not in DIARIZATION_ENV_KEYS or key in values:
+            fail("diarization environment file contract is invalid")
+        values[key] = value
+    if set(values) != DIARIZATION_ENV_KEYS or not values["HF_TOKEN"]:
+        fail("diarization environment file contract is invalid")
+    try:
+        parsed = urlparse(values["DATABASE_URL"])
+        valid_url = (
+            parsed.scheme == "postgresql+psycopg"
+            and parsed.username == "hasanara_diarization"
+            and parsed.hostname == "db"
+            and parsed.port == 5432
+            and parsed.path == "/transcripts"
+            and bool(parsed.password)
+            and parsed.password not in {"postgres", "change-me", "change-me-in-production"}
+            and not parsed.params
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except ValueError:
+        valid_url = False
+    if not valid_url:
+        fail("diarization database URL contract is invalid")
+    return values["DATABASE_URL"]
+
+
+def validate_diarization_contract(rendered: dict[str, Any], manifest: dict[str, Any]) -> None:
+    """Validate the opt-in worker even when its Compose profile is disabled."""
+    diarization_url = validate_diarization_env_file()
+    service = rendered.get("services", {}).get("diarization-worker")
+    if not isinstance(service, dict):
+        fail("Compose diarization contract is invalid")
+    environment = service.get("environment")
+    required_environment = {
+        "HF_HOME": "/root/.cache/hf",
+        "HF_HUB_CACHE": "/root/.cache/hf/hub",
+        "TRANSFORMERS_CACHE": "/root/.cache/hf/transformers",
+        "SEARCH_BACKEND": "postgres",
+        "OPENSEARCH_URL": "",
+        "REDIS_URL": "",
+        "ROCM": "false",
+        "ENABLE_DIARIZATION": "true",
+        "DIARIZATION_INLINE": "false",
+        "DIARIZATION_DEVICE": "cpu",
+        "DIARIZATION_MODEL": DIARIZATION_SNAPSHOT,
+        "DIARIZATION_FALLBACK_MODEL": "",
+        "DIARIZATION_STRICT": "true",
+        "DIARIZATION_REQUIRE_ALLOWLIST": "true",
+        "DIARIZATION_EXIT_WHEN_IDLE": "true",
+        "DIARIZATION_MAX_DURATION_SECONDS": "600",
+        "DIARIZATION_MAX_JOBS_PER_PROCESS": "1",
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+    }
+    if (
+        not isinstance(environment, dict)
+        or set(environment) != DIARIZATION_RENDERED_ENVIRONMENT
+        or any(environment.get(key) != value for key, value in required_environment.items())
+        or not isinstance(environment.get("HF_TOKEN"), str)
+        or not environment["HF_TOKEN"]
+        or environment.get("ENVIRONMENT") != "production"
+        or environment.get("LOG_LEVEL") != "INFO"
+        or environment.get("ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION") != "false"
+    ):
+        fail("Compose diarization environment contract is invalid")
+    if environment.get("DATABASE_URL") != diarization_url:
+        fail("Compose diarization database URL contract is invalid")
+    if service.get("image") != manifest["images"]["ml-cuda"] or "build" in service:
+        fail("Compose diarization image does not match the release manifest")
+    if (
+        service.get("gpus") not in (None, [])
+        or service.get("devices") not in (None, [])
+        or service.get("group_add") not in (None, [])
+        or service.get("restart") not in ("no", False)
+    ):
+        fail("Compose diarization runtime contract is invalid")
+    if (
+        service.get("cpus") not in ("2.0", 2, 2.0)
+        or service.get("mem_limit") not in FOUR_GIB_VALUES
+        or service.get("memswap_limit") not in FOUR_GIB_VALUES
+        or service.get("pids_limit") != 256
+    ):
+        fail("Compose diarization resource contract is invalid")
+    volumes = service.get("volumes")
+    if not isinstance(volumes, list) or len(volumes) != 2:
+        fail("Compose diarization mount contract is invalid")
+    mounts = {
+        (item.get("target"), item.get("source"), item.get("read_only")) for item in volumes if isinstance(item, dict)
+    }
+    expected_sources = {"/data": ROOT / "data", "/root/.cache/hf": ROOT / "cache" / "hf"}
+    actual_sources = {target: source for target, source, read_only in mounts if read_only is True}
+    if (
+        len(mounts) != 2
+        or set(actual_sources) != set(expected_sources)
+        or any(not isinstance(actual_sources[target], str) for target in expected_sources)
+    ):
+        fail("Compose diarization mount contract is invalid")
+    for target, expected in expected_sources.items():
+        source_value = actual_sources[target]
+        if not isinstance(source_value, str):
+            fail("Compose diarization mount contract is invalid")
+        source = Path(source_value)
+        source = source if source.is_absolute() else ROOT / source
+        try:
+            ancestor = ROOT
+            for part in expected.relative_to(ROOT).parts:
+                ancestor /= part
+                if ancestor.is_symlink():
+                    fail("Compose diarization mount contract is invalid")
+            if source.resolve() != expected.resolve() or source.is_symlink() or not source.is_dir():
+                fail("Compose diarization mount contract is invalid")
+        except OSError:
+            fail("Compose diarization mount contract is invalid")
+
+
 def verify_networks(root: Path) -> None:
     for network in ("management", "dev"):
         checked(
@@ -253,6 +438,15 @@ def validate(root: Path, manifest_path: Path, allow_dirty: bool, allow_disabled_
     except json.JSONDecodeError:
         fail("Compose rendered invalid JSON")
     validate_rendered_services(rendered, services, manifest)
+    diarization_result = checked(
+        [*compose_command(), "--profile", "diarization", "config", "--format", "json"],
+        cwd=root,
+        error="Compose diarization rendering failed",
+    )
+    try:
+        validate_diarization_contract(json.loads(diarization_result.stdout), manifest)
+    except json.JSONDecodeError:
+        fail("Compose diarization rendered invalid JSON")
     validate_project_services(project_services(root), services, allow_disabled_profile_services)
     verify_networks(root)
     verify_mount_parents(root)

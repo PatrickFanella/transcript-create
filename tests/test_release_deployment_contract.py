@@ -70,7 +70,50 @@ def rendered_service(service: str, image: str) -> dict[str, Any]:
         environment["PGPASSWORD"] = "inert"
     if service in preflight.APPLICATION_SERVICES:
         environment.update({"ENVIRONMENT": "production", "LOG_LEVEL": "INFO"})
-    return {"image": image, "environment": environment}
+    rendered: dict[str, Any] = {"image": image, "environment": environment}
+    if service == "diarization-worker":
+        environment.update(
+            {
+                "HF_TOKEN": "inert",
+                "DATABASE_URL": "postgresql+psycopg://hasanara_diarization:strong-password@db:5432/transcripts",
+                "HF_HOME": "/root/.cache/hf",
+                "HF_HUB_CACHE": "/root/.cache/hf/hub",
+                "TRANSFORMERS_CACHE": "/root/.cache/hf/transformers",
+                "SEARCH_BACKEND": "postgres",
+                "OPENSEARCH_URL": "",
+                "REDIS_URL": "",
+                "ROCM": "false",
+                "ENABLE_DIARIZATION": "true",
+                "DIARIZATION_INLINE": "false",
+                "DIARIZATION_DEVICE": "cpu",
+                "DIARIZATION_MODEL": preflight.DIARIZATION_SNAPSHOT,
+                "DIARIZATION_FALLBACK_MODEL": "",
+                "DIARIZATION_STRICT": "true",
+                "DIARIZATION_REQUIRE_ALLOWLIST": "true",
+                "DIARIZATION_EXIT_WHEN_IDLE": "true",
+                "DIARIZATION_MAX_DURATION_SECONDS": "600",
+                "DIARIZATION_MAX_JOBS_PER_PROCESS": "1",
+                "HF_HUB_OFFLINE": "1",
+                "TRANSFORMERS_OFFLINE": "1",
+                "ENVIRONMENT": "production",
+                "LOG_LEVEL": "INFO",
+                "ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION": "false",
+            }
+        )
+        rendered.update(
+            {
+                "restart": "no",
+                "cpus": "2.0",
+                "mem_limit": "4g",
+                "memswap_limit": "4g",
+                "pids_limit": 256,
+                "volumes": [
+                    {"source": "./data", "target": "/data", "read_only": True},
+                    {"source": "./cache/hf", "target": "/root/.cache/hf", "read_only": True},
+                ],
+            }
+        )
+    return rendered
 
 
 def test_dockerignore_excludes_secret_and_local_state() -> None:
@@ -99,17 +142,21 @@ def test_release_overlay_is_last_and_requires_immutable_images() -> None:
         overlay.count(
             "DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@db:5432/transcripts"
         )
-        == 8
+        == 7
     )
     assert "PGPASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}" in overlay
-    assert overlay.count("ENVIRONMENT: production") == len(preflight.APPLICATION_SERVICES)
-    assert overlay.count("LOG_LEVEL: INFO") == len(preflight.APPLICATION_SERVICES)
+    assert overlay.count("ENVIRONMENT: production") == len(preflight.APPLICATION_SERVICES) + 1
+    assert overlay.count("LOG_LEVEL: INFO") == len(preflight.APPLICATION_SERVICES) + 1
     assert 'ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION: "false"' in overlay
 
 
 def test_overlay_forces_env_file_and_diarization_is_opt_in() -> None:
     overlay = (ROOT / "docker-compose.release.yml").read_text(encoding="utf-8")
-    assert overlay.count('env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]') == 8
+    assert overlay.count('env_file: !override ["${HASANARA_ENV_FILE:?HASANARA_ENV_FILE is required}"]') == 7
+    assert (
+        'env_file: !override ["${HASANARA_DIARIZATION_ENV_FILE:?HASANARA_DIARIZATION_ENV_FILE is required}"]' in overlay
+    )
+    assert "gpus: !reset null" in overlay
     host = (ROOT / "docker-compose.hasanara.yml").read_text(encoding="utf-8")
     assert "profiles: [diarization]" in host
 
@@ -185,6 +232,180 @@ def test_rendered_production_contract_fails_closed(service: str, key: str, value
     rendered["services"][service]["environment"][key] = value
     with pytest.raises(preflight.PreflightError):
         preflight.validate_rendered_services(rendered, set(preflight.SERVICE_ROLES), data)
+
+
+def test_diarization_profile_contract_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        preflight,
+        "validate_diarization_env_file",
+        lambda: "postgresql+psycopg://hasanara_diarization:strong-password@db:5432/transcripts",
+    )
+    data = manifest()
+    rendered = {
+        "services": {
+            name: rendered_service(name, data["images"][role]) for name, role in preflight.SERVICE_ROLES.items()
+        }
+    }
+    preflight.validate_diarization_contract(rendered, data)
+    rendered["services"]["diarization-worker"]["environment"]["DIARIZATION_DEVICE"] = "cuda"
+    with pytest.raises(preflight.PreflightError, match="diarization environment"):
+        preflight.validate_diarization_contract(rendered, data)
+    rendered["services"]["diarization-worker"]["environment"]["DIARIZATION_DEVICE"] = "cpu"
+    rendered["services"]["diarization-worker"]["gpus"] = "all"
+    with pytest.raises(preflight.PreflightError, match="diarization runtime"):
+        preflight.validate_diarization_contract(rendered, data)
+    rendered["services"]["diarization-worker"]["gpus"] = None
+    rendered["services"]["diarization-worker"]["devices"] = ["/dev/nvidia0"]
+    with pytest.raises(preflight.PreflightError, match="diarization runtime"):
+        preflight.validate_diarization_contract(rendered, data)
+    rendered["services"]["diarization-worker"]["devices"] = []
+    rendered["services"]["diarization-worker"]["group_add"] = ["video"]
+    with pytest.raises(preflight.PreflightError, match="diarization runtime"):
+        preflight.validate_diarization_contract(rendered, data)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("HF_HOME", "/tmp/hf"),
+        ("HF_HUB_CACHE", "/tmp/hub"),
+        ("TRANSFORMERS_CACHE", "/tmp/transformers"),
+        ("SEARCH_BACKEND", "opensearch"),
+        ("OPENSEARCH_URL", "http://opensearch:9200"),
+        ("REDIS_URL", "redis://redis:6379/0"),
+        ("ROCM", "true"),
+        ("HF_TOKEN", ""),
+    ],
+)
+def test_diarization_contract_rejects_noncanonical_rendered_runtime_values(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    monkeypatch.setattr(
+        preflight,
+        "validate_diarization_env_file",
+        lambda: "postgresql+psycopg://hasanara_diarization:strong-password@db:5432/transcripts",
+    )
+    data = manifest()
+    rendered = {"services": {"diarization-worker": rendered_service("diarization-worker", data["images"]["ml-cuda"])}}
+    rendered["services"]["diarization-worker"]["environment"][key] = value
+    with pytest.raises(preflight.PreflightError, match="diarization environment"):
+        preflight.validate_diarization_contract(rendered, data)
+
+
+def test_diarization_contract_rejects_wrong_image_extra_environment_and_noncanonical_mounts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        preflight,
+        "validate_diarization_env_file",
+        lambda: "postgresql+psycopg://hasanara_diarization:strong-password@db:5432/transcripts",
+    )
+    monkeypatch.setattr(preflight, "ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "cache" / "hf").mkdir(parents=True)
+    data = manifest()
+    service = rendered_service("diarization-worker", data["images"]["ml-cuda"])
+    service["volumes"] = [
+        {"source": str(tmp_path / "data"), "target": "/data", "read_only": True},
+        {"source": str(tmp_path / "cache" / "hf"), "target": "/root/.cache/hf", "read_only": True},
+    ]
+    rendered = {"services": {"diarization-worker": service}}
+    preflight.validate_diarization_contract(rendered, data)
+    service["image"] = digest("wrong")
+    with pytest.raises(preflight.PreflightError, match="image"):
+        preflight.validate_diarization_contract(rendered, data)
+    service["image"] = data["images"]["ml-cuda"]
+    service["environment"]["FUTURE_EXTRA"] = "no"
+    with pytest.raises(preflight.PreflightError, match="environment"):
+        preflight.validate_diarization_contract(rendered, data)
+    del service["environment"]["FUTURE_EXTRA"]
+    link = tmp_path / "linked-data"
+    link.symlink_to(tmp_path / "data", target_is_directory=True)
+    service["volumes"][0]["source"] = str(link)
+    with pytest.raises(preflight.PreflightError, match="mount"):
+        preflight.validate_diarization_contract(rendered, data)
+
+
+@pytest.mark.parametrize("symlinked_path", ("data", "cache", "cache/hf"))
+def test_diarization_contract_rejects_symlinked_mount_ancestors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, symlinked_path: str
+) -> None:
+    monkeypatch.setattr(
+        preflight,
+        "validate_diarization_env_file",
+        lambda: "postgresql+psycopg://hasanara_diarization:strong-password@db:5432/transcripts",
+    )
+    monkeypatch.setattr(preflight, "ROOT", tmp_path)
+    external = tmp_path / "external"
+    (external / "data").mkdir(parents=True)
+    (external / "cache" / "hf").mkdir(parents=True)
+    if symlinked_path == "data":
+        (tmp_path / "data").symlink_to(external / "data", target_is_directory=True)
+        (tmp_path / "cache" / "hf").mkdir(parents=True)
+    elif symlinked_path == "cache":
+        (tmp_path / "data").mkdir()
+        (tmp_path / "cache").symlink_to(external / "cache", target_is_directory=True)
+    else:
+        (tmp_path / "data").mkdir()
+        (tmp_path / "cache").mkdir()
+        (tmp_path / "cache" / "hf").symlink_to(external / "cache" / "hf", target_is_directory=True)
+    data = manifest()
+    service = rendered_service("diarization-worker", data["images"]["ml-cuda"])
+    service["volumes"] = [
+        {"source": str(tmp_path / "data"), "target": "/data", "read_only": True},
+        {"source": str(tmp_path / "cache" / "hf"), "target": "/root/.cache/hf", "read_only": True},
+    ]
+    with pytest.raises(preflight.PreflightError, match="mount"):
+        preflight.validate_diarization_contract({"services": {"diarization-worker": service}}, data)
+
+
+def test_diarization_env_file_rejects_extra_keys_symlinks_and_unsafe_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / "diarization.env"
+    env_file.write_text(
+        "HF_TOKEN=inert\nDATABASE_URL=postgresql+psycopg://hasanara_diarization:strong-password@db:5432/transcripts\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+    operator_env = tmp_path / "operator.env"
+    operator_env.write_text(f"HASANARA_DIARIZATION_ENV_FILE={env_file}\n", encoding="utf-8")
+    monkeypatch.setenv("HASANARA_ENV_FILE", str(operator_env))
+    preflight.validate_diarization_env_file()
+    env_file.write_text(env_file.read_text(encoding="utf-8") + "EXTRA=value\n", encoding="utf-8")
+    with pytest.raises(preflight.PreflightError, match="environment file"):
+        preflight.validate_diarization_env_file()
+    env_file.write_text(
+        "HF_TOKEN=inert\nDATABASE_URL=postgresql+psycopg://postgres:strong-password@db:5432/transcripts\n"
+    )
+    with pytest.raises(preflight.PreflightError, match="database URL"):
+        preflight.validate_diarization_env_file()
+    env_file.chmod(0o644)
+    with pytest.raises(preflight.PreflightError, match="environment file"):
+        preflight.validate_diarization_env_file()
+    link = tmp_path / "diarization-link.env"
+    link.symlink_to(env_file)
+    operator_env.write_text(f"HASANARA_DIARIZATION_ENV_FILE={link}\n", encoding="utf-8")
+    with pytest.raises(preflight.PreflightError, match="environment file"):
+        preflight.validate_diarization_env_file()
+
+
+def test_preflight_uses_dedicated_environment_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    env_file = tmp_path / "inert-release.env"
+    monkeypatch.setenv("HASANARA_ENV_FILE", str(env_file))
+
+    assert preflight.compose_command()[5] == str(env_file)
+
+
+def test_diarization_env_path_is_read_from_selected_operator_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    operator_env = tmp_path / "operator.env"
+    operator_env.write_text("HASANARA_DIARIZATION_ENV_FILE=credentials/diarization.env\n", encoding="utf-8")
+    monkeypatch.setenv("HASANARA_ENV_FILE", str(operator_env))
+    monkeypatch.delenv("HASANARA_DIARIZATION_ENV_FILE", raising=False)
+
+    assert preflight.diarization_env_path_from_operator_file() == tmp_path / "credentials" / "diarization.env"
 
 
 def test_full_profile_service_set_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -292,7 +513,7 @@ def test_deploy_runs_strict_preflight_in_a_clean_operator_tree(tmp_path: Path) -
     for compose_file in preflight.COMPOSE_FILES:
         (tmp_path / compose_file).write_text("services: {}\n", encoding="utf-8")
     (tmp_path / ".gitignore").write_text(
-        ".env.prod\nrelease-images.json\ndocker-volumes/\nbackups/\ndata/\ncache/\nfake-bin/\ndocker-calls\n",
+        ".env.prod\n.env.diarization\nrelease-images.json\ndocker-volumes/\nbackups/\ndata/\ncache/\nfake-bin/\ndocker-calls\n",
         encoding="utf-8",
     )
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.DEVNULL)
@@ -309,8 +530,16 @@ def test_deploy_runs_strict_preflight_in_a_clean_operator_tree(tmp_path: Path) -
     release_manifest = manifest()
     release_manifest["source_commit"] = head
     (tmp_path / "release-images.json").write_text(json.dumps(release_manifest), encoding="utf-8")
-    (tmp_path / ".env.prod").write_text("INERT_OPERATOR_VALUE=1\n", encoding="utf-8")
-    for relative in ("docker-volumes/dbdata", "docker-volumes/redis-data", "backups", "data", "cache"):
+    diarization_env = tmp_path / ".env.diarization"
+    diarization_env.write_text(
+        "HF_TOKEN=inert\nDATABASE_URL=postgresql+psycopg://hasanara_diarization:strong-password@db:5432/transcripts\n",
+        encoding="utf-8",
+    )
+    diarization_env.chmod(0o600)
+    (tmp_path / ".env.prod").write_text(
+        f"INERT_OPERATOR_VALUE=1\nHASANARA_DIARIZATION_ENV_FILE={diarization_env}\n", encoding="utf-8"
+    )
+    for relative in ("docker-volumes/dbdata", "docker-volumes/redis-data", "backups", "data", "cache/hf"):
         (tmp_path / relative).mkdir(parents=True)
 
     rendered = {
@@ -339,7 +568,11 @@ def test_deploy_runs_strict_preflight_in_a_clean_operator_tree(tmp_path: Path) -
     )
     docker.chmod(0o755)
 
-    environment = {"PATH": f"{docker_dir}:{os.environ['PATH']}", "HOME": os.environ.get("HOME", ""), "USER": "test"}
+    environment = {
+        "PATH": f"{docker_dir}:{os.environ['PATH']}",
+        "HOME": os.environ.get("HOME", ""),
+        "USER": "test",
+    }
     result = subprocess.run(
         ["bash", "scripts/compose_prod.sh", "deploy"],
         cwd=tmp_path,
@@ -426,8 +659,8 @@ def test_retire_disabled_profiles_uses_limited_preflight_and_authoritative_compo
     assert docker_log.read_text(encoding="utf-8").splitlines() == [expected]
 
 
-@pytest.mark.parametrize("environment", ["", "COMPOSE_PROFILES=", "OTHER=inert\nCOMPOSE_PROFILES=diarization\n"])
-def test_requested_profiles_allow_only_default_or_diarization(environment: str) -> None:
+@pytest.mark.parametrize("environment", ["", "COMPOSE_PROFILES=", "OTHER=inert\n"])
+def test_requested_profiles_allow_only_default(environment: str) -> None:
     preflight.parse_compose_profiles(environment)
 
 
@@ -439,9 +672,10 @@ def test_requested_profiles_allow_only_default_or_diarization(environment: str) 
         "COMPOSE_PROFILES=diarization,full",
         "COMPOSE_PROFILES=full,diarization",
         "COMPOSE_PROFILES=diarization,unknown",
+        "COMPOSE_PROFILES=diarization",
     ],
 )
-def test_requested_profiles_reject_full_unknown_and_mixed(environment: str) -> None:
+def test_requested_profiles_reject_nondefault_selection(environment: str) -> None:
     with pytest.raises(preflight.PreflightError, match="unsupported Compose profile selection"):
         preflight.parse_compose_profiles(environment)
 
@@ -551,12 +785,51 @@ def test_config_safe_selectors_are_exact_and_maintenance_is_fixed() -> None:
         in helper
     )
     assert "run_compose exec backup /scripts/walg_base_backup.sh" in helper
+    assert "diarization-canary requires exactly one UUID and --approved" in helper
+    assert "readonly DIARIZATION_LOCK_NAME='hasanara-diarization-canary'" in helper
+    assert "pg_try_advisory_lock(hashtext('$DIARIZATION_LOCK_NAME'))" in helper
+    assert "duration_seconds <= 600" in helper
+    assert "timeout --signal=TERM --kill-after=30s 20m" in helper
+    assert "--rm --no-deps" in helper
+    assert "DIARIZATION_ALLOWED_VIDEO_IDS=$video_id" in helper
+    assert "WHERE id=:'video_id'::uuid AND diarization_state='running'" in helper
     assert "SELECT pg_switch_wal();" in helper
     assert (
         "run_preflight\n                run_compose exec db psql -v ON_ERROR_STOP=1 -U postgres -d transcripts -c 'SELECT archived_count, failed_count, last_archived_wal, last_archived_time, last_failed_wal, last_failed_time, stats_reset FROM pg_stat_archiver;'"
         in helper
     )
     assert "run_preflight\n                run_compose exec backup wal-g backup-list" in helper
+    canary = helper.split("run_diarization_canary() {", 1)[1].split("\n}\n\n[[ ${BASH_SOURCE[0]}", 1)[0]
+    assert "compose() {" in helper and 'exec "${CLEAN_ENV[@]}" "${COMPOSE[@]}" "$@"' in helper
+    assert "run_compose" not in canary
+    assert (
+        canary.index("run_preflight")
+        < canary.index("--entrypoint test")
+        < canary.index("timeout --signal=TERM")
+        < canary.index("diarization_state='completed'")
+    )
+    assert "start_lock_holder" in canary
+    assert "await_lock_holder" in canary
+    assert canary.index("check_diarization_role") < canary.index("start_lock_holder")
+    cleanup = helper.split("if [[ ${1:-} == diarization-canary-cleanup ]]; then", 1)[1].split(
+        "\n        if (($# != 2))", 1
+    )[0]
+    assert "run_preflight" not in cleanup
+    role_check = helper.split("diarization-role-check)", 1)[1].split("*)", 1)[0]
+    assert "check_diarization_role" in role_check
+    role_sql = (ROOT / "scripts" / "check_diarization_role.sql").read_text(encoding="utf-8")
+    for required_role_check in (
+        "rolcanlogin",
+        "rolcreaterole",
+        "rolcreatedb",
+        "rolreplication",
+        "rolbypassrls",
+        "has_schema_privilege",
+        "has_database_privilege",
+        "required_grants",
+    ):
+        assert required_role_check in role_sql
+    assert "CREATE ROLE" not in helper
     script = ROOT / "scripts" / "compose_prod.sh"
     for arguments in (
         ("maintenance", "session-token-contract-migration"),
@@ -626,9 +899,7 @@ def test_cuda_constraints_override_networkx_for_python_310() -> None:
 
 def _assert_cuda_bootstrap_contract_specs() -> None:
     bootstrap = (ROOT / "requirements-cuda-bootstrap.txt").read_text(encoding="utf-8")
-    package_specs = [
-        line for line in bootstrap.splitlines() if line and not line.startswith("#")
-    ]
+    package_specs = [line for line in bootstrap.splitlines() if line and not line.startswith("#")]
     assert package_specs == [
         "cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==12.8.1",
         "cuda-bindings==12.9.4",
@@ -656,24 +927,15 @@ def _assert_cuda_bootstrap_contract_specs() -> None:
 def test_cuda_bootstrap_uses_canonical_pypi_before_torch() -> None:
     _assert_cuda_bootstrap_contract_specs()
     dockerfile = (ROOT / "Dockerfile.cuda").read_text(encoding="utf-8")
-    bootstrap_install = (
-        "pip3 install --no-cache-dir --only-binary=:all: "
-        "--index-url https://pypi.org/simple"
-    )
+    bootstrap_install = "pip3 install --no-cache-dir --only-binary=:all: " "--index-url https://pypi.org/simple"
     torch_install = "pip3 install --no-cache-dir --index-url ${CUDA_WHEEL_INDEX}"
     assert (
         "COPY requirements.txt requirements-ml-runtime.txt "
         "requirements-cuda-bootstrap.txt constraints.txt ./" in dockerfile
     )
     assert bootstrap_install in dockerfile
-    bootstrap_requirements = dockerfile.index(
-        "-r requirements-cuda-bootstrap.txt", dockerfile.index(bootstrap_install)
-    )
-    assert (
-        dockerfile.index(bootstrap_install)
-        < bootstrap_requirements
-        < dockerfile.index(torch_install)
-    )
+    bootstrap_requirements = dockerfile.index("-r requirements-cuda-bootstrap.txt", dockerfile.index(bootstrap_install))
+    assert dockerfile.index(bootstrap_install) < bootstrap_requirements < dockerfile.index(torch_install)
 
 
 def test_release_workflow_contracts() -> None:
@@ -762,9 +1024,9 @@ def test_release_workflow_contracts() -> None:
             flags=re.MULTILINE | re.DOTALL,
         )
         assert strategy, f"missing {name} strategy"
-        assert re.search(r"^      max-parallel: 1$", strategy.group(1), flags=re.MULTILINE), (
-            f"{name} matrix must serialize runner use"
-        )
+        assert re.search(
+            r"^      max-parallel: 1$", strategy.group(1), flags=re.MULTILINE
+        ), f"{name} matrix must serialize runner use"
     assert re.search(r"^      contents: read$", release, flags=re.MULTILINE)
     assert re.search(r"^      releases: write$", release, flags=re.MULTILINE)
     manifest_generation = re.search(
@@ -824,12 +1086,12 @@ def test_release_workflow_contracts() -> None:
     assert 'repository="${IMAGE#git.subcult.tv/}"' in publish
     assert 'docker network create --internal "$network"' in publish
     assert 'docker network connect --alias registry-origin "$network" gitea' in publish
-    assert '-v /var/run/docker.sock:/var/run/docker.sock' in publish
+    assert "-v /var/run/docker.sock:/var/run/docker.sock" in publish
     assert '"docker-daemon:${IMAGE}:${TAG}" "docker://registry-origin:3000/${IMAGE#git.subcult.tv/}:${TAG}"' in publish
     assert "--dest-tls-verify=false" in publish
     assert '--dest-registry-token "$REGISTRY_BEARER_TOKEN"' in publish
     assert "--digestfile /evidence/pushed.digest" in publish
-    assert "REGISTRY_BEARER_TOKEN=\"$registry_token\" docker run" in publish
+    assert 'REGISTRY_BEARER_TOKEN="$registry_token" docker run' in publish
     assert "-e REGISTRY_BEARER_TOKEN" in publish
     assert "--entrypoint /bin/sh" in publish
     assert "auth.json" not in publish
@@ -839,17 +1101,17 @@ def test_release_workflow_contracts() -> None:
     assert '-v "$evidence_volume:/evidence"' in publish
     assert '-v "$evidence_volume:/evidence:ro"' in publish
     assert "cat /evidence/pushed.digest" in publish
-    assert "docker network disconnect \"$network\" gitea" in publish
+    assert 'docker network disconnect "$network" gitea' in publish
     assert 'docker network rm "$network"' in publish
     assert 'docker volume rm --force "$evidence_volume" >/dev/null 2>&1 || true' in publish
     assert "trap cleanup EXIT" in publish
     assert 'docker buildx imagetools inspect "$IMAGE:$TAG"' in publish
     assert '[[ "$canonical_digest" == "$pushed_digest" ]]' in publish
-    assert "printf 'digest=%s\\n' \"$canonical_digest\" >> \"$GITHUB_OUTPUT\"" in publish
+    assert 'printf \'digest=%s\\n\' "$canonical_digest" >> "$GITHUB_OUTPUT"' in publish
     assert "for attempt in 1 2 3; do" in publish
     assert publish.count("https://git.subcult.tv/v2/token") == 1
-    assert publish.index("for attempt in 1 2 3; do") < publish.index("registry_token=\"$(curl")
-    assert publish.index("registry_token=\"$(curl") < publish.index('REGISTRY_BEARER_TOKEN="$registry_token" docker run')
+    assert publish.index("for attempt in 1 2 3; do") < publish.index('registry_token="$(curl')
+    assert publish.index('registry_token="$(curl') < publish.index('REGISTRY_BEARER_TOKEN="$registry_token" docker run')
     assert "rm -f /evidence/pushed.digest" in publish
     assert '[[ "$copied" == true ]]' in publish
     assert 'sleep "$((attempt * 2))"' in publish
@@ -918,13 +1180,17 @@ def test_release_workflow_contracts() -> None:
     def normalize_command(scan: str) -> str:
         return re.sub(r"\s+", " ", scan.replace("\\\n", " "))
 
-    assert "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types library --exit-code 1" in normalize_command(
-        local_scan
+    assert (
+        "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types library --exit-code 1"
+        in normalize_command(local_scan)
     )
-    assert "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types library --exit-code 1" in normalize_command(
-        digest_scan
+    assert (
+        "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types library --exit-code 1"
+        in normalize_command(digest_scan)
     )
-    assert "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types os --exit-code 0" in normalize_command(os_scan)
+    assert "--scanners vuln --format sarif --severity CRITICAL,HIGH --pkg-types os --exit-code 0" in normalize_command(
+        os_scan
+    )
     assert "--format spdx-json --exit-code 0" in sbom_scan
     assert '> "trivy-${{ matrix.role }}-local-library.sarif"' in local_scan
     assert '> "trivy-${{ matrix.role }}-os.sarif"' in os_scan
@@ -945,13 +1211,18 @@ def test_release_workflow_contracts() -> None:
 
     login = scan_step("Log in to Gitea registry")
     assert "uses:" not in login
-    assert 'REGISTRY_USER: ${{ vars.REGISTRY_USER }}' in login
-    assert 'REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}' in login
-    assert 'printf \'%s\' "$REGISTRY_PAT" | docker login git.subcult.tv --username "$REGISTRY_USER" --password-stdin' in login
+    assert "REGISTRY_USER: ${{ vars.REGISTRY_USER }}" in login
+    assert "REGISTRY_PAT: ${{ secrets.REGISTRY_PAT }}" in login
+    assert (
+        'printf \'%s\' "$REGISTRY_PAT" | docker login git.subcult.tv --username "$REGISTRY_USER" --password-stdin'
+        in login
+    )
     assert "for attempt in 1 2 3; do" in login
     assert 'sleep "$((attempt * 2))"' in login
-    assert workflow.index("Set up Docker Buildx") < workflow.index("Log in to Gitea registry") < workflow.index(
-        "Build ${{ matrix.role }} once for scanning"
+    assert (
+        workflow.index("Set up Docker Buildx")
+        < workflow.index("Log in to Gitea registry")
+        < workflow.index("Build ${{ matrix.role }} once for scanning")
     )
 
     provenance = re.search(
@@ -1169,7 +1440,7 @@ def test_release_cross_browser_marker_gate_contract() -> None:
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker is unavailable")
-def test_compose_render_with_inert_values_when_available(tmp_path: Path) -> None:
+def test_compose_render_with_inert_values_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Exercise Compose parsing only; never print its potentially sensitive output."""
     if subprocess.run(
         ["docker", "compose", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -1187,11 +1458,23 @@ def test_compose_render_with_inert_values_when_available(tmp_path: Path) -> None
         "AWS_REGION": "auto",
         **{variable: digest(variable.lower()) for variable in IMAGE_VARIABLES},
     }
+    diarization_env = tmp_path / "diarization.env"
+    diarization_env.write_text(
+        "HF_TOKEN=inert\nDATABASE_URL=postgresql+psycopg://hasanara_diarization:inert@db:5432/transcripts\n",
+        encoding="utf-8",
+    )
+    diarization_env.chmod(0o600)
+    values["HASANARA_DIARIZATION_ENV_FILE"] = str(diarization_env)
     env_file.write_text("\n".join(f"{key}={value}" for key, value in values.items()), encoding="utf-8")
+    monkeypatch.setenv("HASANARA_ENV_FILE", str(env_file))
     command = ["docker", "compose", "--env-file", str(env_file)]
     for name in preflight.COMPOSE_FILES:
         command.extend(("--file", name))
-    environment = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", ""), "HASANARA_ENV_FILE": str(env_file)}
+    environment = {
+        "PATH": os.environ["PATH"],
+        "HOME": os.environ.get("HOME", ""),
+        "HASANARA_ENV_FILE": str(env_file),
+    }
     result = subprocess.run(
         [*command, "config", "--quiet"],
         cwd=ROOT,
@@ -1221,7 +1504,7 @@ def test_compose_render_with_inert_values_when_available(tmp_path: Path) -> None
     )
     assert default_environment.returncode == 0
     preflight.parse_compose_profiles(default_environment.stdout)
-    diarization_file = tmp_path / "diarization.env"
+    diarization_file = tmp_path / "release-diarization-profile.env"
     diarization_file.write_text(
         env_file.read_text(encoding="utf-8") + "\nCOMPOSE_PROFILES=diarization\n", encoding="utf-8"
     )
@@ -1247,7 +1530,8 @@ def test_compose_render_with_inert_values_when_available(tmp_path: Path) -> None
         text=True,
     )
     assert diarization_environment.returncode == 0
-    preflight.parse_compose_profiles(diarization_environment.stdout)
+    with pytest.raises(preflight.PreflightError, match="unsupported Compose profile selection"):
+        preflight.parse_compose_profiles(diarization_environment.stdout)
     full_services = subprocess.run(
         [*command, "--profile", "full", "config", "--services"],
         cwd=ROOT,
@@ -1269,6 +1553,9 @@ def test_compose_render_with_inert_values_when_available(tmp_path: Path) -> None
     )
     assert rendered.returncode == 0, "Compose JSON rendering failed (output intentionally suppressed)"
     configured = json.loads(rendered.stdout)["services"]
+    preflight.validate_diarization_contract(
+        {"services": configured}, {"images": {"ml-cuda": configured["diarization-worker"]["image"]}}
+    )
     env_file_services = {
         "migrations",
         "api",
@@ -1296,10 +1583,16 @@ def test_compose_render_with_inert_values_when_available(tmp_path: Path) -> None
             assert environment["POSTGRES_PASSWORD"] == "inert"
         if service in env_file_services:
             assert environment["ALLOW_SESSION_TOKEN_CONTRACT_MIGRATION"] == "false"
-            assert environment["DATABASE_URL"] == DATABASE_URL
+        if service in env_file_services - {"diarization-worker"}:
             assert environment["DB_PASSWORD"] == "inert"
+        if service in preflight.DATABASE_CLIENTS:
+            assert environment["DATABASE_URL"] == DATABASE_URL
+        if service == "diarization-worker":
+            assert environment["DATABASE_URL"] == (
+                "postgresql+psycopg://hasanara_diarization:inert@db:5432/transcripts"
+            )
         if service == "backup":
             assert environment["PGPASSWORD"] == "inert"
-        if service in preflight.APPLICATION_SERVICES:
+        if service in preflight.APPLICATION_SERVICES | {"diarization-worker"}:
             assert environment["ENVIRONMENT"] == "production"
             assert environment["LOG_LEVEL"] == "INFO"

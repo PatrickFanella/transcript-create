@@ -1,10 +1,22 @@
 # Database migrations
 
-**Status:** shipped operational guidance (2026-07-12).
+**Status:** shipped operational guidance (2026-07-14).
 
 Use additive Alembic migrations first. Verify the full history on an empty PostgreSQL database with `make verify`. Before production migration, back up PostgreSQL and complete a restore rehearsal.
 
 Deploy additive schema, then compatible API/frontend/worker images, backfills, and finally deferred destructive cleanup in a later release. Historical billing columns remain dormant compatibility fields; they do not imply a billing contract.
+
+## 20260714_0300: native search outbox update scope
+
+`20260714_0300` is the current head. It retains native segment INSERT and DELETE
+outbox events, but emits UPDATE events only when `video_id`, `start_ms`, `end_ms`,
+or `text` is named in the update. Diarization's `speaker_label` updates therefore
+need no search-index outbox privileges.
+
+The downgrade restores the broad UPDATE trigger. Stop all diarization canaries
+before downgrading to `20260714_0200`; the scoped diarization role intentionally
+lacks outbox INSERT/sequence privileges and cannot write speaker labels safely
+against the downgraded trigger.
 
 ## 20260714_0200: hash-only session contract (maintenance-only)
 
@@ -188,7 +200,7 @@ spec:
 EOF
 kubectl wait --for=condition=complete job/"${RELEASE}-session-contract-migration" -n "$NS" --timeout=10m
 kubectl logs job/"${RELEASE}-session-contract-migration" -n "$NS"
-"${PSQL[@]}" -c "SELECT version_num = '20260714_0200' AS at_expected_head FROM alembic_version; SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name = 'token') AS hash_only_sessions; SELECT 1 / CASE WHEN (SELECT version_num = '20260714_0200' FROM alembic_version) AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name = 'token') THEN 1 ELSE 0 END AS verification_must_be_1;"
+"${PSQL[@]}" -c "SELECT version_num = '20260714_0300' AS at_expected_head FROM alembic_version; SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name = 'token') AS hash_only_sessions; SELECT 1 / CASE WHEN (SELECT version_num = '20260714_0300' FROM alembic_version) AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sessions' AND column_name = 'token') THEN 1 ELSE 0 END AS verification_must_be_1;"
 
 # Mandatory human pause: do not deploy until the displayed verification is accepted.
 read -r -p "Human schema verification passed; type DEPLOY_NEW_IMAGE to continue: " APPROVAL

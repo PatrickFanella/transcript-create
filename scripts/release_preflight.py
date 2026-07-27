@@ -399,7 +399,7 @@ def validate_diarization_contract(rendered: dict[str, Any], manifest: dict[str, 
                 ancestor /= part
                 if ancestor.is_symlink():
                     fail("Compose diarization mount contract is invalid")
-            if source.resolve() != expected.resolve() or source.is_symlink() or not source.is_dir():
+            if source.resolve() != expected.resolve() or source.is_symlink():
                 fail("Compose diarization mount contract is invalid")
         except OSError:
             fail("Compose diarization mount contract is invalid")
@@ -417,7 +417,7 @@ def verify_networks(root: Path) -> None:
 def verify_mount_parents(root: Path) -> None:
     # Docker Compose otherwise creates these host paths silently and can deploy to
     # empty storage after an operator typo.
-    for relative in ("docker-volumes/dbdata", "docker-volumes/redis-data", "backups", "data", "cache"):
+    for relative in ("docker-volumes/dbdata", "docker-volumes/redis-data", "backups", "data", "cache", "cache/hf"):
         if not (root / relative).is_dir():
             fail(f"required mount parent is missing: {relative}")
 

@@ -501,6 +501,9 @@ def test_mount_validation_requires_active_bind_sources(tmp_path: Path) -> None:
         preflight.verify_mount_parents(tmp_path)
     for relative in ("docker-volumes/dbdata", "docker-volumes/redis-data"):
         (tmp_path / relative).mkdir()
+    with pytest.raises(preflight.PreflightError, match=r"cache/hf"):
+        preflight.verify_mount_parents(tmp_path)
+    (tmp_path / "cache" / "hf").mkdir()
     preflight.verify_mount_parents(tmp_path)
 
 

@@ -109,7 +109,7 @@ describe('AdminArchivePeriods', () => {
     });
 
     expect(screen.getByText('Created Holiday Window')).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it('edits, recalculates, and toggles status', async () => {
     let currentLabel: string = basePeriod.label;

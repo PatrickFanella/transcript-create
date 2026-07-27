@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from worker import diarize
 
 
@@ -293,3 +295,38 @@ class TestGetPipeline:
 
         # Either returns a pipeline or None depending on environment
         assert result is None or result is not None
+
+
+def test_strict_audio_preload_failure_does_not_fall_back_to_path(monkeypatch):
+    monkeypatch.setattr(diarize.settings, "DIARIZATION_STRICT", True)
+    with patch.dict("sys.modules", {"torchaudio": Mock(load=Mock(side_effect=OSError("decode failed")))}):
+        with pytest.raises(RuntimeError, match="audio preload"):
+            diarize._build_audio_input(Path("missing.wav"))
+
+
+def test_strict_primary_load_failure_does_not_attempt_fallback(monkeypatch):
+    pipeline = Mock(from_pretrained=Mock(side_effect=RuntimeError("primary failed")))
+    monkeypatch.setattr(diarize.settings, "ENABLE_DIARIZATION", True)
+    monkeypatch.setattr(diarize.settings, "DIARIZATION_STRICT", True)
+    monkeypatch.setattr(diarize.settings, "HF_TOKEN", "test-token")
+    diarize._pipeline = None
+    with patch.dict("sys.modules", {"pyannote.audio": Mock(Pipeline=pipeline)}):
+        with pytest.raises(RuntimeError, match="primary model load"):
+            diarize._get_pipeline()
+    assert pipeline.from_pretrained.call_count == 1
+
+
+def test_strict_cpu_placement_failure_is_fatal(monkeypatch):
+    pipeline_instance = Mock()
+    pipeline_instance.to.side_effect = RuntimeError("placement failed")
+    pipeline = Mock(from_pretrained=Mock(return_value=pipeline_instance))
+    torch = Mock(device=Mock(return_value="cpu-device"))
+    monkeypatch.setattr(diarize.settings, "ENABLE_DIARIZATION", True)
+    monkeypatch.setattr(diarize.settings, "DIARIZATION_STRICT", True)
+    monkeypatch.setattr(diarize.settings, "HF_TOKEN", "test-token")
+    monkeypatch.setattr(diarize.settings, "DIARIZATION_MODEL", "primary")
+    monkeypatch.setattr(diarize.settings, "DIARIZATION_DEVICE", "cpu")
+    diarize._pipeline = None
+    with patch.dict("sys.modules", {"pyannote.audio": Mock(Pipeline=pipeline), "torch": torch}):
+        with pytest.raises(RuntimeError, match="device placement"):
+            diarize._get_pipeline()

@@ -19,6 +19,22 @@ logger = get_logger(__name__)
 _HEARTBEAT_INTERVAL_SECONDS = 60
 
 
+def _allowed_video_ids():
+    return list(settings.DIARIZATION_ALLOWED_VIDEO_IDS)
+
+
+def _allowlist_params() -> dict:
+    return {"allowed_video_ids": _allowed_video_ids()}
+
+
+def _require_valid_allowlist() -> None:
+    allowed = _allowed_video_ids()
+    if len(allowed) > 5:
+        raise ValueError("DIARIZATION_ALLOWED_VIDEO_IDS may contain at most 5 UUIDs")
+    if not allowed:
+        raise ValueError("standalone diarization worker requires DIARIZATION_ALLOWED_VIDEO_IDS")
+
+
 def _load_segments(conn, video_id):
     rows = (
         conn.execute(
@@ -26,9 +42,10 @@ def _load_segments(conn, video_id):
             SELECT id, start_ms, end_ms, text, speaker_label, confidence, avg_logprob, temperature, token_count
             FROM segments
             WHERE video_id = :v
+              AND video_id = ANY(:allowed_video_ids)
             ORDER BY start_ms, id
             """),
-            {"v": video_id},
+            {"v": video_id, **_allowlist_params()},
         )
         .mappings()
         .all()
@@ -61,12 +78,13 @@ def _claim_video(conn):
               AND v.diarization_state = 'pending'
               AND v.duration_seconds IS NOT NULL
               AND v.duration_seconds <= :max_duration_seconds
+              AND v.id = ANY(:allowed_video_ids)
               AND EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.id)
             ORDER BY v.updated_at, v.created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1
             """),
-            {"max_duration_seconds": settings.DIARIZATION_MAX_DURATION_SECONDS},
+            {"max_duration_seconds": settings.DIARIZATION_MAX_DURATION_SECONDS, **_allowlist_params()},
         )
         .mappings()
         .first()
@@ -74,10 +92,14 @@ def _claim_video(conn):
     if not row:
         return None
     logger.info("Claiming diarization job", extra={"video_id": str(row["id"]), "wav_path": row["wav_path"]})
-    conn.execute(
-        text("UPDATE videos SET diarization_state='running', diarization_error=NULL, updated_at=now() WHERE id=:v"),
-        {"v": row["id"]},
+    result = conn.execute(
+        text(
+            "UPDATE videos SET diarization_state='running', diarization_error=NULL, updated_at=now() WHERE id=:v AND id = ANY(:allowed_video_ids)"
+        ),
+        {"v": row["id"], **_allowlist_params()},
     )
+    if result.rowcount != 1:
+        raise RuntimeError("diarization claim was no longer scoped to one allowed video")
     return row
 
 
@@ -90,9 +112,10 @@ def _requeue_stale_running(conn):
                 updated_at=now()
             WHERE diarization_state='running'
               AND now() - updated_at > (:timeout_minutes * interval '1 minute')
+              AND id = ANY(:allowed_video_ids)
             RETURNING id
             """),
-        {"timeout_minutes": settings.DIARIZATION_RUNNING_TIMEOUT_MINUTES},
+        {"timeout_minutes": settings.DIARIZATION_RUNNING_TIMEOUT_MINUTES, **_allowlist_params()},
     ).fetchall()
     if rows:
         logger.warning(
@@ -101,23 +124,29 @@ def _requeue_stale_running(conn):
         )
 
 
-def _heartbeat_diarization_job(engine, video_id):
+def _heartbeat_diarization_job(engine, video_id) -> bool:
     """Keep a live diarization claim from being recovered as stale."""
     with engine.begin() as conn:
-        conn.execute(
+        result = conn.execute(
             text("""
                 UPDATE videos
                 SET updated_at=now()
                 WHERE id=:v AND diarization_state='running'
+                  AND id = ANY(:allowed_video_ids)
                 """),
-            {"v": video_id},
+            {"v": video_id, **_allowlist_params()},
         )
+    rowcount = result.rowcount
+    if not isinstance(rowcount, int) or rowcount not in (0, 1):
+        raise RuntimeError("diarization heartbeat affected more than one video")
+    return rowcount == 1
 
 
 def _run_diarization_heartbeat(engine, video_id, stop_event):
     while not stop_event.wait(_HEARTBEAT_INTERVAL_SECONDS):
         try:
-            _heartbeat_diarization_job(engine, video_id)
+            if not _heartbeat_diarization_job(engine, video_id):
+                return
         except Exception:
             logger.warning("Diarization heartbeat failed", extra={"video_id": str(video_id)}, exc_info=True)
 
@@ -159,6 +188,7 @@ def _skip_unsafe_diarization_jobs(conn):
                       AND now() - v.updated_at > (:timeout_minutes * interval '1 minute')
                   )
               )
+              AND v.id = ANY(:allowed_video_ids)
               AND (
                   v.duration_seconds IS NULL
                   OR v.duration_seconds > :max_duration_seconds
@@ -168,6 +198,7 @@ def _skip_unsafe_diarization_jobs(conn):
         {
             "max_duration_seconds": settings.DIARIZATION_MAX_DURATION_SECONDS,
             "timeout_minutes": settings.DIARIZATION_RUNNING_TIMEOUT_MINUTES,
+            **_allowlist_params(),
         },
     ).fetchall()
     if rows:
@@ -201,10 +232,14 @@ def process_one(engine) -> bool:
         )
         if not segments:
             with engine.begin() as conn:
-                conn.execute(
-                    text("UPDATE videos SET diarization_state='skipped', updated_at=now() WHERE id=:v"),
-                    {"v": video_id},
+                skipped = conn.execute(
+                    text(
+                        "UPDATE videos SET diarization_state='skipped', updated_at=now() WHERE id=:v AND diarization_state='running' AND id = ANY(:allowed_video_ids)"
+                    ),
+                    {"v": video_id, **_allowlist_params()},
                 )
+                if skipped.rowcount != 1:
+                    raise RuntimeError("diarization empty-segment skip did not affect the running target video")
             return True
 
         logger.info(
@@ -227,20 +262,27 @@ def process_one(engine) -> bool:
                         break
                 if speaker:
                     assigned += 1
-                conn.execute(
-                    text("UPDATE segments SET speaker_label=:spk WHERE id=:sid"),
-                    {"sid": seg["_segment_id"], "spk": speaker},
+                result = conn.execute(
+                    text("""
+                        UPDATE segments SET speaker_label=:spk
+                        WHERE id=:sid AND video_id=:v AND video_id = ANY(:allowed_video_ids)
+                    """),
+                    {"sid": seg["_segment_id"], "v": video_id, "spk": speaker, **_allowlist_params()},
                 )
+                if result.rowcount != 1:
+                    raise RuntimeError("diarization segment update did not affect exactly one target segment")
             if assigned == 0:
                 raise RuntimeError("Diarization completed without assigning any speaker labels")
-            conn.execute(
+            completed = conn.execute(
                 text("""
                     UPDATE videos
                     SET diarization_state='completed', diarization_error=NULL, updated_at=now()
-                    WHERE id=:v
+                    WHERE id=:v AND diarization_state='running' AND id = ANY(:allowed_video_ids)
                     """),
-                {"v": video_id},
+                {"v": video_id, **_allowlist_params()},
             )
+            if completed.rowcount != 1:
+                raise RuntimeError("diarization completion did not affect the running target video")
         logger.info(
             "Diarization job completed",
             extra={"video_id": str(video_id), "speakers_assigned": assigned},
@@ -250,23 +292,26 @@ def process_one(engine) -> bool:
     except Exception as e:
         logger.exception("Diarization job failed", extra={"video_id": str(video_id), "error": str(e)})
         with engine.begin() as conn:
-            conn.execute(
+            failed = conn.execute(
                 text("""
                     UPDATE videos
                     SET diarization_state='failed', diarization_error=:e, updated_at=now()
-                    WHERE id=:v
+                    WHERE id=:v AND diarization_state='running' AND id = ANY(:allowed_video_ids)
                     """),
-                {"v": video_id, "e": str(e)[:5000]},
+                {"v": video_id, "e": str(e)[:5000], **_allowlist_params()},
             )
+            if failed.rowcount != 1:
+                raise RuntimeError("diarization failure did not affect the running target video")
         return True
     finally:
         _stop_diarization_heartbeat(heartbeat_stop, heartbeat_thread)
 
 
 def run():
+    _require_valid_allowlist()
     if not settings.ENABLE_DIARIZATION:
         logger.warning("ENABLE_DIARIZATION is false; diarization worker will idle")
-    engine = create_engine(settings.DATABASE_URL, future=True, pool_pre_ping=True)
+    engine = create_engine(settings.DATABASE_URL, future=True, pool_pre_ping=True, hide_parameters=True)
     logger.info(
         "Diarization worker started",
         extra={"device": settings.DIARIZATION_DEVICE, "inline": settings.DIARIZATION_INLINE},
@@ -293,6 +338,9 @@ def run():
                 )
                 return
         if not did_work:
+            if settings.DIARIZATION_EXIT_WHEN_IDLE:
+                logger.info("Diarization worker is idle; exiting by configuration")
+                return
             time.sleep(settings.DIARIZATION_POLL_INTERVAL)
 
 

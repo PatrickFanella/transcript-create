@@ -72,9 +72,7 @@ services:
             args:
                 WORKER_RUNTIME_IMAGE: hasanara:gtx1080-runtime
         image: hasanara-diarization:gtx1080
-        env_file: ${HASANARA_ENV_FILE:-.env}
         environment:
-            DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/transcripts
             HF_HOME: /root/.cache/hf
             HF_HUB_CACHE: /root/.cache/hf/hub
             TRANSFORMERS_CACHE: /root/.cache/hf/transformers
@@ -82,17 +80,22 @@ services:
             OPENSEARCH_URL: ''
             REDIS_URL: ''
             ROCM: 'false'
-            ENABLE_DIARIZATION: ${ENABLE_DIARIZATION:-false}
+            ENABLE_DIARIZATION: 'true'
             DIARIZATION_INLINE: 'false'
-            DIARIZATION_DEVICE: ${DIARIZATION_DEVICE:-cuda}
-            DIARIZATION_MODEL: ${DIARIZATION_MODEL:-pyannote/speaker-diarization-community-1}
-            DIARIZATION_FALLBACK_MODEL: ${DIARIZATION_FALLBACK_MODEL:-pyannote/speaker-diarization}
-            DIARIZATION_RUNNING_TIMEOUT_MINUTES: ${DIARIZATION_RUNNING_TIMEOUT_MINUTES:-5}
+            DIARIZATION_DEVICE: cpu
+            DIARIZATION_MODEL: /root/.cache/hf/hub/models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee
+            DIARIZATION_FALLBACK_MODEL: ''
+            DIARIZATION_STRICT: 'true'
+            DIARIZATION_REQUIRE_ALLOWLIST: 'true'
+            DIARIZATION_EXIT_WHEN_IDLE: 'true'
+            DIARIZATION_MAX_DURATION_SECONDS: '600'
+            DIARIZATION_MAX_JOBS_PER_PROCESS: '1'
+            HF_HUB_OFFLINE: '1'
+            TRANSFORMERS_OFFLINE: '1'
         command: ['python3', '-m', 'worker.diarization_loop']
         volumes:
-            - ./data:/data
-            - ./cache:/root/.cache
-        gpus: all
+            - ./data:/data:ro
+            - ./cache/hf:/root/.cache/hf:ro
         devices: !override []
         group_add: !override []
         depends_on:

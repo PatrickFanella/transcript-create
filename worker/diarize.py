@@ -9,6 +9,12 @@ _pipeline = None
 _pyannote_import_error = None
 
 
+def _strict() -> bool:
+    # Identity avoids accidentally treating an unset MagicMock attribute as true
+    # in callers that patch only the settings relevant to a legacy inline path.
+    return settings.DIARIZATION_STRICT is True
+
+
 def _get_pipeline():
     global _pipeline
     if _pipeline is None:
@@ -16,6 +22,8 @@ def _get_pipeline():
             logger.info("Diarization disabled; returning Whisper segments")
             return None
         if not settings.HF_TOKEN:
+            if _strict():
+                raise RuntimeError("DIARIZATION_STRICT requires HF_TOKEN")
             logger.warning("ENABLE_DIARIZATION is true but HF_TOKEN is missing; skipping diarization")
             return None
         # Lazy import to avoid hard dependency when diarization isn't needed
@@ -25,6 +33,8 @@ def _get_pipeline():
             global _pyannote_import_error
             _pyannote_import_error = ie
             logger.warning("pyannote.audio not available; skipping diarization", extra={"error": str(ie)})
+            if _strict():
+                raise RuntimeError("strict diarization pipeline import failed") from ie
             return None
         os.environ.setdefault("HUGGINGFACE_HUB_TOKEN", settings.HF_TOKEN)
         os.environ.setdefault("HF_TOKEN", settings.HF_TOKEN)
@@ -32,6 +42,8 @@ def _get_pipeline():
             _pipeline = Pipeline.from_pretrained(settings.DIARIZATION_MODEL, token=settings.HF_TOKEN)
         except Exception as e:
             logger.warning("Failed to initialize pyannote Pipeline; skipping diarization", extra={"error": str(e)})
+            if _strict():
+                raise RuntimeError("strict diarization primary model load failed") from e
             try:
                 # Fallback to older model
                 _pipeline = Pipeline.from_pretrained(settings.DIARIZATION_FALLBACK_MODEL, token=settings.HF_TOKEN)
@@ -49,14 +61,20 @@ def _get_pipeline():
                             "DIARIZATION_DEVICE=cuda requested but CUDA is not available; "
                             "leaving pyannote device unchanged"
                         )
+                        if _strict():
+                            raise RuntimeError("strict diarization CUDA placement is unavailable")
                     elif hasattr(_pipeline, "to"):
                         _pipeline.to(torch.device(device))
                         logger.info("Diarization pipeline moved to device", extra={"device": device})
+                    elif _strict():
+                        raise RuntimeError("strict diarization pipeline cannot be placed on requested device")
                 except Exception as e:
                     logger.warning(
                         "Failed to move diarization pipeline to requested device",
                         extra={"device": device, "error": str(e)},
                     )
+                    if _strict():
+                        raise RuntimeError("strict diarization device placement failed") from e
     return _pipeline
 
 
@@ -77,6 +95,8 @@ def _build_audio_input(wav_path):
             "Failed to preload audio for diarization; falling back to path input",
             extra={"error": str(e)},
         )
+        if _strict():
+            raise RuntimeError("strict diarization audio preload failed") from e
         return {"audio": str(wav_path)}
 
 

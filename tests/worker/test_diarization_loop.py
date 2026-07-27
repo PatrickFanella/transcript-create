@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from sqlalchemy import text
@@ -44,6 +45,11 @@ def test_unsafe_diarization_jobs_are_skipped_and_duration_boundary_is_claimable(
     )
     null_duration = _insert_diarization_video(db_session, duration=None)
     at_limit = _insert_diarization_video(db_session, duration=10)
+    monkeypatch.setattr(
+        diarization_loop.settings,
+        "DIARIZATION_ALLOWED_VIDEO_IDS",
+        frozenset({pending_over_limit, stale_running_over_limit, null_duration, at_limit}),
+    )
 
     diarization_loop._skip_unsafe_diarization_jobs(db_session)
 
@@ -65,9 +71,33 @@ def test_unsafe_diarization_jobs_are_skipped_and_duration_boundary_is_claimable(
     assert diarization_loop._claim_video(db_session)["id"] == at_limit
 
 
+def test_disallowed_jobs_are_never_skipped_requeued_or_claimed(db_session, monkeypatch):
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_MAX_DURATION_SECONDS", 10)
+    allowed = _insert_diarization_video(db_session, duration=10)
+    disallowed_eligible = _insert_diarization_video(db_session, duration=10)
+    disallowed_oversized = _insert_diarization_video(db_session, duration=11)
+    disallowed_stale = _insert_diarization_video(db_session, duration=10, diarization_state="running", stale=True)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset({allowed}))
+
+    diarization_loop._skip_unsafe_diarization_jobs(db_session)
+    diarization_loop._requeue_stale_running(db_session)
+
+    states = dict(
+        db_session.execute(
+            text("SELECT id, diarization_state FROM videos WHERE id = ANY(:ids)"),
+            {"ids": [allowed, disallowed_eligible, disallowed_oversized, disallowed_stale]},
+        ).all()
+    )
+    assert states[disallowed_eligible] == "pending"
+    assert states[disallowed_oversized] == "pending"
+    assert states[disallowed_stale] == "running"
+    assert diarization_loop._claim_video(db_session)["id"] == allowed
+
+
 def test_run_exits_after_configured_number_of_processed_attempts(monkeypatch):
     monkeypatch.setattr(diarization_loop.settings, "ENABLE_DIARIZATION", True)
     monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_MAX_JOBS_PER_PROCESS", 1)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset({uuid.uuid4()}))
     engine = Mock()
 
     with (
@@ -81,16 +111,96 @@ def test_run_exits_after_configured_number_of_processed_attempts(monkeypatch):
     sleep.assert_not_called()
 
 
+def test_run_hides_database_parameters_in_sqlalchemy_engine(monkeypatch):
+    monkeypatch.setattr(diarization_loop.settings, "ENABLE_DIARIZATION", True)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset({uuid.uuid4()}))
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_EXIT_WHEN_IDLE", True)
+    with patch.object(diarization_loop, "create_engine", return_value=Mock()) as create_engine:
+        with patch.object(diarization_loop, "process_one", return_value=False):
+            diarization_loop.run()
+    assert create_engine.call_args.kwargs["hide_parameters"] is True
+
+
+def test_run_requires_nonempty_allowlist_before_opening_database(monkeypatch):
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_REQUIRE_ALLOWLIST", True)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset())
+    with patch.object(diarization_loop, "create_engine") as create_engine:
+        import pytest
+
+        with pytest.raises(ValueError, match="requires"):
+            diarization_loop.run()
+    create_engine.assert_not_called()
+
+
+def test_run_exits_immediately_when_bounded_worker_is_idle(monkeypatch):
+    monkeypatch.setattr(diarization_loop.settings, "ENABLE_DIARIZATION", True)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset({uuid.uuid4()}))
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_EXIT_WHEN_IDLE", True)
+    engine = Mock()
+    with (
+        patch.object(diarization_loop, "create_engine", return_value=engine),
+        patch.object(diarization_loop, "process_one", return_value=False),
+        patch.object(diarization_loop.time, "sleep") as sleep,
+    ):
+        diarization_loop.run()
+    sleep.assert_not_called()
+
+
+def test_standalone_worker_never_idles_without_an_allowlist(monkeypatch):
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_REQUIRE_ALLOWLIST", False)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset())
+    with patch.object(diarization_loop, "create_engine") as create_engine:
+        import pytest
+
+        with pytest.raises(ValueError, match="requires"):
+            diarization_loop.run()
+    create_engine.assert_not_called()
+
+
 def test_diarization_heartbeat_query_is_guarded_by_running_state():
     conn = Mock()
     engine = MagicMock()
     engine.begin.return_value.__enter__.return_value = conn
+    conn.execute.return_value.rowcount = 1
 
-    diarization_loop._heartbeat_diarization_job(engine, "video-id")
+    assert diarization_loop._heartbeat_diarization_job(engine, "video-id") is True
 
     statement, params = conn.execute.call_args.args
     assert "WHERE id=:v AND diarization_state='running'" in str(statement)
-    assert params == {"v": "video-id"}
+    assert "id = ANY(:allowed_video_ids)" in str(statement)
+    assert params == {"v": "video-id", "allowed_video_ids": []}
+
+
+def test_diarization_heartbeat_reports_no_mutation_for_disallowed_or_nonrunning_video():
+    conn = Mock()
+    engine = MagicMock()
+    engine.begin.return_value.__enter__.return_value = conn
+    conn.execute.return_value.rowcount = 0
+
+    assert diarization_loop._heartbeat_diarization_job(engine, "video-id") is False
+
+
+def test_diarization_heartbeat_rejects_unexpected_rowcount():
+    conn = Mock()
+    engine = MagicMock()
+    engine.begin.return_value.__enter__.return_value = conn
+    conn.execute.return_value.rowcount = 2
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="more than one"):
+        diarization_loop._heartbeat_diarization_job(engine, "video-id")
+
+
+def test_final_video_mutations_require_a_running_allowed_target():
+    source = Path(diarization_loop.__file__).read_text(encoding="utf-8")
+    empty_skip = source.split("if not segments:", 1)[1].split("return True", 1)[0]
+    failure = source.split("except Exception as e:", 1)[1].split("return True", 1)[0]
+
+    assert "diarization_state='running'" in empty_skip
+    assert "skipped.rowcount != 1" in empty_skip
+    assert "diarization_state='running'" in failure
+    assert "failed.rowcount != 1" in failure
 
 
 def test_diarization_heartbeat_lifecycle_starts_and_stops_without_waiting():

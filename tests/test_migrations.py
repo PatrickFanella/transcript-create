@@ -733,3 +733,63 @@ def test_head_and_fresh_schema_share_hash_only_sessions_contract(
     assert upgraded_session_contract == fresh_session_contract == (
         {"token_hash": True}, {"UNIQUE (token_hash)"}
     )
+
+
+def test_diarization_role_speaker_updates_do_not_enqueue_search_outbox(
+    alembic_config, clean_db, test_db_url
+):
+    """The least-privilege diarization update bypasses the native outbox trigger."""
+    command.upgrade(alembic_config, "head")
+    role = "hasanara_diarization"
+    with get_engine(test_db_url) as engine:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN EXECUTE 'DROP OWNED BY {role}'; EXECUTE 'DROP ROLE {role}'; END IF; END $$"))
+                conn.execute(text(f"CREATE ROLE {role} LOGIN PASSWORD 'diarization-test-password'"))
+                conn.execute(text(f"GRANT CONNECT ON DATABASE hasanara_migration_test TO {role}"))
+                conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {role}"))
+                conn.execute(text(f"GRANT SELECT (id, state, wav_path, diarization_state, duration_seconds, updated_at, created_at) ON videos TO {role}"))
+                conn.execute(text(f"GRANT UPDATE (diarization_state, diarization_error, updated_at) ON videos TO {role}"))
+                conn.execute(text(f"GRANT SELECT (id, video_id, start_ms, end_ms, text, speaker_label, confidence, avg_logprob, temperature, token_count) ON segments TO {role}"))
+                conn.execute(text(f"GRANT UPDATE (speaker_label) ON segments TO {role}"))
+                job_id = "00000000-0000-0000-0000-000000000301"
+                video_id = "00000000-0000-0000-0000-000000000302"
+                conn.execute(text("INSERT INTO jobs(id, kind, input_url) VALUES (:id, 'single', 'https://example.test/job')"), {"id": job_id})
+                conn.execute(text("INSERT INTO videos(id, job_id, youtube_id) VALUES (:id, :job, 'role-outbox-video')"), {"id": video_id, "job": job_id})
+                segment_id = conn.execute(text("INSERT INTO segments(video_id, start_ms, end_ms, text) VALUES (:video_id, 0, 1, 'before') RETURNING id"), {"video_id": video_id}).scalar_one()
+                before = conn.execute(text("SELECT count(*) FROM search_index_outbox WHERE source = 'native' AND document_id = :id"), {"id": segment_id}).scalar_one()
+
+            diarization_url = make_url(test_db_url).set(
+                username=role, password="diarization-test-password"
+            )
+            with get_engine(diarization_url.render_as_string(hide_password=False)) as diarization_engine:
+                with diarization_engine.begin() as conn:
+                    conn.execute(text("UPDATE segments SET speaker_label = 'Speaker 1' WHERE id = :id"), {"id": segment_id})
+                with pytest.raises(sa.exc.ProgrammingError):
+                    with diarization_engine.begin() as conn:
+                        conn.execute(text("UPDATE segments SET text = 'denied' WHERE id = :id"), {"id": segment_id})
+
+            with engine.begin() as conn:
+                assert conn.execute(text("SELECT count(*) FROM search_index_outbox WHERE source = 'native' AND document_id = :id"), {"id": segment_id}).scalar_one() == before
+                conn.execute(text("UPDATE segments SET text = 'indexed' WHERE id = :id"), {"id": segment_id})
+                assert conn.execute(text("SELECT count(*) FROM search_index_outbox WHERE source = 'native' AND document_id = :id"), {"id": segment_id}).scalar_one() == before + 1
+        finally:
+            with engine.begin() as conn:
+                conn.execute(text("RESET ROLE"))
+                conn.execute(text(f"DROP OWNED BY {role}"))
+                conn.execute(text(f"DROP ROLE IF EXISTS {role}"))
+
+
+def test_native_search_outbox_update_scope_downgrades_to_broad_trigger(
+    alembic_config, clean_db, test_db_url
+):
+    command.upgrade(alembic_config, "20260714_0300")
+    with get_engine(test_db_url) as engine:
+        with engine.connect() as conn:
+            definition = conn.execute(text("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = 'segments_search_outbox'"))
+            assert "UPDATE OF video_id, start_ms, end_ms, text" in definition.scalar_one()
+    command.downgrade(alembic_config, "20260714_0200")
+    with get_engine(test_db_url) as engine:
+        with engine.connect() as conn:
+            updated_columns = conn.execute(text("SELECT tgattr::text FROM pg_trigger WHERE tgname = 'segments_search_outbox'"))
+            assert updated_columns.scalar_one() == ""

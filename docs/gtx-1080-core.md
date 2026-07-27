@@ -102,13 +102,38 @@ CLEANUP_DELETE_WAV=false
 `CLEANUP_DELETE_WAV=false` preserves the 16 kHz WAV for the separate
 diarization worker.
 
-If you later want to test GPU diarization:
+Do not enable CUDA diarization on the GTX 1080 with the current ML image:
+Torch 2.11 cu128 does not support the card's `sm_61` architecture. CUDA remains
+appropriate for the separate faster-whisper ingestion worker; diarization is CPU-only.
 
-```env
-DIARIZATION_DEVICE=cuda
+## Production diarization
+
+Production does not continuously enable the `diarization` profile. It uses
+offline, CPU-only allow-listed one-offs with the exact verified snapshot
+`/root/.cache/hf/hub/models--pyannote--speaker-diarization-community-1/snapshots/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee`.
+The worker has a 600-second media cap and CPU, memory, and PID limits. After a
+credential rotation, the selected operator environment file (normally
+`.env.prod`) supplies the scoped ignored `HASANARA_DIARIZATION_ENV_FILE` and
+the operator runs only:
+
+```bash
+scripts/compose_prod.sh maintenance diarization-canary <video-uuid> --approved
 ```
 
-If that causes out-of-memory errors, switch back to `cpu`.
+The helper checks the pending completed-native row, WAV and segments, takes a
+PostgreSQL advisory lock, runs exactly one UUID for at most 20 minutes, and
+requeues only that UUID if interrupted. Batches remain explicit and capped at
+five UUIDs; failed historical rows are never retried automatically.
+
+The pre-existing `hasanara_diarization` login is checked before every canary;
+the helper never creates or modifies it. It must have only `CONNECT`, public
+schema `USAGE`, `SELECT` on `videos.id`, `state`, `wav_path`,
+`diarization_state`, `duration_seconds`, `updated_at`, and `created_at`, and
+`UPDATE` on `videos.diarization_state`, `diarization_error`, and `updated_at`.
+It must have `SELECT` on `segments.id`, `video_id`, `start_ms`, `end_ms`,
+`text`, `speaker_label`, `confidence`, `avg_logprob`, `temperature`, and
+`token_count`, plus `UPDATE` on `segments.speaker_label`; no other object,
+sequence, schema-create, ownership, membership, or elevated role privileges.
 
 ## Tuning
 

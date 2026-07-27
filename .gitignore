@@ -150,6 +150,7 @@ activemq-data/
 # Environments
 .env
 .env.*
+!.env.diarization.example
 .envrc
 .venv
 .release-venv/

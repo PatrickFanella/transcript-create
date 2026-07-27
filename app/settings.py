@@ -3,8 +3,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
+from uuid import UUID
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[1]  # repo root (parent of 'app')
@@ -210,7 +211,7 @@ class Settings(BaseSettings):
     ENABLE_DIARIZATION: bool = False
     # Run inside transcription worker; false lets separate diarization worker handle it.
     DIARIZATION_INLINE: bool = False
-    DIARIZATION_DEVICE: str = "cpu"  # 'cpu', 'cuda', or 'auto'. Separate worker can safely use cuda on GTX 1080.
+    DIARIZATION_DEVICE: str = "cpu"  # 'cpu', 'cuda', or 'auto'. Production GTX 1080 diarization is CPU-only.
     DIARIZATION_MODEL: str = "pyannote/speaker-diarization-community-1"
     DIARIZATION_FALLBACK_MODEL: str = "pyannote/speaker-diarization"
     DIARIZATION_POLL_INTERVAL: int = 10
@@ -218,6 +219,19 @@ class Settings(BaseSettings):
     # Bound pyannote memory use and recycle its process between jobs.
     DIARIZATION_MAX_DURATION_SECONDS: int = 7200
     DIARIZATION_MAX_JOBS_PER_PROCESS: int = 1
+    # A bounded standalone run may mutate only these explicit video UUIDs.
+    # Do not validate the programmatic empty default as if it came from the
+    # environment. Explicit external values must remain strict strings.
+    DIARIZATION_ALLOWED_VIDEO_IDS: Annotated[frozenset[UUID], NoDecode] = Field(
+        default_factory=frozenset, validate_default=False
+    )
+    # Retained for compatibility with inline callers; the standalone worker always
+    # requires an allow-list regardless of this setting.
+    DIARIZATION_REQUIRE_ALLOWLIST: bool = True
+    DIARIZATION_EXIT_WHEN_IDLE: bool = False
+    # Strict mode is used by the production one-off worker: no fallback, download,
+    # decode, or device-placement failure may be hidden.
+    DIARIZATION_STRICT: bool = False
     # Custom vocabulary post-processing
     ENABLE_CUSTOM_VOCABULARY: bool = True  # Apply custom vocabulary corrections
     # Translation support
@@ -287,6 +301,29 @@ class Settings(BaseSettings):
                 raise ValueError("BOOTSTRAP_ADMIN_IDENTITIES entries must use provider:subject syntax")
             identities.add(f"{provider}:{subject}")
         return frozenset(identities)
+
+    @field_validator("DIARIZATION_ALLOWED_VIDEO_IDS", mode="before")
+    @classmethod
+    def parse_diarization_allowed_video_ids(cls, value: object) -> frozenset[UUID]:
+        if value == "":
+            return frozenset()
+        if not isinstance(value, str):
+            raise ValueError("DIARIZATION_ALLOWED_VIDEO_IDS must be a comma-separated UUID list")
+        entries = value.split(",")
+        if not entries or any(not entry or entry != entry.strip() for entry in entries):
+            raise ValueError("DIARIZATION_ALLOWED_VIDEO_IDS must be a comma-separated UUID list")
+        try:
+            parsed_ids = [UUID(entry) for entry in entries]
+        except (TypeError, ValueError) as error:
+            raise ValueError("DIARIZATION_ALLOWED_VIDEO_IDS must be a comma-separated UUID list") from error
+        if any(str(parsed) != entry for parsed, entry in zip(parsed_ids, entries, strict=True)):
+            raise ValueError("DIARIZATION_ALLOWED_VIDEO_IDS must use canonical lowercase UUID strings")
+        ids = frozenset(parsed_ids)
+        if len(ids) != len(entries):
+            raise ValueError("DIARIZATION_ALLOWED_VIDEO_IDS must not contain duplicate UUIDs")
+        if len(ids) > 5:
+            raise ValueError("DIARIZATION_ALLOWED_VIDEO_IDS may contain at most 5 UUIDs")
+        return ids
 
 
 def _has_value(value: str | None) -> bool:

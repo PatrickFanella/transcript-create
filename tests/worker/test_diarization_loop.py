@@ -180,6 +180,22 @@ def test_diarization_heartbeat_reports_no_mutation_for_disallowed_or_nonrunning_
     assert diarization_loop._heartbeat_diarization_job(engine, "video-id") is False
 
 
+def test_canary_heartbeat_uses_only_the_exact_lease_marker(monkeypatch):
+    token = uuid.UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_CANARY_MODE", True)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_CANARY_TOKEN", token)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset({uuid.uuid4()}))
+    conn = Mock()
+    engine = MagicMock()
+    engine.begin.return_value.__enter__.return_value = conn
+    conn.execute.return_value.rowcount = 1
+
+    assert diarization_loop._heartbeat_diarization_job(engine, "video-id") is True
+    statement, params = conn.execute.call_args.args
+    assert "diarization_error=:canary_marker" in str(statement)
+    assert params["canary_marker"] == f"canary-lease:{token}"
+
+
 def test_diarization_heartbeat_rejects_unexpected_rowcount():
     conn = Mock()
     engine = MagicMock()
@@ -203,6 +219,34 @@ def test_final_video_mutations_require_a_running_allowed_target():
     assert "failed.rowcount != 1" in failure
 
 
+def test_canary_mutations_exclude_other_markers_and_empty_segments_fail():
+    source = Path(diarization_loop.__file__).read_text(encoding="utf-8")
+    unsafe = source.split("def _skip_unsafe_diarization_jobs", 1)[1].split("def process_one", 1)[0]
+    empty_skip = source.split("if not segments:", 1)[1].split("logger.info(", 1)[0]
+    assert "diarization_error IS NULL OR v.diarization_error NOT LIKE 'canary-%'" in unsafe
+    assert "canary diarization target lost its transcript segments" in empty_skip
+    assert "_ownership_sql()" in empty_skip
+
+
+def test_canary_process_bypasses_normal_skip_and_stale_lanes(monkeypatch):
+    token = uuid.uuid4()
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_CANARY_MODE", True)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_CANARY_TOKEN", token)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset({uuid.uuid4()}))
+    engine = MagicMock()
+    engine.begin.return_value.__enter__.return_value = Mock()
+
+    with (
+        patch.object(diarization_loop, "_skip_unsafe_diarization_jobs") as skip,
+        patch.object(diarization_loop, "_requeue_stale_running") as requeue,
+        patch.object(diarization_loop, "_claim_video", return_value=None),
+    ):
+        assert diarization_loop.process_one(engine) is False
+
+    skip.assert_not_called()
+    requeue.assert_not_called()
+
+
 def test_diarization_heartbeat_lifecycle_starts_and_stops_without_waiting():
     engine = Mock()
     with patch.object(diarization_loop, "Thread") as thread_type:
@@ -213,3 +257,39 @@ def test_diarization_heartbeat_lifecycle_starts_and_stops_without_waiting():
     thread.start.assert_called_once()
     assert stop_event.is_set()
     thread.join.assert_called_once_with()
+
+
+def test_normal_mode_failure_completion_sql_uses_no_canary_bind(monkeypatch):
+    """Normal standalone mode must execute the same failure transition without :canary_marker."""
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_CANARY_MODE", False)
+    monkeypatch.setattr(diarization_loop.settings, "DIARIZATION_ALLOWED_VIDEO_IDS", frozenset({"video-id"}))
+    conn = Mock()
+    conn.execute.return_value.rowcount = 1
+    engine = MagicMock()
+    engine.begin.return_value.__enter__.return_value = conn
+    heartbeat = (Mock(), Mock())
+    heartbeat[0].is_set.return_value = False
+
+    with (
+        patch.object(
+            diarization_loop,
+            "_claim_video",
+            return_value={"id": "video-id", "wav_path": "/tmp/audio.wav"},
+        ),
+        patch.object(diarization_loop, "_skip_unsafe_diarization_jobs"),
+        patch.object(diarization_loop, "_requeue_stale_running"),
+        patch.object(diarization_loop, "_start_diarization_heartbeat", return_value=heartbeat),
+        patch.object(diarization_loop, "_stop_diarization_heartbeat"),
+        patch.object(diarization_loop.Path, "exists", return_value=True),
+        patch.object(
+            diarization_loop,
+            "_load_segments",
+            return_value=[{"_segment_id": "segment", "start": 0, "end": 1}],
+        ),
+        patch.object(diarization_loop, "run_diarization", side_effect=RuntimeError("boom")),
+    ):
+        assert diarization_loop.process_one(engine) is True
+
+    statement, params = conn.execute.call_args.args
+    assert "canary_marker" not in str(statement)
+    assert "canary_marker" not in params

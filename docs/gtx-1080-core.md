@@ -120,15 +120,41 @@ the operator runs only:
 scripts/compose_prod.sh maintenance diarization-canary <video-uuid> --approved
 ```
 
-The helper checks the pending completed-native row, WAV and segments, takes a
-PostgreSQL advisory lock, runs exactly one UUID for at most 20 minutes, and
-requeues only that UUID if interrupted. Batches remain explicit and capped at
-five UUIDs; failed historical rows are never retried automatically.
+The helper acquires one eligible row in a short PostgreSQL advisory transaction
+and fences it with a UUID token. It runs exactly one CPU-only UUID for at most
+20 minutes. The token remains durable through Docker quiescence and is cleared
+only by the exact-token finalizer. It never auto-requeues: SIGKILL or host loss
+intentionally leaves a marker that blocks every later canary until guarded,
+exact-token/container-quiescence recovery is performed. Batches remain explicit
+and failed historical rows are never retried automatically.
+
+After an interrupted canary, discover the durable video/token marker without
+reading credentials:
+
+```bash
+docker exec hasanara-db psql -U postgres -d transcripts -Atc \
+  "SELECT id, diarization_state, diarization_error FROM videos WHERE diarization_error LIKE 'canary-%'"
+docker ps -a --no-trunc --filter "label=hasanara.canary-token=<invocation-uuid>" \
+  --format '{{.ID}}\t{{.Names}}\t{{.Status}}'
+```
+
+Do not recover while that exact-token container exists. Verify its name is
+`hasanara-diarization-canary-<video-uuid>-<invocation-uuid>`, stop/remove only
+that exact container if necessary, then run:
+
+```bash
+scripts/compose_prod.sh maintenance diarization-canary-recover \
+  <video-uuid> <invocation-uuid> --approved
+```
+
+Recovery rejects any wrong token or remaining token-labelled/name-conflicting
+container. It either finalizes an already successful canary or atomically clears
+labels and resets only the exact failed/leased target to pending.
 
 The pre-existing `hasanara_diarization` login is checked before every canary;
 the helper never creates or modifies it. It must have only `CONNECT`, public
 schema `USAGE`, `SELECT` on `videos.id`, `state`, `wav_path`,
-`diarization_state`, `duration_seconds`, `updated_at`, and `created_at`, and
+`diarization_state`, `diarization_error`, `duration_seconds`, `updated_at`, and `created_at`, and
 `UPDATE` on `videos.diarization_state`, `diarization_error`, and `updated_at`.
 It must have `SELECT` on `segments.id`, `video_id`, `start_ms`, `end_ms`,
 `text`, `speaker_label`, `confidence`, `avg_logprob`, `temperature`, and

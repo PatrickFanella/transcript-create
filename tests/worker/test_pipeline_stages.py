@@ -134,6 +134,7 @@ def _mock_engine_with_video(video_row):
     conn.__enter__ = Mock(return_value=conn)
     conn.__exit__ = Mock(return_value=False)
     conn.execute.return_value.mappings.return_value.first.return_value = video_row
+    conn.execute.return_value.rowcount = 1
     engine = Mock()
     engine.begin.return_value = conn
     return engine, conn
@@ -220,12 +221,40 @@ def test_persist_stage_finalizes_video_and_refreshes_job(tmp_path: Path):
         replace_transcript_blocks=replace_transcript_blocks,
         refresh_job_state=refresh_job_state,
     )
+    def execute(statement, *args, **kwargs):
+        result = Mock()
+        result.mappings.return_value.first.return_value = {"id": video_id}
+        if "UPDATE videos" in str(statement):
+            result.rowcount = 1
+        return result
+
+    conn.execute.side_effect = execute
 
     _persist_transcript(ctx, deps)
 
     assert replace_transcript_blocks.called
     assert refresh_job_state.called
     assert any("UPDATE videos" in str(call.args[0]) for call in conn.execute.call_args_list)
+
+
+def test_persist_stage_rejects_canary_marker_before_deleting_rows(tmp_path: Path):
+    engine, conn = _mock_engine_with_video(None)
+    conn.execute.return_value.first.return_value = None
+    ctx = VideoPipelineContext(
+        engine=engine,
+        video={"id": uuid.uuid4(), "youtube_id": "abc123", "job_id": uuid.uuid4()},
+        work_dir=tmp_path,
+        diar_segments=[{"start": 0.0, "end": 1.0, "text": "hello"}],
+    )
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="row ownership"):
+        _persist_transcript(ctx, NativePipelineDependencies(settings=_Settings(), logger=Mock()))
+
+    calls = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert "FOR UPDATE" in calls[0]
+    assert not any("DELETE FROM" in call for call in calls)
 
 
 def test_custom_vocabulary_uses_authoritative_job_owner_not_metadata(tmp_path: Path):

@@ -19,6 +19,26 @@ logger = get_logger(__name__)
 _HEARTBEAT_INTERVAL_SECONDS = 60
 
 
+def _canary_token() -> str | None:
+    token = settings.DIARIZATION_CANARY_TOKEN
+    return str(token) if token is not None else None
+
+
+def _canary_marker() -> str:
+    return f"canary-lease:{_canary_token()}"
+
+
+def _ownership_sql(alias: str = "") -> str:
+    prefix = f"{alias}." if alias else ""
+    if settings.DIARIZATION_CANARY_MODE:
+        return f"{prefix}diarization_error=:canary_marker"
+    return f"({prefix}diarization_error IS NULL OR {prefix}diarization_error NOT LIKE 'canary-%')"
+
+
+def _ownership_params() -> dict:
+    return {"canary_marker": _canary_marker()} if settings.DIARIZATION_CANARY_MODE else {}
+
+
 def _allowed_video_ids():
     return list(settings.DIARIZATION_ALLOWED_VIDEO_IDS)
 
@@ -33,6 +53,8 @@ def _require_valid_allowlist() -> None:
         raise ValueError("DIARIZATION_ALLOWED_VIDEO_IDS may contain at most 5 UUIDs")
     if not allowed:
         raise ValueError("standalone diarization worker requires DIARIZATION_ALLOWED_VIDEO_IDS")
+    if settings.DIARIZATION_CANARY_MODE and (len(allowed) != 1 or _canary_token() is None):
+        raise ValueError("canary diarization requires exactly one allowed UUID and canonical invocation token")
 
 
 def _load_segments(conn, video_id):
@@ -68,6 +90,25 @@ def _load_segments(conn, video_id):
 
 
 def _claim_video(conn):
+    if settings.DIARIZATION_CANARY_MODE:
+        return (
+            conn.execute(
+                text("""
+                    SELECT v.id, v.wav_path FROM videos v
+                    WHERE v.id = ANY(:allowed_video_ids)
+                      AND v.state = 'completed'
+                      AND v.diarization_state='running'
+                      AND v.wav_path IS NOT NULL
+                      AND v.duration_seconds IS NOT NULL AND v.duration_seconds <= 600
+                      AND EXISTS (SELECT 1 FROM segments s WHERE s.video_id=v.id)
+                      AND v.diarization_error=:canary_marker
+                    FOR UPDATE SKIP LOCKED
+                """),
+                {**_allowlist_params(), **_ownership_params()},
+            )
+            .mappings()
+            .first()
+        )
     row = (
         conn.execute(
             text("""
@@ -80,6 +121,7 @@ def _claim_video(conn):
               AND v.duration_seconds <= :max_duration_seconds
               AND v.id = ANY(:allowed_video_ids)
               AND EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.id)
+               AND (v.diarization_error IS NULL OR v.diarization_error NOT LIKE 'canary-%')
             ORDER BY v.updated_at, v.created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1
@@ -94,9 +136,10 @@ def _claim_video(conn):
     logger.info("Claiming diarization job", extra={"video_id": str(row["id"]), "wav_path": row["wav_path"]})
     result = conn.execute(
         text(
-            "UPDATE videos SET diarization_state='running', diarization_error=NULL, updated_at=now() WHERE id=:v AND id = ANY(:allowed_video_ids)"
+            "UPDATE videos SET diarization_state='running', diarization_error=NULL, updated_at=now() "
+            "WHERE id=:v AND id = ANY(:allowed_video_ids) AND " + _ownership_sql()
         ),
-        {"v": row["id"], **_allowlist_params()},
+        {"v": row["id"], **_allowlist_params(), **_ownership_params()},
     )
     if result.rowcount != 1:
         raise RuntimeError("diarization claim was no longer scoped to one allowed video")
@@ -106,15 +149,14 @@ def _claim_video(conn):
 def _requeue_stale_running(conn):
     rows = conn.execute(
         text("""
-            UPDATE videos
-            SET diarization_state='pending',
-                diarization_error='Requeued stale running diarization job',
-                updated_at=now()
+            UPDATE videos SET diarization_state='pending',
+                diarization_error='Requeued stale running diarization job', updated_at=now()
             WHERE diarization_state='running'
               AND now() - updated_at > (:timeout_minutes * interval '1 minute')
               AND id = ANY(:allowed_video_ids)
+              AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')
             RETURNING id
-            """),
+        """),
         {"timeout_minutes": settings.DIARIZATION_RUNNING_TIMEOUT_MINUTES, **_allowlist_params()},
     ).fetchall()
     if rows:
@@ -133,8 +175,8 @@ def _heartbeat_diarization_job(engine, video_id) -> bool:
                 SET updated_at=now()
                 WHERE id=:v AND diarization_state='running'
                   AND id = ANY(:allowed_video_ids)
-                """),
-            {"v": video_id, **_allowlist_params()},
+                  AND """ + _ownership_sql()),
+            {"v": video_id, **_allowlist_params(), **_ownership_params()},
         )
     rowcount = result.rowcount
     if not isinstance(rowcount, int) or rowcount not in (0, 1):
@@ -193,6 +235,7 @@ def _skip_unsafe_diarization_jobs(conn):
                   v.duration_seconds IS NULL
                   OR v.duration_seconds > :max_duration_seconds
               )
+              AND (v.diarization_error IS NULL OR v.diarization_error NOT LIKE 'canary-%')
             RETURNING v.id, v.duration_seconds
             """),
         {
@@ -210,8 +253,9 @@ def _skip_unsafe_diarization_jobs(conn):
 
 def process_one(engine) -> bool:
     with engine.begin() as conn:
-        _skip_unsafe_diarization_jobs(conn)
-        _requeue_stale_running(conn)
+        if not settings.DIARIZATION_CANARY_MODE:
+            _skip_unsafe_diarization_jobs(conn)
+            _requeue_stale_running(conn)
         row = _claim_video(conn)
     if not row:
         return False
@@ -231,12 +275,16 @@ def process_one(engine) -> bool:
             extra={"video_id": str(video_id), "segments": len(segments)},
         )
         if not segments:
+            if settings.DIARIZATION_CANARY_MODE:
+                raise RuntimeError("canary diarization target lost its transcript segments")
             with engine.begin() as conn:
                 skipped = conn.execute(
                     text(
-                        "UPDATE videos SET diarization_state='skipped', updated_at=now() WHERE id=:v AND diarization_state='running' AND id = ANY(:allowed_video_ids)"
+                        "UPDATE videos SET diarization_state='skipped', updated_at=now() "
+                        "WHERE id=:v AND diarization_state='running' AND id = ANY(:allowed_video_ids) AND "
+                        + _ownership_sql()
                     ),
-                    {"v": video_id, **_allowlist_params()},
+                    {"v": video_id, **_allowlist_params(), **_ownership_params()},
                 )
                 if skipped.rowcount != 1:
                     raise RuntimeError("diarization empty-segment skip did not affect the running target video")
@@ -252,6 +300,21 @@ def process_one(engine) -> bool:
             extra={"video_id": str(video_id), "speaker_regions": len(diar_list), "speakers": len(friendly)},
         )
         with engine.begin() as conn:
+            # Keep label writeback and the final durable token transition atomic.
+            owned = (
+                conn.execute(
+                    text("""
+                    SELECT id FROM videos WHERE id=:v AND state='completed' AND diarization_state='running'
+                      AND id = ANY(:allowed_video_ids) AND diarization_error=:canary_marker
+                    FOR UPDATE
+                """),
+                    {"v": video_id, **_allowlist_params(), **_ownership_params()},
+                ).first()
+                if settings.DIARIZATION_CANARY_MODE
+                else True
+            )
+            if not owned:
+                raise RuntimeError("diarization canary fencing token no longer owns target")
             assigned = 0
             for seg in segments:
                 mid = (seg["start"] + seg["end"]) / 2.0
@@ -263,11 +326,23 @@ def process_one(engine) -> bool:
                 if speaker:
                     assigned += 1
                 result = conn.execute(
-                    text("""
+                    text(
+                        """
                         UPDATE segments SET speaker_label=:spk
                         WHERE id=:sid AND video_id=:v AND video_id = ANY(:allowed_video_ids)
-                    """),
-                    {"sid": seg["_segment_id"], "v": video_id, "spk": speaker, **_allowlist_params()},
+                          AND EXISTS (
+                              SELECT 1 FROM videos v
+                              WHERE v.id=:v AND v.state='completed' AND v.diarization_state='running' AND """
+                        + _ownership_sql("v")
+                        + ")"
+                    ),
+                    {
+                        "sid": seg["_segment_id"],
+                        "v": video_id,
+                        "spk": speaker,
+                        **_allowlist_params(),
+                        **_ownership_params(),
+                    },
                 )
                 if result.rowcount != 1:
                     raise RuntimeError("diarization segment update did not affect exactly one target segment")
@@ -276,10 +351,16 @@ def process_one(engine) -> bool:
             completed = conn.execute(
                 text("""
                     UPDATE videos
-                    SET diarization_state='completed', diarization_error=NULL, updated_at=now()
-                    WHERE id=:v AND diarization_state='running' AND id = ANY(:allowed_video_ids)
-                    """),
-                {"v": video_id, **_allowlist_params()},
+                    SET diarization_state='completed', diarization_error=CASE WHEN :canary_mode THEN 'canary-finalizing:' || :canary_token ELSE NULL END, updated_at=now()
+                    WHERE id=:v AND state='completed' AND diarization_state='running' AND id = ANY(:allowed_video_ids)
+                      AND """ + _ownership_sql()),
+                {
+                    "v": video_id,
+                    "canary_mode": settings.DIARIZATION_CANARY_MODE,
+                    "canary_token": _canary_token(),
+                    **_allowlist_params(),
+                    **_ownership_params(),
+                },
             )
             if completed.rowcount != 1:
                 raise RuntimeError("diarization completion did not affect the running target video")
@@ -295,10 +376,17 @@ def process_one(engine) -> bool:
             failed = conn.execute(
                 text("""
                     UPDATE videos
-                    SET diarization_state='failed', diarization_error=:e, updated_at=now()
+                    SET diarization_state='failed', diarization_error=CASE WHEN :canary_mode THEN 'canary-failed:' || :canary_token ELSE :e END, updated_at=now()
                     WHERE id=:v AND diarization_state='running' AND id = ANY(:allowed_video_ids)
-                    """),
-                {"v": video_id, "e": str(e)[:5000], **_allowlist_params()},
+                      AND """ + _ownership_sql()),
+                {
+                    "v": video_id,
+                    "e": str(e)[:5000],
+                    "canary_mode": settings.DIARIZATION_CANARY_MODE,
+                    "canary_token": _canary_token(),
+                    **_allowlist_params(),
+                    **_ownership_params(),
+                },
             )
             if failed.rowcount != 1:
                 raise RuntimeError("diarization failure did not affect the running target video")

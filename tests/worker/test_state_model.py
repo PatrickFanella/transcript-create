@@ -5,6 +5,7 @@ from worker.state_model import (
     VideoState,
     can_start_native_transcription,
     job_state_from_video_states,
+    pending_video_eligibility_sql,
 )
 
 
@@ -65,3 +66,7 @@ def test_video_state_model_includes_db_enum_states():
     assert VideoState.DIARIZING.value == "diarizing"
     assert VideoState.PERSISTING.value == "persisting"
     assert VideoState.EXPANDED.value == "expanded"
+
+
+def test_pending_native_eligibility_excludes_all_canary_markers():
+    assert "v.diarization_error IS NULL OR v.diarization_error NOT LIKE 'canary-%'" in pending_video_eligibility_sql()

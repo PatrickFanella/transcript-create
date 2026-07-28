@@ -180,17 +180,26 @@ def process_claimed_video(video_id, lease) -> None:
         videos_processed_total.labels(result="failed").inc()
         with engine.begin() as conn:
             if lease.attempt_number < settings.MAX_JOB_ATTEMPTS:
-                conn.execute(
-                    text("UPDATE videos SET state='pending', error=:e, updated_at=now() WHERE id=:i"),
+                retried = conn.execute(
+                    text("""UPDATE videos SET state='pending', error=:e, updated_at=now()
+                        WHERE id=:i AND state IN ('downloading','transcoding','transcribing')
+                          AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')"""),
                     {"i": video_id, "e": str(e)[:5000]},
                 )
+                if retried.rowcount != 1:
+                    raise RuntimeError("failed retry did not affect exactly one non-canary claimed video")
             else:
-                row = conn.execute(
+                failed = conn.execute(
                     text(
-                        "UPDATE videos SET state='failed', error=:e, updated_at=now() " "WHERE id=:i RETURNING job_id"
+                        "UPDATE videos SET state='failed', error=:e, updated_at=now() "
+                        "WHERE id=:i AND state IN ('downloading','transcoding','transcribing') "
+                        "AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%') RETURNING job_id"
                     ),
                     {"i": video_id, "e": str(e)[:5000]},
-                ).first()
+                )
+                if failed.rowcount != 1:
+                    raise RuntimeError("failed terminal update did not affect exactly one non-canary claimed video")
+                row = failed.first()
                 if row:
                     from worker.pipeline import refresh_job_state
 
@@ -318,6 +327,7 @@ def run():
                         UPDATE videos
                         SET state = 'pending', updated_at = now()
                         WHERE state IN ('downloading','transcoding','transcribing')
+                          AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')
                           AND now() - updated_at > make_interval(secs => :secs)
                         RETURNING id
                         """),
@@ -347,6 +357,7 @@ def run():
                         FROM transcripts t
                         WHERE v.id = t.video_id
                           AND v.state = :completed_state
+                          AND (v.diarization_error IS NULL OR v.diarization_error NOT LIKE 'canary-%')
                           AND t.model IS NOT NULL
                           AND (
                             -- Requeue if transcript model rank is lower than current
@@ -400,7 +411,16 @@ def run():
                 continue
 
             logger.info("Picked video for processing")
-            conn.execute(text("UPDATE videos SET state='downloading', updated_at=now() WHERE id=:i"), {"i": video_id})
+            transition = conn.execute(
+                text("""
+                    UPDATE videos SET state='downloading', updated_at=now()
+                    WHERE id=:i AND state=:pending_state
+                      AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')
+                """),
+                {"i": video_id, "pending_state": VideoState.PENDING.value},
+            )
+            if transition.rowcount != 1:
+                continue
         active.add(executor.submit(process_claimed_video, video_id, lease))
 
 

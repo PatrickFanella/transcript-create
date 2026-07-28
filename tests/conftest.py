@@ -57,7 +57,7 @@ def isolate_circuit_breakers():
 @pytest.fixture(scope="session")
 def test_database_url() -> str:
     """Get test database URL from environment."""
-    return os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
+    return os.environ.get("HASANARA_TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/hasanara_test")
 
 
 @pytest.fixture(scope="session")

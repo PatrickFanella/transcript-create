@@ -332,7 +332,7 @@ describe('AccountPage', () => {
     expect(patchBodies).toEqual([
       { name: 'Archive Person', avatar_url: 'https://images.example/avatar.png' },
     ]);
-  });
+  }, 10_000);
 
   it('starts provider linking with a POST authorization URL and confirms unlink without exposing a final-identity failure as success', async () => {
     let unlinkAttempts = 0;

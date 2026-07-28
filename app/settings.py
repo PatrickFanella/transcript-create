@@ -229,6 +229,10 @@ class Settings(BaseSettings):
     # requires an allow-list regardless of this setting.
     DIARIZATION_REQUIRE_ALLOWLIST: bool = True
     DIARIZATION_EXIT_WHEN_IDLE: bool = False
+    # A production canary is preclaimed by the operator helper. Its UUID is a
+    # durable fencing token, never a queue identifier supplied implicitly.
+    DIARIZATION_CANARY_MODE: bool = False
+    DIARIZATION_CANARY_TOKEN: UUID | None = None
     # Strict mode is used by the production one-off worker: no fallback, download,
     # decode, or device-placement failure may be hidden.
     DIARIZATION_STRICT: bool = False

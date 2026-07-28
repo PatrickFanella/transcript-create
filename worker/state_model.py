@@ -99,6 +99,7 @@ def pending_video_eligibility_sql() -> str:
           AND j.quarantined_at IS NULL
           AND j.state <> 'needs_attention'
           AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= now())
+          AND (v.diarization_error IS NULL OR v.diarization_error NOT LIKE 'canary-%')
     """
 
 

@@ -11,7 +11,7 @@ WITH role_row AS (
 ), required_grants(table_name, column_name, privilege_type) AS (
     VALUES
         ('videos', 'id', 'SELECT'), ('videos', 'state', 'SELECT'), ('videos', 'wav_path', 'SELECT'),
-        ('videos', 'diarization_state', 'SELECT'), ('videos', 'duration_seconds', 'SELECT'),
+        ('videos', 'diarization_state', 'SELECT'), ('videos', 'diarization_error', 'SELECT'), ('videos', 'duration_seconds', 'SELECT'),
         ('videos', 'updated_at', 'SELECT'), ('videos', 'created_at', 'SELECT'),
         ('videos', 'diarization_state', 'UPDATE'), ('videos', 'diarization_error', 'UPDATE'),
         ('videos', 'updated_at', 'UPDATE'), ('segments', 'id', 'SELECT'),

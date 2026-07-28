@@ -113,7 +113,7 @@ def _enrich_source_metadata(ctx: VideoPipelineContext, deps: NativePipelineDepen
             title = metadata.get("title") or ctx.video.get("title")
             duration = metadata.get("duration") or ctx.video.get("duration_seconds")
             with ctx.engine.begin() as conn:
-                conn.execute(
+                updated = conn.execute(
                     text("""
                         UPDATE videos
                         SET uploaded_at = COALESCE(uploaded_at, :uploaded_at),
@@ -122,6 +122,8 @@ def _enrich_source_metadata(ctx: VideoPipelineContext, deps: NativePipelineDepen
                             duration_seconds = COALESCE(duration_seconds, :duration),
                             updated_at = now()
                         WHERE id = :id
+                          AND state IN ('downloading', 'transcoding', 'transcribing')
+                          AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')
                         """),
                     {
                         "id": ctx.video_id,
@@ -131,6 +133,8 @@ def _enrich_source_metadata(ctx: VideoPipelineContext, deps: NativePipelineDepen
                         "duration": duration,
                     },
                 )
+                if updated.rowcount != 1:
+                    raise RuntimeError("metadata enrichment lost non-canary video ownership")
             deps.logger.info(
                 "Video source metadata enriched",
                 extra={
@@ -172,10 +176,14 @@ def _download_and_transcode(ctx: VideoPipelineContext, deps: NativePipelineDepen
     deps.logger.info("Download completed", extra={"duration_seconds": round(download_duration, 2)})
 
     with ctx.engine.begin() as conn:
-        conn.execute(
-            text("UPDATE videos SET raw_path=:p, state='transcoding', updated_at=now() WHERE id=:i"),
+        updated = conn.execute(
+            text("""UPDATE videos SET raw_path=:p, state='transcoding', updated_at=now()
+                    WHERE id=:i AND state='downloading'
+                      AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')"""),
             {"p": str(raw_path), "i": ctx.video_id},
         )
+        if updated.rowcount != 1:
+            raise RuntimeError("raw-path update lost non-canary video ownership")
 
     deps.logger.info("Converting to wav 16k", extra={"stage": "transcoding"})
     transcode_start = time.time()
@@ -186,10 +194,14 @@ def _download_and_transcode(ctx: VideoPipelineContext, deps: NativePipelineDepen
     deps.logger.info("Transcode completed", extra={"duration_seconds": round(transcode_duration, 2)})
 
     with ctx.engine.begin() as conn:
-        conn.execute(
-            text("UPDATE videos SET wav_path=:p, state='transcribing', updated_at=now() WHERE id=:i"),
+        updated = conn.execute(
+            text("""UPDATE videos SET wav_path=:p, state='transcribing', updated_at=now()
+                    WHERE id=:i AND state='transcoding'
+                      AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')"""),
             {"p": str(wav_path), "i": ctx.video_id},
         )
+        if updated.rowcount != 1:
+            raise RuntimeError("wav-path update lost non-canary video ownership")
 
 
 def _quality_setting(ctx: VideoPipelineContext, key: str, default: Any) -> Any:
@@ -360,6 +372,17 @@ def _persist_transcript(ctx: VideoPipelineContext, deps: NativePipelineDependenc
     refresh_job_state = deps.refresh_job_state or _refresh_job_state
 
     with ctx.engine.begin() as conn:
+        owned = conn.execute(
+            text("""
+                SELECT id FROM videos
+                WHERE id=:v
+                  AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')
+                FOR UPDATE
+            """),
+            {"v": ctx.video_id},
+        ).first()
+        if not owned:
+            raise RuntimeError("native transcript persistence lost non-canary row ownership")
         full_text = " ".join(s["text"] for s in ctx.diar_segments)
         deps.logger.info("Inserting transcript", extra={"text_length": len(full_text)})
         try:
@@ -425,14 +448,16 @@ def _persist_transcript(ctx: VideoPipelineContext, deps: NativePipelineDependenc
         )
         deps.replace_transcript_blocks(conn, ctx.video_id, blocks)
         deps.logger.info("Marking video as completed")
-        conn.execute(
+        completed = conn.execute(
             text("""
                 UPDATE videos
                 SET state='completed', error=NULL, diarization_state=:ds, updated_at=now()
-                WHERE id=:i
+                WHERE id=:i AND (diarization_error IS NULL OR diarization_error NOT LIKE 'canary-%')
                 """),
             {"i": ctx.video_id, "ds": ctx.diarization_state},
         )
+        if completed.rowcount != 1:
+            raise RuntimeError("native transcript completion did not affect exactly one non-canary video")
         refresh_job_state(conn, ctx.job_id)
     invalidate_video_data(ctx.video_id)
 

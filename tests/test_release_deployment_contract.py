@@ -789,35 +789,26 @@ def test_config_safe_selectors_are_exact_and_maintenance_is_fixed() -> None:
     )
     assert "run_compose exec backup /scripts/walg_base_backup.sh" in helper
     assert "diarization-canary requires exactly one UUID and --approved" in helper
-    assert "readonly DIARIZATION_LOCK_NAME='hasanara-diarization-canary'" in helper
-    assert "pg_try_advisory_lock(hashtext('$DIARIZATION_LOCK_NAME'))" in helper
+    assert "pg_advisory_xact_lock(hashtext('hasanara-diarization-canary'))" in helper
     assert "duration_seconds <= 600" in helper
     assert "timeout --signal=TERM --kill-after=30s 20m" in helper
-    assert "--rm --no-deps" in helper
-    assert "DIARIZATION_ALLOWED_VIDEO_IDS=$video_id" in helper
+    assert "run -d --no-deps" in helper
+    assert "DIARIZATION_ALLOWED_VIDEO_IDS=$canary_video_id" in helper
     assert "WHERE id=:'video_id'::uuid AND diarization_state='running'" in helper
     assert "SELECT pg_switch_wal();" in helper
-    assert (
-        "run_preflight\n                run_compose exec db psql -v ON_ERROR_STOP=1 -U postgres -d transcripts -c 'SELECT archived_count, failed_count, last_archived_wal, last_archived_time, last_failed_wal, last_failed_time, stats_reset FROM pg_stat_archiver;'"
-        in helper
-    )
-    assert "run_preflight\n                run_compose exec backup wal-g backup-list" in helper
-    canary = helper.split("run_diarization_canary() {", 1)[1].split("\n}\n\n[[ ${BASH_SOURCE[0]}", 1)[0]
+    assert "SELECT archived_count, failed_count, last_archived_wal" in helper
+    assert "run_compose exec backup wal-g backup-list" in helper
+    canary = helper.split("run_diarization_canary() {", 1)[1].split("\n}\n\nassert_exact_token_container_absent", 1)[0]
     assert "compose() {" in helper and 'exec "${CLEAN_ENV[@]}" "${COMPOSE[@]}" "$@"' in helper
     assert "run_compose" not in canary
     assert (
         canary.index("run_preflight")
-        < canary.index("--entrypoint test")
+        < canary.index("check_diarization_role")
         < canary.index("timeout --signal=TERM")
-        < canary.index("diarization_state='completed'")
+        < canary.index("finalize_canary_success")
     )
-    assert "start_lock_holder" in canary
-    assert "await_lock_holder" in canary
-    assert canary.index("check_diarization_role") < canary.index("start_lock_holder")
-    cleanup = helper.split("if [[ ${1:-} == diarization-canary-cleanup ]]; then", 1)[1].split(
-        "\n        if (($# != 2))", 1
-    )[0]
-    assert "run_preflight" not in cleanup
+    assert "acquire_canary" in canary
+    assert "canary-finalizing" in helper
     role_check = helper.split("diarization-role-check)", 1)[1].split("*)", 1)[0]
     assert "check_diarization_role" in role_check
     role_sql = (ROOT / "scripts" / "check_diarization_role.sql").read_text(encoding="utf-8")

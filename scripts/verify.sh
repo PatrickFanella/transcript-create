@@ -61,6 +61,7 @@ echo 'Starting isolated PostgreSQL, Redis, and OpenSearch services...'
 "${COMPOSE[@]}" up -d --wait
 
 export DATABASE_URL="postgresql+psycopg://postgres:postgres@${TEST_SERVICE_HOST}:${TEST_POSTGRES_PORT}/hasanara_test"
+export HASANARA_TEST_DATABASE_URL="${DATABASE_URL}"
 export ANALYTICS_TEST_DATABASE_URL="${DATABASE_URL}"
 export REDIS_URL="redis://${TEST_SERVICE_HOST}:${TEST_REDIS_PORT}/0"
 export OPENSEARCH_URL="http://${TEST_SERVICE_HOST}:${TEST_OPENSEARCH_PORT}"

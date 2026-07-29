@@ -91,8 +91,12 @@ describe('AdminUsers role controls', () => {
       renderUsers();
       const select = await screen.findByLabelText('Role for Target User');
       await events.selectOptions(select, 'admin');
-      expect(await screen.findByRole('alert')).toHaveTextContent(message);
+      expect(await screen.findByRole('alert', {}, { timeout: 3_000 })).toHaveTextContent(message);
       expect(select).toHaveValue('user');
+      const roleMutationRequests = fetchMock.mock.calls.filter(([request]) =>
+        new URL((request as Request).url).pathname.endsWith('/admin/users/target-1/role')
+      );
+      expect(roleMutationRequests).toHaveLength(status === 503 ? 3 : 1);
     }
   );
 

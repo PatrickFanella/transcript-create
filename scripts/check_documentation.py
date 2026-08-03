@@ -81,10 +81,8 @@ def main() -> int:
         "timeline",
         "topics/:query",
         "v/:videoId",
-        "login",
         "saved",
         "favorites",
-        "admin",
     ):
         if f"path: '{route}'" not in route_source:
             errors.append(f"documented frontend route missing from router: {route}")

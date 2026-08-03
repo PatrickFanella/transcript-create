@@ -72,7 +72,8 @@ allowing this temporary exception.
 - Required action: upgrade React Router to a compatible patched version and
   remove this exception and its compensating source/lock checks
 
-`1124334` / `GHSA-mh99-v99m-4gvg` affects only the exact dev-only
+`1130588` and `1130589` / `GHSA-mh99-v99m-4gvg`, plus `1130707` and
+`1130708` / `GHSA-rgw5-rvv9-x895`, affect only the exact dev-only
 `brace-expansion` lockfile nodes: 1.1.16 at `node_modules/brace-expansion` and
 2.1.2 beneath `@redocly/openapi-core` and
 `@typescript-eslint/typescript-estree`. They are not part of the production

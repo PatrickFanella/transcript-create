@@ -7,6 +7,8 @@ import pytest
 
 from scripts.check_security_exceptions import (
     NPM_ALLOWED_HIGH_CRITICAL_GRAPH,
+    NPM_ALLOWED_LEAVES,
+    NPM_ROUTER_SOURCE,
     reachable_calls,
     run_npm_audit,
     validate,
@@ -70,13 +72,21 @@ def _allowed_audit() -> dict[str, object]:
     for name, via in NPM_ALLOWED_HIGH_CRITICAL_GRAPH.items():
         resolved_via: list[object] = list(via)
         if name == "brace-expansion":
-            resolved_via = [_advisory(1124334, "GHSA-mh99-v99m-4gvg")]
+            resolved_via = [
+                _advisory(int(source), ghsa)
+                for source, ghsa in NPM_ALLOWED_LEAVES.items()
+                if source != NPM_ROUTER_SOURCE
+            ]
         elif name == "react-router":
             resolved_via = [_advisory(1124282, "GHSA-qwww-vcr4-c8h2")]
         vulnerabilities[name] = {"severity": "high", "via": resolved_via, "nodes": [f"node_modules/{name}"]}
     vulnerabilities["brace-expansion"] = {
         "severity": "high",
-        "via": [_advisory(1124334, "GHSA-mh99-v99m-4gvg")],
+        "via": [
+            _advisory(int(source), ghsa)
+            for source, ghsa in NPM_ALLOWED_LEAVES.items()
+            if source != NPM_ROUTER_SOURCE
+        ],
         "nodes": [
             "node_modules/brace-expansion",
             "node_modules/@redocly/openapi-core/node_modules/brace-expansion",

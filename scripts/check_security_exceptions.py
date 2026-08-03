@@ -30,7 +30,12 @@ EXCEPTIONS = (
 
 NPM_EXCEPTION_EXPIRY = date(2026, 8, 8)
 NPM_ROUTER_SOURCE = "1124282"
-NPM_BRACE_SOURCE = "1124334"
+NPM_BRACE_SOURCES = {
+    "1130588": "GHSA-mh99-v99m-4gvg",
+    "1130589": "GHSA-mh99-v99m-4gvg",
+    "1130707": "GHSA-rgw5-rvv9-x895",
+    "1130708": "GHSA-rgw5-rvv9-x895",
+}
 NPM_ALLOWED_ROUTER_NODES = {
     "node_modules/react-router": "7.18.1",
     "node_modules/react-router-dom": "7.18.1",
@@ -42,35 +47,17 @@ NPM_ALLOWED_BRACE_NODES = {
 }
 NPM_ALLOWED_LEAVES = {
     NPM_ROUTER_SOURCE: "GHSA-qwww-vcr4-c8h2",
-    NPM_BRACE_SOURCE: "GHSA-mh99-v99m-4gvg",
+    **NPM_BRACE_SOURCES,
 }
 NPM_LEAF_AUDIT_NODES = {
     NPM_ROUTER_SOURCE: {"node_modules/react-router"},
-    NPM_BRACE_SOURCE: set(NPM_ALLOWED_BRACE_NODES),
+    **{source: set(NPM_ALLOWED_BRACE_NODES) for source in NPM_BRACE_SOURCES},
 }
 NPM_SEVERITIES = {"info", "low", "moderate", "high", "critical"}
 NPM_ALLOWED_HIGH_CRITICAL_GRAPH = {
-    "@eslint/config-array": ("minimatch",),
-    "@eslint/eslintrc": ("minimatch",),
-    "@redocly/openapi-core": ("minimatch",),
-    "@typescript-eslint/eslint-plugin": ("@typescript-eslint/type-utils", "@typescript-eslint/utils", "eslint"),
-    "@typescript-eslint/parser": ("@typescript-eslint/typescript-estree", "eslint"),
-    "@typescript-eslint/type-utils": ("@typescript-eslint/typescript-estree", "@typescript-eslint/utils", "eslint"),
-    "@typescript-eslint/typescript-estree": ("minimatch",),
-    "@typescript-eslint/utils": ("@typescript-eslint/typescript-estree", "eslint"),
-    "brace-expansion": (NPM_BRACE_SOURCE,),
-    "eslint": ("@eslint/config-array", "@eslint/eslintrc", "minimatch"),
-    "minimatch": ("brace-expansion",),
-    "openapi-typescript": ("@redocly/openapi-core",),
+    "brace-expansion": tuple(NPM_BRACE_SOURCES),
     "react-router": (NPM_ROUTER_SOURCE,),
     "react-router-dom": ("react-router",),
-    "typescript-eslint": (
-        "@typescript-eslint/eslint-plugin",
-        "@typescript-eslint/parser",
-        "@typescript-eslint/typescript-estree",
-        "@typescript-eslint/utils",
-        "eslint",
-    ),
 }
 
 

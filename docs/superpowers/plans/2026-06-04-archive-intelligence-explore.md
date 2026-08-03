@@ -19,7 +19,7 @@
 
 - Modify `app/schemas.py`
   - Add Archive Intelligence response models next to existing archive summary/timeline schemas.
-  - Fix backend default `ArchiveSummary.creator_name` from `HasanAra` to `HasAnAra`.
+  - Fix backend default `ArchiveSummary.creator_name` from `HasanAra` to `HasanAra`.
 - Create `app/archive/intelligence.py`
   - Compose existing archive data into a first-generation intelligence response.
   - Own curated seed topics and fallback logic.
@@ -101,7 +101,7 @@ Append this test method to `class TestArchiveRoutes` in `tests/test_archive_rout
 
         assert response.status_code == 200
         data = response.json()
-        assert data["summary"]["creator_name"] == "HasAnAra"
+        assert data["summary"]["creator_name"] == "HasanAra"
         assert data["exploration_modes"] == ["timeline", "topics", "trending", "suggested"]
         assert data["trending_searches"][0]["term"] == "ice protests"
         assert data["topic_cards"]
@@ -126,7 +126,7 @@ In `app/schemas.py`, change line 206 default:
 
 ```python
 class ArchiveSummary(BaseModel):
-    creator_name: str = Field("HasAnAra", description="Archive display name")
+    creator_name: str = Field("HasanAra", description="Archive display name")
 ```
 
 Then add these models after `ArchiveTimelineResponse`:
@@ -481,7 +481,7 @@ Add this block inside `describe('api service', () => { ... })` in `frontend/src/
     it('calls archive intelligence endpoint', async () => {
       const mockResponse = {
         summary: {
-          creator_name: 'HasAnAra',
+          creator_name: 'HasanAra',
           video_count: 1,
           total_duration_seconds: 3600,
           transcript_word_count: 200,
@@ -627,7 +627,7 @@ describe('ExplorePage', () => {
   it('renders archive intelligence sections and evidence links', async () => {
     vi.spyOn(api, 'getExploreIntelligence').mockResolvedValue({
       summary: {
-        creator_name: 'HasAnAra',
+        creator_name: 'HasanAra',
         video_count: 12,
         total_duration_seconds: 7200,
         transcript_word_count: 50000,
@@ -746,7 +746,7 @@ export default function ExplorePage() {
           <div>
             <h1 className="page-title">Archive Intelligence</h1>
             <p className="mt-3 max-w-3xl text-muted">
-              Follow topics, spikes, suggested searches, and cited timeline summaries across the HasAnAra VOD archive.
+              Follow topics, spikes, suggested searches, and cited timeline summaries across the HasanAra VOD archive.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3 text-center">

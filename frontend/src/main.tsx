@@ -4,7 +4,7 @@ import './index.css';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import AppLayout from './routes/AppLayout';
-import { PublicAccessProvider, queryClient, ThemeProvider } from './services';
+import { AuthProvider, queryClient, ThemeProvider } from './services';
 import { NotFoundPage, PageSuspense as Page, RouteErrorPage } from './routes/RouteStates';
 
 const HomePage = lazy(() => import('./routes/HomePage'));
@@ -14,7 +14,16 @@ const StreamsPage = lazy(() => import('./routes/StreamsPage'));
 const TimelinePage = lazy(() => import('./routes/TimelinePage'));
 const TopicPage = lazy(() => import('./routes/TopicPage'));
 const VideoPage = lazy(() => import('./routes/VideoPage'));
+const LoginPage = lazy(() => import('./routes/LoginPage'));
+const AccountPage = lazy(() => import('./routes/AccountPage'));
 const FavoritesPage = lazy(() => import('./routes/FavoritesPage'));
+const AdminLayout = lazy(() => import('./routes/admin/AdminLayout'));
+const AdminDashboard = lazy(() => import('./routes/admin/AdminDashboard'));
+const AdminEvents = lazy(() => import('./routes/admin/AdminEvents'));
+const AdminArchivePeriods = lazy(() => import('./routes/admin/AdminArchivePeriods'));
+const AdminUsers = lazy(() => import('./routes/admin/AdminUsers'));
+const AdminVideoMetadata = lazy(() => import('./routes/admin/AdminVideoMetadata'));
+const AdminLabelIntelligence = lazy(() => import('./routes/admin/AdminLabelIntelligence'));
 
 const router = createBrowserRouter([
   {
@@ -87,6 +96,22 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: 'login',
+        element: (
+          <Page>
+            <LoginPage />
+          </Page>
+        ),
+      },
+      {
+        path: 'account',
+        element: (
+          <Page>
+            <AccountPage />
+          </Page>
+        ),
+      },
+      {
         path: 'saved',
         element: (
           <Page>
@@ -102,6 +127,64 @@ const router = createBrowserRouter([
           </Page>
         ),
       },
+      {
+        path: 'admin',
+        element: (
+          <Page>
+            <AdminLayout />
+          </Page>
+        ),
+        children: [
+          {
+            path: 'dashboard',
+            element: (
+              <Page>
+                <AdminDashboard />
+              </Page>
+            ),
+          },
+          {
+            path: 'events',
+            element: (
+              <Page>
+                <AdminEvents />
+              </Page>
+            ),
+          },
+          {
+            path: 'periods',
+            element: (
+              <Page>
+                <AdminArchivePeriods />
+              </Page>
+            ),
+          },
+          {
+            path: 'metadata',
+            element: (
+              <Page>
+                <AdminVideoMetadata />
+              </Page>
+            ),
+          },
+          {
+            path: 'labels',
+            element: (
+              <Page>
+                <AdminLabelIntelligence />
+              </Page>
+            ),
+          },
+          {
+            path: 'users',
+            element: (
+              <Page>
+                <AdminUsers />
+              </Page>
+            ),
+          },
+        ],
+      },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
@@ -111,9 +194,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <PublicAccessProvider>
+        <AuthProvider>
           <RouterProvider router={router} />
-        </PublicAccessProvider>
+        </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>
   </StrictMode>

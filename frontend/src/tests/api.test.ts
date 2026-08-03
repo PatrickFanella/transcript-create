@@ -139,7 +139,7 @@ describe('api service', () => {
     it('calls archive intelligence endpoint', async () => {
       const mockResponse = {
         summary: {
-          creator_name: 'HasAnAra',
+          creator_name: 'HasanAra',
           video_count: 1,
           total_duration_seconds: 3600,
           transcript_word_count: 200,
@@ -170,7 +170,7 @@ describe('api service', () => {
     it('passes through intelligence query params including period', async () => {
       const mockResponse = {
         summary: {
-          creator_name: 'HasAnAra',
+          creator_name: 'HasanAra',
           video_count: 1,
           total_duration_seconds: 3600,
           transcript_word_count: 200,

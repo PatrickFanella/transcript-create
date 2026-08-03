@@ -1,26 +1,14 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
 import AppLayout from '../routes/AppLayout';
 
-const auth = vi.hoisted(() => ({ user: null as { id: string; email: string } | null }));
-
 vi.mock('../services', () => ({
-  useAuth: () => ({
-    user: auth.user,
-    loading: false,
-    login: vi.fn(),
-    loginTwitch: vi.fn(),
-    logout: vi.fn(),
-  }),
   useTheme: () => ({ theme: 'dark', toggleTheme: vi.fn() }),
 }));
 
 describe('AppLayout navigation', () => {
-  beforeEach(() => {
-    auth.user = null;
-  });
   it('includes Timeline in primary navigation', () => {
     const { container } = render(<AppLayout />, { wrapper: MemoryRouter });
     expect(screen.getByRole('link', { name: 'Timeline' })).toHaveAttribute('href', '/timeline');
@@ -40,15 +28,11 @@ describe('AppLayout navigation', () => {
     expect(button).toHaveFocus();
   });
 
-  it('exposes Account navigation only to authenticated users in desktop and mobile navigation', () => {
-    auth.user = { id: 'user-1', email: 'person@example.com' };
+  it('does not expose account or login controls', () => {
     render(<AppLayout />, { wrapper: MemoryRouter });
-    expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account');
+    expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Google' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
-    expect(
-      within(screen.getByRole('navigation', { name: 'Mobile navigation' })).getByRole('link', {
-        name: 'Account',
-      })
-    ).toHaveAttribute('href', '/account');
+    expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument();
   });
 });

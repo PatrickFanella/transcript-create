@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
-import { useTheme } from '../services';
+import { useAuth, useTheme } from '../services';
 
 const navItems = [
   { to: '/', label: 'Home' },
@@ -12,6 +12,7 @@ const navItems = [
 ];
 
 export default function AppLayout() {
+  const { user, loading, login, loginTwitch, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -75,6 +76,16 @@ export default function AppLayout() {
                 {item.label}
               </NavLink>
             ))}
+            {user && (
+              <NavLink
+                to="/account"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? 'bg-surface-muted text-ink' : ''}`
+                }
+              >
+                Account
+              </NavLink>
+            )}
             <button
               type="button"
               onClick={toggleTheme}
@@ -114,6 +125,43 @@ export default function AppLayout() {
                 </svg>
               )}
             </button>
+
+            <div className="ml-2 flex items-center gap-3 border-l border-border pl-4">
+              {loading ? (
+                <span className="text-subtle" aria-live="polite">
+                  Loading…
+                </span>
+              ) : user ? (
+                <>
+                  <div className="hidden items-center gap-2 lg:flex">
+                    {user.avatar_url && (
+                      <img
+                        src={user.avatar_url}
+                        alt={`${user.name || user.email} avatar`}
+                        width="32"
+                        height="32"
+                        className="h-8 w-8 rounded-full border border-border"
+                      />
+                    )}
+                    <span className="max-w-[10rem] truncate text-sm text-muted">
+                      {user.name || user.email}
+                    </span>
+                  </div>
+                  <button type="button" onClick={logout} className="nav-link">
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={login} className="nav-link">
+                    Google
+                  </button>
+                  <button type="button" onClick={loginTwitch} className="nav-link">
+                    Twitch
+                  </button>
+                </>
+              )}
+            </div>
           </nav>
 
           <button
@@ -169,6 +217,16 @@ export default function AppLayout() {
                   {item.label}
                 </Link>
               ))}
+              {user && (
+                <Link
+                  to="/account"
+                  className="nav-link block"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Account
+                </Link>
+              )}
+
               <div className="mt-3 border-t border-border pt-3">
                 <button
                   type="button"
@@ -213,6 +271,60 @@ export default function AppLayout() {
                     </>
                   )}
                 </button>
+
+                {loading ? (
+                  <span className="block py-2 text-subtle" aria-live="polite">
+                    Loading…
+                  </span>
+                ) : user ? (
+                  <>
+                    <div className="flex items-center gap-3 py-2">
+                      {user.avatar_url && (
+                        <img
+                          src={user.avatar_url}
+                          alt={`${user.name || user.email} avatar`}
+                          width="32"
+                          height="32"
+                          className="h-8 w-8 rounded-full border border-border"
+                        />
+                      )}
+                      <span className="text-muted">{user.name || user.email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logout();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="nav-link block w-full text-left"
+                    >
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        login();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="nav-link block w-full text-left"
+                    >
+                      Google
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loginTwitch();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="nav-link block w-full text-left"
+                    >
+                      Twitch
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </nav>

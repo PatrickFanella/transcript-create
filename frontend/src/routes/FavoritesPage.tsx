@@ -245,7 +245,7 @@ export default function FavoritesPage() {
               ) : (
                 <p className="text-muted">No saved searches yet.</p>
               )}
-              {!user && <p className="text-sm text-muted">Saved in this browser.</p>}
+              {!user && <p className="text-sm text-muted">Sign in to synchronize local saves.</p>}
             </>
           </div>
         </aside>

@@ -37,6 +37,29 @@ export type AuthState = {
 
 const AuthCtx = createContext<AuthState | null>(null);
 
+const publicAuthState: AuthState = {
+  user: null,
+  loading: false,
+  status: 'anonymous',
+  error: null,
+  role: null,
+  capabilities: [],
+  refresh: async () => {},
+  invalidateLocalAuth: () => {},
+  login: () => {},
+  loginTwitch: () => {},
+  loginWith: () => {},
+  linkProvider: async () => {
+    throw new Error('Account authentication is disabled');
+  },
+  logout: async () => {},
+};
+
+/** Provides a network-free anonymous identity for the public archive. */
+export function PublicAccessProvider({ children }: { children: React.ReactNode }) {
+  return <AuthCtx.Provider value={publicAuthState}>{children}</AuthCtx.Provider>;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Authentication request failed';
 }

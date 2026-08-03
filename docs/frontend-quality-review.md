@@ -1,4 +1,4 @@
-# HasAnAra Web Frontend Quality Review
+# HasanAra Web Frontend Quality Review
 
 > **Verdict:** Not production-ready without fixes. The archive experience is promising and the production build succeeds, but a serious injection risk, broken or incomplete flows, stale browser coverage, failing quality gates, and documentation drift must be addressed.
 

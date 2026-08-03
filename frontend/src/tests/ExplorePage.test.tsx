@@ -47,7 +47,7 @@ describe('ExplorePage', () => {
 
     const baseResponse = {
       summary: {
-        creator_name: 'HasAnAra',
+        creator_name: 'HasanAra',
         video_count: 12,
         total_duration_seconds: 7200,
         transcript_word_count: 50000,
@@ -274,7 +274,7 @@ describe('ExplorePage', () => {
 
     const response = {
       summary: {
-        creator_name: 'HasAnAra',
+        creator_name: 'HasanAra',
         video_count: 1,
         total_duration_seconds: 3600,
         transcript_word_count: 200,

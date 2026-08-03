@@ -2940,7 +2940,7 @@ export interface components {
       /**
        * Creator Name
        * @description Archive display name
-       * @default HasAnAra
+       * @default HasanAra
        */
       creator_name: string;
       /**

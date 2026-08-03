@@ -28,7 +28,7 @@ Compose.
 - [ ] Keep each slice reviewable: one behavior test, minimal implementation,
   targeted verification, documentation, then a commit.
 - [ ] Do not touch `.codex/`, `.tmp/`, or
-  `HasAnAra-Frontend-Quality-Review.docx` without separate authorization.
+  `HasanAra-Frontend-Quality-Review.docx` without separate authorization.
 - [ ] Preserve citation-backed chapters, transcript navigation,
   archive-intelligence ranking, and Almaz bind-mounted data.
 - [ ] Update the traceability checklist at the end of every slice.

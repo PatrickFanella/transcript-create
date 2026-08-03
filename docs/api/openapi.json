@@ -1628,7 +1628,7 @@
       "ArchiveSummary": {
         "properties": {
           "creator_name": {
-            "default": "HasAnAra",
+            "default": "HasanAra",
             "description": "Archive display name",
             "title": "Creator Name",
             "type": "string"

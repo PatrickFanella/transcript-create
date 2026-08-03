@@ -43,7 +43,7 @@ export default function AppLayout() {
       >
         <div className="mx-auto flex max-w-[100rem] items-center justify-between gap-4 px-4 py-3 lg:px-6">
           <div className="flex items-center gap-4">
-            <Link to="/" className="group flex items-center gap-3" aria-label="Home - HasAnAra">
+            <Link to="/" className="group flex items-center gap-3" aria-label="Home - HasanAra">
               <img
                 src="/icon.svg"
                 alt=""
@@ -53,7 +53,7 @@ export default function AppLayout() {
               />
               <span>
                 <span className="block text-xl font-semibold leading-none tracking-[-0.04em] text-ink group-hover:text-accent">
-                  HasAnAra
+                  HasanAra
                 </span>
                 <span className="mt-1 hidden text-[8px] font-bold uppercase tracking-[0.24em] text-subtle sm:block">
                   Broadcast archive
@@ -233,7 +233,7 @@ export default function AppLayout() {
       >
         <div className="mx-auto flex max-w-[100rem] flex-col gap-2 px-4 py-6 text-sm text-muted sm:flex-row sm:items-center sm:justify-between lg:px-6">
           <p>
-            &copy; {new Date().getFullYear()} HasAnAra. A{' '}
+            &copy; {new Date().getFullYear()} HasanAra. A{' '}
             <a href="https://subcult.tv" className="action-link">
               Subcult
             </a>{' '}
